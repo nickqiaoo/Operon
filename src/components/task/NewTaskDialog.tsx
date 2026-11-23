@@ -46,18 +46,20 @@ export function NewTaskDialog({ agents, defaultProjectId, onClose, onCreated }: 
   const images = useImageUploads()
 
   const assignedAgentId = assignee === 'unassigned' ? null : Number(assignee)
+  // A blank title is generated from the description by the server.
+  const hasContent = title.trim().length > 0 || description.trim().length > 0
+  const canSubmit = hasContent && !!projectId && !saving && !images.uploading
 
   /** `andDispatch`: start the assignee right away, in the workspace picked here. */
   const submit = async (andDispatch = false) => {
-    const t = title.trim()
-    if (!t || !projectId || savingRef.current || images.uploading) return
+    if (!canSubmit || savingRef.current) return
     if (andDispatch && assignedAgentId == null) return
     savingRef.current = true
     setSaving(true)
     try {
       const task = await create({
         projectId: Number(projectId),
-        title: t,
+        title: title.trim(),
         description: description.trim() || undefined,
         attachments: images.attachments.length > 0 ? images.attachments : undefined,
         priority,
@@ -65,8 +67,10 @@ export function NewTaskDialog({ agents, defaultProjectId, onClose, onCreated }: 
         workspaceMode,
       })
       if (andDispatch && assignedAgentId != null) {
+        // Not awaited: the server holds the dispatch until a blank title is generated
+        // (and then cuts a worktree), and the board shows the task starting live.
         // The task exists either way; a failed start leaves it todo with its Dispatch button.
-        await dispatch(task.id, assignedAgentId).catch((error) => toastTaskError(error, 'Dispatch failed'))
+        void dispatch(task.id, assignedAgentId).catch((error) => toastTaskError(error, 'Dispatch failed'))
       }
       onCreated(task.id)
     } finally {
@@ -91,7 +95,7 @@ export function NewTaskDialog({ agents, defaultProjectId, onClose, onCreated }: 
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void submit(false)
             }}
-            placeholder={intl.formatMessage({ id: 'task.new.titlePlaceholder', defaultMessage: 'Task title' })}
+            placeholder={intl.formatMessage({ id: 'task.new.titlePlaceholder', defaultMessage: 'Title (optional — generated from description)' })}
             className="w-full text-base font-medium bg-transparent outline-none placeholder:text-muted-foreground/40"
           />
 
@@ -99,6 +103,10 @@ export function NewTaskDialog({ agents, defaultProjectId, onClose, onCreated }: 
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={(e) => {
+                // The title is optional, so the description is where a quick task ends.
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void submit(false)
+              }}
               {...images.inputProps}
               placeholder={intl.formatMessage({ id: 'task.new.descriptionPlaceholder', defaultMessage: 'Add a description… (markdown supported, paste or drop images)' })}
               className="w-full min-h-[100px] text-sm bg-muted/20 rounded-lg p-3 outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 resize-y placeholder:text-muted-foreground/40"
@@ -164,7 +172,7 @@ export function NewTaskDialog({ agents, defaultProjectId, onClose, onCreated }: 
             size="sm"
             variant={assignedAgentId != null ? 'ghost' : 'secondary'}
             className="h-8"
-            disabled={!title.trim() || !projectId || saving || images.uploading}
+            disabled={!canSubmit}
             onClick={() => void submit(false)}
           >
             {saving
@@ -176,7 +184,7 @@ export function NewTaskDialog({ agents, defaultProjectId, onClose, onCreated }: 
               size="sm"
               variant="secondary"
               className="h-8 gap-1.5"
-              disabled={!title.trim() || !projectId || saving || images.uploading}
+              disabled={!canSubmit}
               onClick={() => void submit(true)}
             >
               <Zap className="h-3.5 w-3.5" />

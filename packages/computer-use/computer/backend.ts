@@ -65,7 +65,7 @@ export interface MacAppPolicyTarget {
 
 export interface MacAppPolicyResult {
   allowPersistentApproval: boolean;
-  decision: "allowed" | "denied" | "forbidden";
+  decision: "allowed" | "denied";
   target: MacAppPolicyTarget;
 }
 

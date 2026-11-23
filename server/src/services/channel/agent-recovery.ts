@@ -3,7 +3,8 @@ import type {
   ChannelStorageAdapter,
   ProjectStorageAdapter,
 } from '../../storage/interface.js'
-import { wakeUpBindingForRecovery } from './agent-orchestrator.js'
+import { planChannelRewake, wakeUpBindingForRecovery } from './agent-orchestrator.js'
+import { streamOfBinding, unreadIn } from './session-stream.js'
 
 type Storage = ChannelStorageAdapter & ProjectStorageAdapter & AgentBindingStorageAdapter
 
@@ -14,7 +15,11 @@ type Storage = ChannelStorageAdapter & ProjectStorageAdapter & AgentBindingStora
  * An interrupted task picks up again when someone comments on it (the comment wakes its agent).
  */
 export function resetAgentSessionsOnStartup(storage: Storage): void {
-  const bindings = [...storage.listBindings({ scopeKind: 'app' }), ...storage.listBindings({ scopeKind: 'task' })]
+  const bindings = [
+    ...storage.listBindings({ scopeKind: 'app' }),
+    ...storage.listBindings({ scopeKind: 'thread' }),
+    ...storage.listBindings({ scopeKind: 'task' }),
+  ]
   for (const binding of bindings) {
     if (binding.status === 'offline') continue
     storage.updateBinding(binding.id, { status: 'idle' })
@@ -22,30 +27,32 @@ export function resetAgentSessionsOnStartup(storage: Storage): void {
 }
 
 /**
- * On app startup: scan all app bindings for ones with unread messages and
- * resume them with a recovery prompt.
+ * On app startup: scan all channel and thread sessions for ones with unread
+ * messages and resume them with a recovery prompt.
  *
  * Uses at-most-once delivery — if the app crashed after advancing the cursor
  * but before processing, those messages are considered delivered. Agents
  * recover via MEMORY.md + check_messages on their own initiative.
  */
 export async function recoverAgentSessions(storage: Storage): Promise<void> {
-  const bindings = storage.listBindings({ scopeKind: 'app' })
+  const bindings = [...storage.listBindings({ scopeKind: 'app' }), ...storage.listBindings({ scopeKind: 'thread' })]
 
   for (const binding of bindings) {
     // Only recover bindings that were previously online
     if (binding.status === 'offline') continue
 
-    const channelId = Number(binding.scopeKey)
-    if (!Number.isFinite(channelId)) continue
+    const stream = streamOfBinding(storage, binding)
+    if (!stream) continue
+    const channelId = stream.channelId
     const channel = storage.getChannel(channelId)
     if (!channel) continue
 
     let needsRecovery = false
 
-    // Unread messages?
-    const unread = storage.getUnreadChannelMessages(binding.agentId, channelId)
-    if (unread.length > 0) needsRecovery = true
+    // Unread messages that warrant a turn? (Same rule as turn end, so agent-only
+    // chatter past the follow-up limit doesn't wake it after a restart either.)
+    const unread = unreadIn(storage, binding.agentId, stream)
+    if (unread.length > 0 && planChannelRewake(binding)) needsRecovery = true
 
     if (needsRecovery) {
       try {

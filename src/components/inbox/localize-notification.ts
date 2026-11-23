@@ -27,6 +27,7 @@ const m = defineMessages({
   taskNeedsInput: { id: "inbox.n.taskNeedsInput", defaultMessage: "Needs your input · #{number}" },
   taskDone: { id: "inbox.n.taskDone", defaultMessage: "Done · #{number}" },
   taskCancelled: { id: "inbox.n.taskCancelled", defaultMessage: "Cancelled · #{number}" },
+  taskReply: { id: "inbox.n.taskReply", defaultMessage: "Agent replied · #{number}" },
   approvalNeeded: { id: "inbox.n.approvalNeeded", defaultMessage: "Approval needed: {name}" },
   workflowWaiting: { id: "inbox.n.workflowWaiting", defaultMessage: "Workflow is waiting for your approval at \"{node}\"." },
   devicePaired: { id: "inbox.n.devicePaired", defaultMessage: "New device paired" },
@@ -73,6 +74,11 @@ function localizeBody(n: Notification, intl: IntlShape): string | null {
     case "task_failed": {
       const r = /^(Needs your input|Ready for review|Done|Cancelled) · #(\d+)$/.exec(b)
       if (r) return intl.formatMessage(TASK_VERBS[r[1] as keyof typeof TASK_VERBS], { number: r[2] })
+      return b
+    }
+    case "task_reply": {
+      const r = /^Agent replied · #(\d+)$/.exec(b)
+      if (r) return intl.formatMessage(m.taskReply, { number: r[1] })
       return b
     }
     case "workflow_approval": {

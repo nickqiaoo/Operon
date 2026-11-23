@@ -147,7 +147,7 @@ struct InfoSheetView: View {
 }
 
 /// Fill tokens from globals.css (light / dark): `--color-accent-green`,
-/// `--color-accent-warm`, `--color-destructive` — the colors the web bars use.
+/// `--color-accent-warm`, `--color-accent-red` — the colors the web bars use.
 private func dynamicFill(light: UInt32, dark: UInt32) -> Color {
     func color(_ hex: UInt32) -> UIColor {
         UIColor(red: CGFloat((hex >> 16) & 0xFF) / 255,
@@ -159,8 +159,8 @@ private func dynamicFill(light: UInt32, dark: UInt32) -> Color {
 }
 
 private let fillOk = dynamicFill(light: 0x3DB87A, dark: 0x4FCC8E)
-private let fillWarn = dynamicFill(light: 0xE5845C, dark: 0xF09570)
-private let fillError = dynamicFill(light: 0xEF4444, dark: 0x991B1B)
+private let fillWarn = dynamicFill(light: 0xFF9500, dark: 0xFF9F0A)
+private let fillError = dynamicFill(light: 0xFF3B30, dark: 0xFF453A)
 
 extension Color {
     /// `#rrggbb` / `#rgb`; nil for anything else (CSS variables, hsl()…).

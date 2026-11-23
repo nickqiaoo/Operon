@@ -42,11 +42,17 @@ export interface TaskAgentSummary {
   model: string
 }
 
+/** Who wrote the title: `auto` = left blank at creation and generated from the description. */
+export type TaskTitleSource = 'user' | 'auto'
+
 export interface Task {
   id: number
   projectId: number
   number: number
   title: string
+  titleSource?: TaskTitleSource
+  /** The server is still generating the title; the placeholder shows until it lands. */
+  titlePending?: boolean
   description: string
   attachments: TaskAttachment[]
   workspaceMode: TaskWorkspaceMode
@@ -169,6 +175,7 @@ export interface TaskDetail extends Task {
 
 export interface CreateTaskInput {
   projectId: number
+  /** Blank → the server derives one from the description. */
   title: string
   description?: string
   attachments?: TaskAttachment[]

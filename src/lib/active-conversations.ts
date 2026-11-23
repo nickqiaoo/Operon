@@ -43,6 +43,12 @@ export interface ActiveEntry {
    * `ActiveInput.parentOfChat`): read along with it by "Mark all read".
    */
   childNotifications?: Notification[]
+  /**
+   * The conversation's other unread rows: a task session can have both its
+   * chat's row and its task's row. Read together with `notification`, since
+   * they are one row here.
+   */
+  relatedNotifications?: Notification[]
   title: string
   /** The title is a notification's (a server template the UI localizes), not the chat's own. */
   titleFromNotification?: boolean
@@ -101,7 +107,15 @@ interface Candidate {
   at: number
   tab?: { workspaceId: number | null; tabId: string }
   notification?: Notification
+  /** Unread rows on this chat that `notification` outranked. */
+  others: Notification[]
   inRecent: boolean
+}
+
+/** A notice that tells the user something ended, rather than that work moved or waits on them. */
+function isNewsOnly(n: Notification): boolean {
+  if (n.severity === "action") return false
+  return n.chatId == null || n.kind === "task_done" || n.kind === "task_failed"
 }
 
 export function buildActiveEntries(input: ActiveInput): ActiveEntry[] {
@@ -111,7 +125,7 @@ export function buildActiveEntries(input: ActiveInput): ActiveEntry[] {
   const candidate = (chatId: number) => {
     let found = candidates.get(chatId)
     if (!found) {
-      found = { chatId, at: 0, inRecent: false }
+      found = { chatId, at: 0, others: [], inRecent: false }
       candidates.set(chatId, found)
     }
     return found
@@ -166,10 +180,12 @@ export function buildActiveEntries(input: ActiveInput): ActiveEntry[] {
 
   for (const n of input.unread) {
     if (isAssistantNotification(n)) continue
+    // Finished tasks and paired devices are news rather than work in progress:
+    // only the Focus view lists them. (An agent's reply on a task is not news:
+    // it is a conversation that moved, like a finished chat turn.)
+    if (isNewsOnly(n) && !input.includeInfo) continue
     if (n.chatId == null) {
-      // A board item asking for the user. Finished tasks and paired devices are
-      // news rather than work in progress: only the Focus view lists them.
-      if (n.severity !== "action" && !input.includeInfo) continue
+      // A board item with no session to show it by.
       entries.push({
         key: `notification:${n.id}`,
         group: n.severity === "action" ? "needs" : "done",
@@ -187,7 +203,12 @@ export function buildActiveEntries(input: ActiveInput): ActiveEntry[] {
     const better = !c.notification ||
       (n.severity === "action" && c.notification.severity !== "action") ||
       (n.severity === c.notification.severity && n.updatedAt > c.notification.updatedAt)
-    if (better) c.notification = n
+    if (better) {
+      if (c.notification) c.others.push(c.notification)
+      c.notification = n
+    } else {
+      c.others.push(n)
+    }
     if (c.title === undefined) {
       c.title = n.title
       c.titleFromNotification = true
@@ -219,6 +240,7 @@ export function buildActiveEntries(input: ActiveInput): ActiveEntry[] {
     if (group && group !== "recent" && (into.group == null || GROUP_RANK[group] < GROUP_RANK[into.group])) into.group = group
     into.at = Math.max(into.at, c.at)
     if (c.notification && c.notification.readAt == null) into.notifications.push(c.notification)
+    into.notifications.push(...c.others)
     folded.set(parentId, into)
   }
 
@@ -240,6 +262,7 @@ export function buildActiveEntries(input: ActiveInput): ActiveEntry[] {
       tab: c.tab,
       notification: c.notification,
       ...(children?.notifications.length ? { childNotifications: children.notifications } : {}),
+      ...(c.others.length ? { relatedNotifications: c.others } : {}),
       title: c.title,
       titleFromNotification: c.titleFromNotification,
       providerId: c.providerId,
@@ -265,8 +288,16 @@ export function focusPriorityEntries(entries: readonly ActiveEntry[]): ActiveEnt
 export function unreadNotificationIds(entries: readonly ActiveEntry[]): number[] {
   return entries.flatMap((entry) => [
     ...(entry.notification && entry.notification.readAt == null ? [entry.notification.id] : []),
+    ...(entry.relatedNotifications ?? []).map((n) => n.id),
     ...(entry.childNotifications ?? []).map((n) => n.id),
   ])
+}
+
+/** The row's own unread rows (not its folded agents'): what opening or dismissing it reads. */
+export function entryNotificationIds(entry: ActiveEntry): number[] {
+  return [entry.notification, ...(entry.relatedNotifications ?? [])]
+    .filter((n): n is Notification => n != null && n.readAt == null)
+    .map((n) => n.id)
 }
 
 /**

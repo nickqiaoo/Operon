@@ -60,7 +60,8 @@ export function MobileNewTaskPage({
 
   const project = projects.find((p) => p.id === projectId) ?? null
   const assignee = agents.find((a) => a.id === assigneeId) ?? null
-  const canCreate = title.trim().length > 0 && projectId != null && !saving
+  // A blank title is generated from the description by the server.
+  const canCreate = (title.trim().length > 0 || description.trim().length > 0) && projectId != null && !saving
 
   const submit = async () => {
     if (!canCreate || projectId == null) return
@@ -124,7 +125,7 @@ export function MobileNewTaskPage({
               descriptionRef.current?.focus()
             }
           }}
-          placeholder={intl.formatMessage({ id: "task.new.titlePlaceholder", defaultMessage: "Task title" })}
+          placeholder={intl.formatMessage({ id: "task.new.titlePlaceholder", defaultMessage: "Title (optional — generated from description)" })}
           className="w-full appearance-none border-0 bg-transparent p-0 text-xl font-semibold text-foreground outline-none placeholder:text-muted-foreground/40"
         />
         <textarea

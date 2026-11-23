@@ -94,21 +94,10 @@ describeLive("cua-driver, live daemon", () => {
     expect(withBundle[0]).toHaveProperty("displayName");
   }, 30_000);
 
-  it("computes policy locally, allowing Finder and forbidding the block list", async () => {
+  it("computes policy locally, allowing Finder", async () => {
     const finder = await backend!.getAppPolicy("com.apple.finder");
     expect(finder.decision).toBe("allowed");
     expect(finder.target.bundleIdentifier).toBe("com.apple.finder");
-
-    // Operon's own bundle id is on the block list, and the driver has no such
-    // concept, so this proves the policy layer is ours and still enforced.
-    const blocked = await backend!.getAppPolicy("top.chatcode.operon").catch((error: Error) => error);
-    if (blocked instanceof Error) {
-      // Not installed under that id on this machine; the identity check is what
-      // matters and it is covered by the unit tests.
-      expect(blocked.message).toMatch(/could not find/i);
-    } else {
-      expect(blocked.decision).toBe("forbidden");
-    }
   }, 30_000);
 
   it("reports a refusal with the driver's own message", async () => {

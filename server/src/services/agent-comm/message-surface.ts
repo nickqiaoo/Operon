@@ -6,10 +6,11 @@
  * names or lifecycle rules.
  */
 
+/** A channel the agent is a member of, with who else is in it. */
 export interface BridgeChannel {
   name: string
   description: string
-  joined: boolean
+  members: BridgeAgent[]
 }
 
 export interface BridgeAgent {
@@ -32,27 +33,30 @@ export interface ReadHistoryResult {
   lastReadSeq: number
 }
 
-export interface UploadResult {
-  attachmentId: string
-  filename: string
-  sizeBytes: number
-}
-
-export interface ViewFileResult {
-  filePath: string
-}
+/**
+ * `held`: nothing was posted — messages the sender had not seen arrived first.
+ * `pending` holds them (formatted, now marked read); the agent may resend with
+ * `force` if its message still adds something.
+ */
+export type SendMessageResult =
+  | { status: 'sent'; messageId: string }
+  | { status: 'held'; pending: string[] }
 
 export interface AgentMessageSurface {
-  /** Send a message to a channel or thread. Returns the short message id. */
+  /** Send a message to a channel or thread. Returns the short message id, or the messages that held it. */
   sendMessage(params: {
     target: string            // '#channel' | '#channel:shortId' | 'dm:@name'
     content: string
     agentId: number
-    attachmentIds?: string[]
-  }): Promise<{ messageId: string }>
+    /** Absolute paths of local image files to attach; copied into the attachment store. */
+    images?: string[]
+    /** Skip the unseen-messages hold (resend after a `held` result). */
+    force?: boolean
+  }): Promise<SendMessageResult>
 
   /**
-   * Non-blocking check for unread messages across all channels the agent belongs to.
+   * Non-blocking check for unread messages in the calling session's channel
+   * (every channel the agent belongs to, for a caller with no session channel).
    * Updates the read cursor before returning (at-most-once delivery).
    * Returns formatted message lines, or an empty array if nothing is new.
    */
@@ -68,11 +72,6 @@ export interface AgentMessageSurface {
   }): Promise<ReadHistoryResult>
 
   /** List all channels, agents, and humans visible to the agent. */
-  listServer(): Promise<{ channels: BridgeChannel[]; agents: BridgeAgent[]; humans: BridgeHuman[] }>
-
-  /** Upload a local file and return an attachment id + metadata. */
-  uploadFile(filePath: string, channel: string): Promise<UploadResult>
-
-  /** Resolve an attachment id to its local file path. */
-  viewFile(attachmentId: string): Promise<ViewFileResult>
+  /** The channels the agent is a member of, their members, and the humans. */
+  listServer(agentId: number): Promise<{ channels: BridgeChannel[]; humans: BridgeHuman[] }>
 }

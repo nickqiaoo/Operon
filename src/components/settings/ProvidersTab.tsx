@@ -226,7 +226,7 @@ function ProviderPanel({ provider, saved, takenIds, onSaved, onDeleted, onNameCh
       {/* ── Header ── */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-muted/40 flex-shrink-0">
+          <div className="flex items-center justify-center w-10 h-10 flex-shrink-0">
             <ProviderLogo src={provider.logo} size={22} />
           </div>
           <div>
@@ -480,10 +480,7 @@ function ProviderItem({ provider, state, selected, onClick }: {
               : 'text-muted-foreground hover:bg-row-hover hover:text-foreground'
           )}
         >
-          <div className={cn(
-            'flex items-center justify-center w-6 h-6 rounded-md flex-shrink-0',
-            selected ? 'bg-background/80' : 'bg-muted/40'
-          )}>
+          <div className="flex items-center justify-center w-6 h-6 flex-shrink-0">
             <ProviderLogo src={provider.logo} size={14} />
           </div>
           <span className="flex-1 truncate text-sm font-medium">

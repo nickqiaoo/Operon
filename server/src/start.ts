@@ -12,6 +12,7 @@ import path from 'path'
 import { SqliteStorage } from './storage/sqlite.js'
 import { migrateInlineAttachmentsOnce } from './services/attachment-migration.js'
 import { startCronjobScheduler } from './services/cronjob-scheduler.js'
+import { startCliAutoUpdateScheduler } from './services/cli-auto-update.js'
 import { createApp } from './app.js'
 import { getProviders, warmAllProviders } from './services/ai.js'
 import { getEmbeddingConfig } from './services/vector/embeddings.js'
@@ -156,6 +157,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
   // Start cronjob scheduler
   startCronjobScheduler(storage)
+  startCliAutoUpdateScheduler()
 
   if (__ENABLE_MEMORY__) {
     startMemoryMaintenanceScheduler(storage)

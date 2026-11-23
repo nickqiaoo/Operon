@@ -26,6 +26,7 @@ export const settingsKeys = {
   mcpPluginServers: () => ['settings', 'mcp', 'plugin-servers'] as const,
   diffPreview: () => ['settings', 'diff-preview'] as const,
   claudeToggles: () => ['settings', 'claude-toggles'] as const,
+  cliAutoUpdate: () => ['settings', 'cli-auto-update'] as const,
   specRoles: () => ['settings', 'spec-roles'] as const,
 }
 
@@ -34,6 +35,16 @@ export function useClaudeToggles() {
   return useQuery({
     queryKey: settingsKeys.claudeToggles(),
     queryFn: () => api.claudeTogglesGet(),
+  })
+}
+
+/** Daily CLI self-update state; polls while an update is running. */
+export function useCliAutoUpdate() {
+  return useQuery({
+    queryKey: settingsKeys.cliAutoUpdate(),
+    queryFn: () => api.cliAutoUpdateGet(),
+    refetchInterval: (query) =>
+      query.state.data && Object.values(query.state.data).some((s) => s.running) ? 2_000 : false,
   })
 }
 

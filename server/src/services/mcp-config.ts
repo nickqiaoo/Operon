@@ -62,6 +62,16 @@ export function saveMcpServers(servers: McpServersConfig): void {
 // the chat request carries it and forwards it here verbatim.
 export type BuildMcpOptions = AgentMcpContext
 
+/**
+ * The MCP servers that are wholly Operon's own plumbing — agents talking to the
+ * channel, the board, memory and each other. Their calls carry the host's own
+ * policy, so providers are told not to put them through an approval step
+ * (Claude Code: OPERON_INFRA_ALLOWED_TOOLS in agent-runtime; Codex:
+ * `approvedMcpServers`). An unattended channel or thread session would otherwise
+ * stall on a prompt nobody in the channel can see.
+ */
+export const OPERON_OWN_MCP_SERVERS = ['memory', 'workspace_chat', 'taskboard', 'im_chat', 'team_inbox'] as const
+
 // First-party loopback MCP servers must present the startup token like every
 // other /api caller. It rides the URL query, NOT a `headers` field, for the
 // same reason agent identity does (see below): some MCP clients silently drop
@@ -292,7 +302,14 @@ export function buildMcpServersForCli(
     if (!options.sourceChatId) {
       servers['workspace_chat'] = {
         type: 'http',
-        url: withApiToken(`http://127.0.0.1:${appPort}/api/workspace-chat-mcp?agentId=${options.agentId}&projectId=${options.projectId}`),
+        url: withApiToken(
+          `http://127.0.0.1:${appPort}/api/workspace-chat-mcp?agentId=${options.agentId}&projectId=${options.projectId}` +
+          // The session's own channel: each channel has its own session, so
+          // check_messages must not read (and mark read) another channel's.
+          (options.channelId ? `&channelId=${options.channelId}` : '') +
+          // A thread session reads only its thread.
+          (options.threadRootId ? `&threadRootId=${options.threadRootId}` : ''),
+        ),
       }
     }
     servers['taskboard'] = {

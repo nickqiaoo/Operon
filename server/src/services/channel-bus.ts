@@ -1,11 +1,16 @@
 import { EventEmitter } from 'node:events'
-import type { AgentSessionStatus, ChannelMessage } from '../types/channel.js'
+import type { AgentSessionStatus, ChannelMessage, ChannelThreadView, WaitingSession } from '../types/channel.js'
 import type { TaskListItem } from '../types/task.js'
 import type { Notification, UnreadCounts } from '../types/notification.js'
+import type { ChannelStorageAdapter } from '../storage/interface.js'
 
 export type ChannelEvent =
-  | { type: 'channel_message'; data: ChannelMessage }
+  | { type: 'channel_message'; data: ChannelMessage; threadRoot?: Pick<ChannelMessage, 'id' | 'replyCount' | 'lastReplyAt'> }
   | { type: 'message_updated'; data: ChannelMessage }
+  /** A thread's owner, reported status/summary or running sessions changed. */
+  | { type: 'thread_updated'; data: ChannelThreadView }
+  /** The channel sessions (not threads) waiting on a person changed; the full current list. */
+  | { type: 'sessions_waiting'; data: WaitingSession[] }
   | { type: 'typing_start'; agentId: number }
   | { type: 'typing_stop'; agentId: number }
 
@@ -21,6 +26,15 @@ bus.setMaxListeners(0)
 
 export function emitChannelEvent(channelId: number, event: ChannelEvent): void {
   bus.emit(`channel:${channelId}`, event)
+}
+
+/** Include the saved root so POST responses and stream events agree on the reply count. */
+export function publishChannelMessage(storage: Pick<ChannelStorageAdapter, 'getChannelMessage'>, message: ChannelMessage) {
+  const root = message.threadRootId == null ? null : storage.getChannelMessage(message.threadRootId)
+  const threadRoot = root ? { id: root.id, replyCount: root.replyCount, lastReplyAt: root.lastReplyAt } : undefined
+  const payload = { message, ...(threadRoot ? { threadRoot } : {}) }
+  emitChannelEvent(message.channelId, { type: 'channel_message', data: message, ...(threadRoot ? { threadRoot } : {}) })
+  return payload
 }
 
 export function onChannelEvent(

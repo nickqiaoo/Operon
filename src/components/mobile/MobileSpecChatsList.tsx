@@ -50,7 +50,7 @@ export function MobileSpecChatsList({ specId, onOpenChat, view, includeDiscussio
       onClick={() => openChat(chat)}
       className={`flex w-full items-center gap-3 rounded-lg py-3 text-left hover:bg-row-hover aria-[current=page]:bg-row-selected ${phase ? 'pl-6 pr-3' : 'px-3'}`}
     >
-      <AgentAvatar provider={chat.providerId ?? undefined} size="sm" bare />
+      <AgentAvatar provider={chat.providerId ?? undefined} size="sm" />
       <span className="min-w-0 flex-1">
         <span className="block text-sm text-foreground/85">{chat.chatId === spec.sourceChat?.chatId ? 'Discussion' : fileCitationsToText(label)}</span>
       </span>

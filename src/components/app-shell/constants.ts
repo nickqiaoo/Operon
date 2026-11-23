@@ -15,9 +15,10 @@ export const RIGHT_PANEL_AUTO_CLOSE_BELOW = 320
 export const LEFT_SIDEBAR_RAIL_WIDTH = 52
 
 // The sidebar toggle is pinned at the window's top-left (App.tsx): past the
-// macOS traffic lights on desktop, inside the rail on web.
-export const SIDEBAR_TOGGLE_LEFT = __APP_TARGET__ === "web" ? 16 : 80
+// macOS traffic lights on desktop, inside the rail on web — centred on the
+// rail's column so it lines up with the nav icons below (16 sat 2px right of them).
 const SIDEBAR_TOGGLE_SIZE = 24
+export const SIDEBAR_TOGGLE_LEFT = __APP_TARGET__ === "web" ? (LEFT_SIDEBAR_RAIL_WIDTH - SIDEBAR_TOGGLE_SIZE) / 2 : 80
 // Titlebar rows beside the sidebar start their content this far from the
 // window's left edge at the least. Web needs
 // none: its toggle sits inside the rail.

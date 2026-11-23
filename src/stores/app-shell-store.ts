@@ -12,16 +12,23 @@ import {
 /** The sidebar's panel (the project tree) belongs to the workspace views. */
 export const isWorkspaceView = (main: MainView) => main.kind === "workbench" || main.kind === "spec"
 
+/** Channels: the panel holds the channel list there instead of the project tree. */
+export const isChannelsView = (main: MainView) => main.kind === "board" && main.view === "channels"
+
+/** Views whose own navigator lives in the panel, so it comes out with them. */
+const ownsSidebarPanel = (main: MainView) => isWorkspaceView(main) || isChannelsView(main)
+
 /**
- * Whether the panel beside the icon rail is out. It is the workspace navigator,
- * so on the Assistant, Inbox, Board and Channels it makes way (those pages bring
- * their own list column) unless the user asked for it there with the toggle.
- * `sidebarCollapsed` stays the user's own choice for the workspace views.
+ * Whether the panel beside the icon rail is out. It is the navigator of the
+ * workspace views (the project tree) and of Channels (the channel list), so on
+ * the Assistant, Inbox and Board it makes way unless the user asked for it there
+ * with the toggle. `sidebarCollapsed` stays the user's own choice for the views
+ * that own the panel.
  */
 export const sidebarPanelShown = (
   shell: Pick<AppShellState, "sidebarCollapsed" | "sidebarPeekView">,
   main: MainView,
-) => !shell.sidebarCollapsed && (isWorkspaceView(main) || shell.sidebarPeekView === main)
+) => !shell.sidebarCollapsed && (ownsSidebarPanel(main) || shell.sidebarPeekView === main)
 
 interface AppShellState {
   /** Open state of the panels in the live workspace; see `switchPanelWorkspace`. */
@@ -222,10 +229,10 @@ export const useAppShellStore = create<AppShellState & AppShellActions>()(
         set(sidebarCollapsed ? { sidebarCollapsed, sidebarPeekView: null } : { sidebarCollapsed }),
       toggleSidebar: () => {
         const { main } = useNavigationStore.getState()
-        const workspace = isWorkspaceView(main)
+        const workspace = ownsSidebarPanel(main)
         if (sidebarPanelShown(get(), main)) {
-          // Off a workspace view the panel was only peeking; the user's
-          // expanded preference for the workspace stays as it was.
+          // Off the views that own the panel it was only peeking; the user's
+          // expanded preference for those stays as it was.
           set(workspace ? { sidebarCollapsed: true, sidebarPeekView: null } : { sidebarPeekView: null })
         } else {
           set({ sidebarCollapsed: false, sidebarPeekView: workspace ? null : main })

@@ -1,5 +1,6 @@
 import type { WorkspaceTask } from '@/stores/project-store'
 import type { ClaudeToggles } from '@shared/claude-toggles'
+import type { CliAutoUpdateAdapterId, CliAutoUpdateState, CliAutoUpdateStatus } from '@shared/cli-auto-update'
 import type { SubagentTranscript } from '@shared/background-tasks'
 import type { BuiltinProviderInfo, CustomProviderInfo } from '@shared/provider-config'
 import * as httpClient from './api-client.js'
@@ -692,6 +693,14 @@ export const api = {
       `/cli-paths/${encodeURIComponent(adapterId)}/version`,
     ),
 
+  // --- CLI auto-update (Claude Code / Codex) ---
+  cliAutoUpdateGet: () => get<CliAutoUpdateState>('/cli-auto-update'),
+  cliAutoUpdateSetEnabled: (adapterId: CliAutoUpdateAdapterId, enabled: boolean) =>
+    put<CliAutoUpdateStatus>(`/cli-auto-update/${encodeURIComponent(adapterId)}`, { enabled }),
+  /** Starts `<cli> update` and returns at once; poll cliAutoUpdateGet while `running`. */
+  cliAutoUpdateRun: (adapterId: CliAutoUpdateAdapterId) =>
+    post<CliAutoUpdateStatus>(`/cli-auto-update/${encodeURIComponent(adapterId)}/run`, {}),
+
   // --- ACP agents (installable binaries) ---
   acpAgentsList: () =>
     get<{ agents: AcpAgentEntry[] }>('/acp-agents'),
@@ -909,7 +918,6 @@ export const api = {
     get<{
       approvedApps: ComputerUseAppRef[]
       blockedApps: ComputerUseAppRef[]
-      protectedApps: ComputerUseAppRef[]
       capabilities: { id: ComputerUseCapability; approved: boolean }[]
       conversationsWithApprovals: number
     }>('/computer-use/approvals'),
@@ -1236,6 +1244,9 @@ export const api = {
   channelMessageCreate: httpClient.channelMessageCreate,
   channelThreadReplies: httpClient.channelThreadReplies,
   channelThreadReply: httpClient.channelThreadReply,
+  channelThreadList: httpClient.channelThreadList,
+  channelThreadMemberRemove: httpClient.channelThreadMemberRemove,
+  channelWaitingSessions: httpClient.channelWaitingSessions,
   channelAgentSessions: httpClient.channelAgentSessions,
   channelStreamUrl: httpClient.channelStreamUrl,
   // Project-level tasks ("local Linear")

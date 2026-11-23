@@ -10,7 +10,6 @@
 
 import { Hono } from 'hono'
 import { createRuntimeLogger } from '@operon/agent-runtime'
-import { COMPUTER_USE_PROTECTED_BUNDLE_IDS } from '@operon/computer-use'
 import {
   COMPUTER_USE_CAPABILITIES,
   getComputerUseConfig,
@@ -87,7 +86,6 @@ export function computerUseRoutes() {
     return c.json({
       approvedApps: config.approvedApps.map(describe),
       blockedApps: config.blockedApps.map(describe),
-      protectedApps: [...COMPUTER_USE_PROTECTED_BUNDLE_IDS].sort().map(describe),
       capabilities: COMPUTER_USE_CAPABILITIES.map((id) => ({
         id,
         approved: config.approvedCapabilities.includes(id),
@@ -107,9 +105,6 @@ export function computerUseRoutes() {
     if (typeof app !== 'string' || app.trim() === '') return c.json({ error: 'app must be a bundle identifier' }, 400)
     if (rule !== 'allow' && rule !== 'block' && rule !== null) {
       return c.json({ error: 'rule must be allow, block or null' }, 400)
-    }
-    if (rule === 'allow' && COMPUTER_USE_PROTECTED_BUNDLE_IDS.has(app.trim().toLowerCase())) {
-      return c.json({ error: 'This app is protected and cannot be allowed' }, 400)
     }
     setComputerUseAppRule(app, rule)
     return c.json({ ok: true })

@@ -133,9 +133,9 @@ export function MemberManageDialog({ channel, onClose }: MemberManageDialogProps
                   className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-row-hover transition-colors text-left disabled:opacity-60"
                 >
                   <div className={`w-5 h-5 rounded flex items-center justify-center shrink-0 border transition-colors ${
-                    isSelected ? 'bg-tint border-tint' : 'border-border/60'
+                    isSelected ? 'bg-tint border-tint' : 'border-muted-foreground/40'
                   }`}>
-                    {isSelected && <Check className="w-3 h-3 text-white" />}
+                    {isSelected && <Check className="w-3 h-3 text-tint-fg" strokeWidth={3} />}
                   </div>
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <div className="flex items-center justify-center w-6 h-6 rounded-full bg-tint/15">

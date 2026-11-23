@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from "react"
 import { useInboxStore } from "@/stores/inbox-store"
 import { registerViewedChat } from "@/lib/viewed-chats-reporter"
+import type { Notification } from "@/types/notification"
 
 interface VisibleChatReadState {
   chatId: number | undefined
@@ -18,6 +19,11 @@ export function shouldMarkVisibleChatRead({
   return chatId != null && surfaceVisible && documentVisible && windowFocused
 }
 
+/** This chat's own row, or its task's "agent replied" row (which the chat shows). */
+function isAboutChat(item: Notification, sourceKey: string, chatId: number | undefined): boolean {
+  return item.sourceKey === sourceKey || (item.kind === "task_reply" && item.chatId === chatId)
+}
+
 /**
  * Keep Inbox read state aligned with what the user can actually see:
  * the active chat is read on activation/focus, and a new notification for an
@@ -31,12 +37,14 @@ export function useVisibleChatInboxRead(
 ): void {
   const sourceKey = chatId == null ? null : `chat:${chatId}`
   const markReadBySourceKeys = useInboxStore((state) => state.markReadBySourceKeys)
+  const markRead = useInboxStore((state) => state.markRead)
   const unreadVersion = useInboxStore((state) => {
     if (!sourceKey) return null
-    const notification = state.items.find(
-      (item) => item.sourceKey === sourceKey && item.readAt == null,
-    )
-    return notification?.updatedAt ?? null
+    let latest: number | null = null
+    for (const item of state.items) {
+      if (item.readAt == null && isAboutChat(item, sourceKey, chatId)) latest = Math.max(latest ?? 0, item.updatedAt)
+    }
+    return latest
   })
 
   const markIfVisible = useCallback(() => {
@@ -51,7 +59,12 @@ export function useVisibleChatInboxRead(
       return
     }
     void markReadBySourceKeys([`chat:${chatId}`])
-  }, [chatId, markReadBySourceKeys, surfaceVisible])
+    // A task's agent replying in this session is read by seeing the reply here.
+    const replies = useInboxStore.getState().items
+      .filter((item) => item.readAt == null && item.kind === "task_reply" && item.chatId === chatId)
+      .map((item) => item.id)
+    if (replies.length > 0) void markRead(replies)
+  }, [chatId, markRead, markReadBySourceKeys, surfaceVisible])
 
   useEffect(() => {
     markIfVisible()

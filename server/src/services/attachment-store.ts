@@ -41,6 +41,11 @@ const blobPathFor = (hash: string): string =>
 
 const metaPathFor = (hash: string): string => `${blobPathFor(hash)}.json`
 
+/** Where a stored attachment's bytes are on disk, or null for a malformed hash. */
+export function attachmentBlobPath(hash: string): string | null {
+  return HASH_PATTERN.test(hash) ? blobPathFor(hash) : null
+}
+
 export const attachmentUrlFor = (hash: string): string => `/api/attachments/${hash}`
 
 /**

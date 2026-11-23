@@ -12,8 +12,9 @@ import type {
 } from '../../storage/interface.js'
 import type { ChannelMessage } from '../../types/channel.js'
 import type { AgentBinding } from '../../types/agent-binding.js'
+import type { AgentMcpContext } from '../ai/types.js'
 import type { Workspace } from '../../types/project.js'
-import { emitChannelEvent, emitProjectEvent } from '../channel-bus.js'
+import { emitProjectEvent, publishChannelMessage } from '../channel-bus.js'
 import { abortChat, startChat, startServerChat } from '../ai.js'
 import { resetBinding } from './binding-reset.js'
 import {
@@ -32,6 +33,7 @@ import {
 } from '../git.js'
 import { worktreePathFor, sanitizeSegment } from '../worktree-paths.js'
 import { broadcastTask } from '../task-events.js'
+import { notifyTaskTurnFinished, setTaskSessionResolver, type TaskSessionRef } from '../notification-service.js'
 import { SPEC_FILES, restoreSpecFiles, specDir, withSpecFilesArchived, type SpecLocation } from '../spec/files.js'
 import { specDesignChanged } from '../spec/spec-service.js'
 import { startIntegration, unreviewedFiles } from '../spec/review-run.js'
@@ -51,6 +53,7 @@ import { changeBranchName, mergeChildIntoParent, type ChangeActor } from '../spe
 import type { Task, TaskStatus, TaskWorkspaceMode } from '../../types/task.js'
 import { deliverToBinding } from '../message-router.js'
 import { activityAttachments, taskAttachmentFiles } from '../task-attachments.js'
+import { waitForTaskTitle } from '../task-title.js'
 import {
   deliverBinding,
   handleBindingFinish as driverHandleFinish,
@@ -61,11 +64,30 @@ import {
 } from '../binding-driver.js'
 import {
   buildAgentSystemPrompt,
+  buildPeerFollowUpPrompt,
+  buildRecoveryPrompt,
+  buildThreadSessionPrompt,
+  buildThreadStartPrompt,
+  buildThreadWakePrompt,
   buildWakeUpPrompt,
   FIRST_STARTUP_PROMPT,
-  RECOVERY_PROMPT,
+  type WakeMessages,
 } from './agent-system-prompt.js'
+import { formatChannelMessage } from '../agent-comm/channel-message-format.js'
+import { markReadIn, streamOfBinding, streamTarget, unreadIn, type SessionStream } from './session-stream.js'
+import { emitThreadUpdated, ensureChannelSession, onSessionInputChanged, registerThreadDelivery, routeThreadMessage } from './threads.js'
+import { subscribePendingInput } from '../ai/chat-pending-input.js'
 import { resolveAgentEnv } from './agent-env.js'
+import { channelAttachmentFiles, MAX_MESSAGE_IMAGES } from './channel-attachments.js'
+import { assistantAgentMode } from '../agents/subagent-mode.js'
+import {
+  cancelPeerNudge,
+  describeSenders,
+  getFollowUps,
+  MAX_AGENT_FOLLOW_UPS,
+  planRewake,
+  setFollowUps,
+} from './peer-awareness.js'
 
 type Storage = ChannelStorageAdapter & ProjectStorageAdapter & AgentBindingStorageAdapter & TaskStorageAdapter & NotificationStorageAdapter
 
@@ -77,6 +99,13 @@ const SELF_COMPACTING_PROVIDERS = new Set(['opencode'])
 
 let _storage: Storage | null = null
 let _stopWatchingTasks: (() => void) | null = null
+let _stopWatchingPendingInput: (() => void) | null = null
+/**
+ * When each task binding's current turn started, for the turn-end notice. Only
+ * turns the orchestrator starts are here: a message the user types into the
+ * task's tab is their own conversation, announced (if at all) as a chat.
+ */
+const taskTurnStartedAt = new Map<number, number>()
 
 // ---- Public helpers ----
 
@@ -84,7 +113,7 @@ let _stopWatchingTasks: (() => void) | null = null
 export function isAgentOwnedChat(chatId: number): boolean {
   if (!_storage) return false
   const binding = _storage.getBindingByActiveChatId(chatId)
-  return binding != null && (binding.scopeKind === 'app' || binding.scopeKind === 'task')
+  return binding != null && (binding.scopeKind === 'app' || binding.scopeKind === 'task' || binding.scopeKind === 'thread')
 }
 
 // ---- Public init ----
@@ -99,8 +128,17 @@ export function initOrchestrator(storage: Storage): void {
     if (task?.specStage != null && task.bindingId === binding.id) attachSpecCoordinator(task.id, binding.agentId)
   }
   registerBindingAdapter(channelAdapter)
+  registerBindingAdapter(threadAdapter)
   registerBindingAdapter(taskFinishAdapter)
   initBindingFinishDispatch(storage)
+  setTaskSessionResolver((taskId) => taskSessionOf(storage, taskId))
+  // An approval or question a channel / thread session raises shows in the channel.
+  _stopWatchingPendingInput?.()
+  _stopWatchingPendingInput = subscribePendingInput((change) => onSessionInputChanged(storage, change.chatId))
+  registerThreadDelivery({
+    toThreadSession: (binding) => deliverBinding(storage, threadAdapter, storage.getBinding(binding.id) ?? binding),
+    toChannelSessions: (channelId, message) => deliverToChannelSessions(channelId, message),
+  })
 }
 
 // ---- Binding lifecycle ----
@@ -117,34 +155,16 @@ function ensureChannelBinding(
   projectId: number,
   agentId: number,
 ): AgentBinding {
-  const existing = storage.getBindingByScope('app', String(channelId), agentId)
-  if (existing) return existing
-
-  // Reuse this agent's workspace_id from any other binding in the same project.
-  const peerBindings = storage.listBindings({
-    scopeKind: 'app',
-    agentId,
-    projectId,
-  })
-  const sharedWorkspaceId = peerBindings.find((b) => b.workspaceId != null)?.workspaceId ?? null
-
-  return storage.upsertBinding({
-    agentId,
-    scopeKind: 'app',
-    scopeKey: String(channelId),
-    scopeDisplayName: `#${channelName}`,
-    channelKind: 'channel',
-    projectId,
-    workspaceId: sharedWorkspaceId,
-    status: 'offline',
-  })
+  return ensureChannelSession(storage, { id: channelId, name: channelName, projectId }, agentId)
 }
 
 // ---- Core routing ----
 
 /**
- * Route a newly created channel message to all agent members.
- * Called after every human/agent message is persisted.
+ * Route a newly created channel message to the sessions it is for. Called
+ * after every human message is persisted (agents' own posts are routed by the
+ * workspace chat tools). A main-channel message goes to every member's channel
+ * session; a thread reply to the thread's sessions (see threads.ts).
  * Fire-and-forget from the route handler.
  */
 export async function routeMessageToAgents(
@@ -156,6 +176,19 @@ export async function routeMessageToAgents(
     console.warn('[Orchestrator] routeMessageToAgents: storage not initialised')
     return
   }
+  if (message.threadRootId != null) {
+    const channel = storage.getChannel(channelId)
+    if (!channel) return
+    await routeThreadMessage(storage, channel, message)
+    return
+  }
+  await deliverToChannelSessions(channelId, message)
+}
+
+/** Deliver a message to every agent member's channel session. */
+async function deliverToChannelSessions(channelId: number, message: ChannelMessage): Promise<void> {
+  const storage = _storage
+  if (!storage) return
 
   const channel = storage.getChannel(channelId)
   if (!channel) {
@@ -172,10 +205,11 @@ export async function routeMessageToAgents(
   for (const member of members) {
     const { agentId } = member
 
-    // Don't echo back to the sender
-    if (message.senderType === 'agent' && message.senderId === agentId) continue
-
     const binding = ensureChannelBinding(storage, channelId, channel.name, channel.projectId, agentId)
+    // Don't echo back to the session that posted it
+    if (message.senderBindingId != null ? message.senderBindingId === binding.id : message.senderType === 'agent' && message.senderId === agentId) continue
+    // A human spoke: agent-only follow-ups start counting again from zero.
+    if (message.senderType === 'human') setFollowUps(storage, binding.id, 0)
 
     try {
       await deliverBinding(storage, channelAdapter, binding)
@@ -330,9 +364,200 @@ export async function provisionAgentWorkspace(
 // ---- Chat start ----
 
 /**
+ * The permission mode a binding's session runs in. The agent's own setting
+ * wins. Without one, a channel or thread session — which nobody is watching
+ * turn by turn — runs in its provider's auto-approval tier: it goes ahead with
+ * what looks safe and asks only about the rest, and that question shows up as
+ * a card in the channel or thread. The provider's own default asks about nearly
+ * everything, which left these sessions stuck. Task sessions keep the default.
+ */
+function bindingModeId(agent: { provider: string; permissionMode: string }, binding: AgentBinding): string | undefined {
+  if (agent.permissionMode) return agent.permissionMode
+  if (binding.scopeKind !== 'app' && binding.scopeKind !== 'thread') return undefined
+  try {
+    return assistantAgentMode(agent.provider)
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Start a fresh chat for a per-channel app binding.
  * Returns the new chat id; caller (message-router) writes it back to the binding.
  */
+/**
+ * The agent context every turn of a binding's chat starts with. It decides the
+ * session's MCP servers, so all turns of one chat must pass the same one.
+ */
+function bindingAgentContext(binding: AgentBinding): AgentMcpContext {
+  // App bindings are channel sessions (scopeKey = channel id), thread bindings
+  // thread sessions in a channel. The channel is forwarded to taskboard so tools
+  // that need the source channel derive it here instead of trusting a
+  // (frequently wrong) model-supplied id. Without it, chat-flow treats the chat
+  // as a direct one and leaves out workspace_chat. The thread scopes
+  // workspace_chat to that thread.
+  const stream = _storage ? streamOfBinding(_storage, binding) : null
+  return {
+    agentId: binding.agentId,
+    projectId: binding.projectId ?? undefined,
+    channelId: stream?.channelId,
+    threadRootId: stream?.kind === 'thread' ? stream.rootMessageId : undefined,
+  }
+}
+
+/**
+ * Post a system notice where a channel or thread session's people will see it
+ * (its channel, or its thread). Task / IM bindings have nowhere to post.
+ */
+function postBindingNotice(storage: Storage, binding: AgentBinding, content: string): void {
+  const stream = streamOfBinding(storage, binding)
+  if (!stream) return
+  const sysMsg = storage.createMessage({
+    channelId: stream.channelId,
+    threadRootId: stream.kind === 'thread' ? stream.rootMessageId : null,
+    senderType: 'system',
+    senderName: 'system',
+    content,
+  })
+  publishChannelMessage(storage, sysMsg)
+}
+
+function bindingWhere(storage: Storage, stream: SessionStream): string {
+  const name = storage.getChannel(stream.channelId)?.name ?? String(stream.channelId)
+  return streamTarget(name, stream)
+}
+
+// ---- Wake-up delivery ----
+
+/** Most recent unread messages a wake-up prompt carries; older ones are pointed to read_history. */
+const WAKE_MAX_MESSAGES = 30
+const WAKE_EXCERPT_MAX_CHARS = 4000
+
+/**
+ * The unread messages to hand over in a channel wake-up prompt. Starting the
+ * turn with them is a delivery like check_messages (the agent reads them first
+ * thing), so the cursor moves to `lastId` once the turn has started — not
+ * before, so a failed start leaves them unread.
+ */
+function collectWakeMessages(
+  storage: Storage,
+  binding: AgentBinding,
+  channelName: string,
+): { messages: WakeMessages; lastId: number | null; files: FileUIPart[] } {
+  const stream = streamOfBinding(storage, binding)
+  const unread = stream ? unreadIn(storage, binding.agentId, stream) : []
+  const shown = unread.slice(-WAKE_MAX_MESSAGES)
+  const lines = shown.map((m) => {
+    const body = m.content.length <= WAKE_EXCERPT_MAX_CHARS
+      ? m.content
+      : `${m.content.slice(0, WAKE_EXCERPT_MAX_CHARS)}… (truncated — read_history has the full message)`
+    return formatChannelMessage(m, channelName, body)
+  })
+  return {
+    messages: { lines, omitted: unread.length - shown.length },
+    lastId: unread.length > 0 ? unread[unread.length - 1].id : null,
+    files: wakeImages(shown),
+  }
+}
+
+/**
+ * The images on the messages a turn starts with, as file parts: the model sees
+ * them directly. The most recent ones win when there are more than a turn takes;
+ * the rest stay reachable through the paths in each message's text.
+ */
+function wakeImages(messages: ChannelMessage[]): FileUIPart[] {
+  // The same image posted twice is the same bytes (content-addressed): send it once.
+  return latestUniqueImages(channelAttachmentFiles(messages.flatMap((m) => m.attachments ?? [])))
+}
+
+function latestUniqueImages(files: FileUIPart[]): FileUIPart[] {
+  const latest = new Map<string, FileUIPart>()
+  for (const file of files) {
+    latest.delete(file.url)
+    latest.set(file.url, file)
+  }
+  return [...latest.values()].slice(-MAX_MESSAGE_IMAGES)
+}
+
+function markWakeDelivered(storage: Storage, binding: AgentBinding, lastId: number | null): void {
+  if (lastId == null) return
+  const stream = streamOfBinding(storage, binding)
+  if (stream) markReadIn(storage, binding.agentId, stream, lastId)
+}
+
+/** Main-channel messages a thread session's first prompt shows from just before its root. */
+const THREAD_CONTEXT_MESSAGES = 8
+
+/**
+ * Other running sessions of this agent in the same workspace — a thread session
+ * shares its agent's workspace, so it is told who else may be changing files.
+ */
+function busySiblings(storage: Storage, binding: AgentBinding): string[] {
+  if (binding.workspaceId == null) return []
+  return storage
+    .listBindings({ agentId: binding.agentId, status: 'active' })
+    .filter((b) => b.id !== binding.id && b.workspaceId === binding.workspaceId)
+    .map((b) => b.scopeKind === 'app'
+      ? `your channel session in ${b.scopeDisplayName ?? 'a channel'}`
+      : b.scopeKind === 'thread'
+        ? `your thread session ${b.scopeDisplayName ?? ''}`.trim()
+        : `your ${b.scopeKind} session ${b.scopeDisplayName ?? ''}`.trim())
+}
+
+/**
+ * The prompt a thread session's turn starts with. Its first turn gets the
+ * message it is under and the channel messages before it; later turns only
+ * what is new in the thread.
+ */
+function buildThreadTurnPrompt(
+  storage: Storage,
+  binding: AgentBinding,
+  stream: Extract<SessionStream, { kind: 'thread' }>,
+): { prompt: string; lastId: number | null; files: FileUIPart[] } {
+  const channelName = storage.getChannel(stream.channelId)?.name ?? String(stream.channelId)
+  const target = streamTarget(channelName, stream)
+  const wake = collectWakeMessages(storage, binding, channelName)
+  const busy = busySiblings(storage, binding)
+  if (binding.activeChatId != null) {
+    const followUp = getFollowUps(storage, binding.id)
+    const prompt = followUp > 0
+      ? buildPeerFollowUpPrompt(target, wake.messages, followUp >= MAX_AGENT_FOLLOW_UPS)
+      : buildThreadWakePrompt(target, wake.messages, busy)
+    return { prompt, lastId: wake.lastId, files: wake.files }
+  }
+  const excerpt = (m: ChannelMessage) => formatChannelMessage(
+    m,
+    channelName,
+    m.content.length <= WAKE_EXCERPT_MAX_CHARS ? m.content : `${m.content.slice(0, WAKE_EXCERPT_MAX_CHARS)}… (truncated — read_history has the full message)`,
+  )
+  const root = storage.getChannelMessage(stream.rootMessageId)
+  const context = storage
+    .listMessages(stream.channelId, { before: stream.rootMessageId, limit: THREAD_CONTEXT_MESSAGES })
+    .messages
+    .map(excerpt)
+  // A session starting over (reset, restart) has seen part of the thread
+  // already: everything that is not unread now. Not "up to the read cursor" —
+  // the agent's own replies never move its cursor, so its latest answer sat
+  // past it and dropped out of both lists.
+  const unreadIds = new Set(unreadIn(storage, binding.agentId, stream).map((m) => m.id))
+  const earlier = storage
+    .listThreadReplies(stream.rootMessageId)
+    .filter((m) => !unreadIds.has(m.id))
+    .slice(-WAKE_MAX_MESSAGES)
+    .map(excerpt)
+  const prompt = buildThreadStartPrompt({
+    target,
+    root: root ? formatChannelMessage(root, channelName) : '(the message is gone)',
+    context,
+    earlier,
+    messages: wake.messages,
+    busy,
+  })
+  // The first turn also sees the images on the message the thread is under.
+  const files = root ? latestUniqueImages([...wakeImages([root]), ...wake.files]) : wake.files
+  return { prompt, lastId: wake.lastId, files }
+}
+
 async function startBindingChat(
   binding: AgentBinding,
   prompt: string,
@@ -365,8 +590,25 @@ async function startBindingChat(
     instructions += `\n\n${SURFACE_PROMPT}`
   }
 
+  const stream = streamOfBinding(storage, binding)
+  const thread = stream?.kind === 'thread' ? storage.getThread(stream.rootMessageId) : null
+  let threadTitle: string | undefined
+  if (stream?.kind === 'thread') {
+    const channelName = storage.getChannel(stream.channelId)?.name ?? String(stream.channelId)
+    const ownerName = thread?.ownerAgentId != null ? storage.getAgent(thread.ownerAgentId)?.name ?? null : null
+    instructions += `\n\n${buildThreadSessionPrompt({
+      target: streamTarget(channelName, stream),
+      channelName,
+      ownerName,
+      isOwner: thread?.ownerAgentId === binding.agentId,
+    })}`
+    const root = storage.getChannelMessage(stream.rootMessageId)
+    const excerpt = (root?.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 60)
+    threadTitle = `#${channelName} thread${excerpt ? `: ${excerpt}` : ''}`
+  }
+
   const scopedTask = binding.scopeKind === 'task' ? storage.taskGet(Number(binding.scopeKey)) : null
-  const sessionTitle = scopedTask ? `#${scopedTask.number} ${scopedTask.title}` : undefined
+  const sessionTitle = scopedTask ? `#${scopedTask.number} ${scopedTask.title}` : threadTitle
 
   const messages: UIMessage[] = [
     {
@@ -382,6 +624,7 @@ async function startBindingChat(
     projectId: binding.projectId,
     status: 'active',
   })
+  if (binding.scopeKind === 'task') taskTurnStartedAt.set(binding.id, Date.now())
 
   let ctx
   try {
@@ -391,20 +634,14 @@ async function startBindingChat(
       providerId: agent.provider,
       // An agent without a model (the hidden spec builders) runs on the provider's default.
       modelId: agent.model || undefined,
-      modeId: agent.permissionMode || undefined,
+      modeId: bindingModeId(agent, binding),
+      thinkingLevel: agent.thinkingLevel || undefined,
       workspaceId: workspaceId ?? undefined,
       // A task's session reads as the task in the tree, not as its long first prompt.
       ...(sessionTitle ? { title: sessionTitle } : {}),
       env: resolveAgentEnv(agent),
       instructions,
-      agentContext: {
-        agentId: agent.id,
-        projectId: binding.projectId,
-        // App-scoped bindings are channel sessions: scopeKey is the channel id.
-        // Forwarded to taskboard so tools that need the source channel derive it here
-        // instead of trusting a (frequently wrong) model-supplied id.
-        channelId: binding.scopeKind === 'app' ? Number(binding.scopeKey) : undefined,
-      },
+      agentContext: bindingAgentContext(binding),
     })
   } catch (err) {
     console.error(
@@ -412,6 +649,7 @@ async function startBindingChat(
       err,
     )
     storage.updateBinding(binding.id, { status: 'idle' })
+    taskTurnStartedAt.delete(binding.id)
     emitProjectEvent(binding.projectId, {
       type: 'agent_status',
       agentId: agent.id,
@@ -419,27 +657,20 @@ async function startBindingChat(
       status: 'idle',
     })
 
-    // Surface the error in the channel (app scope only — task/linear bindings
-    // have no channel to post into; scopeKey is a task id / session id there).
+    // Surface the error in the channel or thread (task/linear bindings have
+    // nowhere to post into; scopeKey is a task id / session id there).
     const errMsg = err instanceof Error ? err.message : String(err)
     // A spec ticket whose session cannot start would sit in "building" forever.
     if (binding.scopeKind === 'task') void onTicketTurnEnded(storage, Number(binding.scopeKey), errMsg, binding.id).catch(() => {})
-    const channelId = Number(binding.scopeKey)
-    if (binding.scopeKind === 'app' && Number.isFinite(channelId)) {
-      const sysMsg = storage.createMessage({
-        channelId,
-        senderType: 'system',
-        senderName: 'system',
-        content: `${agent.name} failed to start: ${errMsg}`,
-      })
-      emitChannelEvent(channelId, { type: 'channel_message', data: sysMsg })
-    }
+    postBindingNotice(storage, binding, `${agent.name} failed to start: ${errMsg}`)
+    if (stream?.kind === 'thread') emitThreadUpdated(storage, stream.rootMessageId)
     throw err
   }
 
   console.log(
     `[Orchestrator] startBindingChat: binding=${binding.id} chat started chatId=${ctx.chatId}`,
   )
+  if (stream?.kind === 'thread') emitThreadUpdated(storage, stream.rootMessageId)
   if (binding.scopeKind === 'task') recordTicketChat(storage, Number(binding.scopeKey), ctx.chatId)
   drainAgentChat(ctx, binding)
   return ctx.chatId
@@ -509,19 +740,11 @@ function drainAgentChat(ctx: Awaited<ReturnType<typeof startServerChat>>, bindin
         return
       }
 
-      // Surface provider errors as system messages in the channel
+      // Surface provider errors as system messages in the channel / thread.
+      // (Not for task bindings: their scopeKey is a task id, not a channel.)
       if (errors.length > 0) {
         const agent = storage.getAgent(binding.agentId)
-        const channelId = Number(binding.scopeKey)
-        if (Number.isFinite(channelId)) {
-          const sysMsg = storage.createMessage({
-            channelId,
-            senderType: 'system',
-            senderName: 'system',
-            content: `⚠ ${agent?.name ?? `Agent ${binding.agentId}`} provider error: ${errors.join('; ')}`,
-          })
-          emitChannelEvent(channelId, { type: 'channel_message', data: sysMsg })
-        }
+        postBindingNotice(storage, binding, `⚠ ${agent?.name ?? `Agent ${binding.agentId}`} provider error: ${errors.join('; ')}`)
       }
 
       // Auto-compact if context usage exceeds threshold
@@ -570,11 +793,11 @@ export async function wakeUpBindingForRecovery(bindingId: number): Promise<void>
   const storage = _storage
   if (!storage) return
   const binding = storage.getBinding(bindingId)
-  if (!binding || binding.scopeKind !== 'app') return
+  if (!binding || (binding.scopeKind !== 'app' && binding.scopeKind !== 'thread')) return
 
-  const channelId = Number(binding.scopeKey)
-  const channel = storage.getChannel(channelId)
-  if (!channel) return
+  const stream = streamOfBinding(storage, binding)
+  const channel = stream ? storage.getChannel(stream.channelId) : null
+  if (!stream || !channel) return
 
   let workspaceId = binding.workspaceId
   if (workspaceId == null) {
@@ -582,7 +805,17 @@ export async function wakeUpBindingForRecovery(bindingId: number): Promise<void>
     storage.updateBinding(binding.id, { workspaceId })
   }
   storage.updateBinding(binding.id, { status: 'active' })
-  const chatId = await startBindingChat(binding, RECOVERY_PROMPT, workspaceId, true)
+  // A thread session that never started gets its full first prompt instead.
+  if (stream.kind === 'thread' && binding.activeChatId == null) {
+    const turn = buildThreadTurnPrompt(storage, binding, stream)
+    const chatId = await startBindingChat(binding, turn.prompt, workspaceId, true, turn.files)
+    markWakeDelivered(storage, binding, turn.lastId)
+    storage.updateBinding(binding.id, { activeChatId: chatId, status: 'active' })
+    return
+  }
+  const wake = collectWakeMessages(storage, binding, channel.name)
+  const chatId = await startBindingChat(binding, buildRecoveryPrompt(streamTarget(channel.name, stream), wake.messages), workspaceId, true, wake.files)
+  markWakeDelivered(storage, binding, wake.lastId)
   storage.updateBinding(binding.id, { activeChatId: chatId, status: 'active' })
 }
 
@@ -615,11 +848,14 @@ async function triggerAutoCompact(binding: AgentBinding): Promise<void> {
       providerId: agent.provider,
       // An agent without a model (the hidden spec builders) runs on the provider's default.
       modelId: agent.model || undefined,
-      modeId: agent.permissionMode || undefined,
+      modeId: bindingModeId(agent, binding),
+      thinkingLevel: agent.thinkingLevel || undefined,
       workspaceId: binding.workspaceId ?? undefined,
       skipSnapshot: true,
       env: resolveAgentEnv(agent),
-      agentContext: { agentId: agent.id, projectId: binding.projectId },
+      // Same context as the session's own turns: anything else changes its MCP
+      // servers, and with them the reuse fingerprint, rebuilding the session.
+      agentContext: bindingAgentContext(binding),
     })
 
     const reader = ctx.preparedParts.getReader()
@@ -632,16 +868,7 @@ async function triggerAutoCompact(binding: AgentBinding): Promise<void> {
 
     console.log(`[Orchestrator] auto-compact completed for binding ${binding.id}`)
 
-    const channelId = Number(binding.scopeKey)
-    if (Number.isFinite(channelId)) {
-      const sysMsg = storage.createMessage({
-        channelId,
-        senderType: 'system',
-        senderName: 'system',
-        content: `${agent.name} conversation history compacted automatically (context was running low).`,
-      })
-      emitChannelEvent(channelId, { type: 'channel_message', data: sysMsg })
-    }
+    postBindingNotice(storage, binding, `${agent.name} conversation history compacted automatically (context was running low).`)
   } catch (err) {
     console.error(`[Orchestrator] triggerAutoCompact failed for binding ${binding.id}:`, err)
   }
@@ -770,6 +997,9 @@ export async function dispatchProjectTask(
   const storage = _storage
   if (!storage) throw new Error('Orchestrator not initialised')
 
+  // A title left blank is being generated; the prompt opens with it, so give it
+  // a few seconds before falling back to the placeholder.
+  await waitForTaskTitle(taskId)
   const task = storage.taskGet(taskId)
   if (!task) throw new Error(`Task ${taskId} not found`)
   if (task.specStage != null) throw new Error('Use the Spec controls to run this task')
@@ -1441,10 +1671,67 @@ const taskFinishAdapter: BindingPlatformAdapter = {
         status: 'idle',
       })
     }
+    announceTaskTurn(binding)
   },
 }
 
+/** The task's current agent session: its conversation, where it runs, and who runs it. */
+function taskSessionOf(storage: Storage, taskId: number): TaskSessionRef | null {
+  const task = storage.taskGet(taskId)
+  if (!task || task.bindingId == null) return null
+  const binding = storage.getBinding(task.bindingId)
+  if (!binding) return null
+  return { chatId: binding.activeChatId ?? null, workspaceId: binding.workspaceId ?? null, agentId: binding.agentId }
+}
+
+/** A task turn the orchestrator started has settled: tell the user once, on the task. */
+function announceTaskTurn(binding: AgentBinding): void {
+  const startedAt = taskTurnStartedAt.get(binding.id)
+  taskTurnStartedAt.delete(binding.id)
+  const storage = _storage
+  if (startedAt == null || !storage) return
+  const task = storage.taskGet(Number(binding.scopeKey))
+  // A session the task was handed away from speaks for nobody.
+  if (!task || task.bindingId !== binding.id || task.archivedAt != null) return
+  // OperonSpec work announces its own gates; its tickets wait on reviewer agents.
+  if (task.specStage != null || isReviewedTicket(storage, task.id)) return
+  notifyTaskTurnFinished(
+    storage,
+    task,
+    { chatId: binding.activeChatId ?? null, workspaceId: binding.workspaceId ?? null, agentId: binding.agentId },
+    startedAt,
+  )
+}
+
 // ---- Finish handler ----
+
+/**
+ * With unread pending for a channel binding, decide whether it warrants a new
+ * turn: always for a human message, a bounded number of times when only other
+ * agents spoke (the count is kept in the binding's metadata). Used at turn end
+ * and by startup recovery.
+ */
+export function planChannelRewake(binding: AgentBinding): boolean {
+  const storage = _storage
+  if (!storage) return true
+  const agentId = binding.agentId
+  const stream = streamOfBinding(storage, binding)
+  if (!stream) return false
+  const unread = unreadIn(storage, agentId, stream)
+  const plan = planRewake(unread, getFollowUps(storage, binding.id))
+  if (plan.kind === 'wake') {
+    setFollowUps(storage, binding.id, plan.followUp)
+    return true
+  }
+  if (plan.reason === 'nothing-new' && unread.length > 0) {
+    // Only system notices are left — mark them read so they don't resurface.
+    markReadIn(storage, agentId, stream, unread[unread.length - 1].id)
+  }
+  // follow-up-limit: leave the agent messages unread; the next human message
+  // wakes the agent and check_messages shows them then.
+  console.log(`[Orchestrator] planRewake: binding=${binding.id} skip (${plan.reason})`)
+  return false
+}
 
 /**
  * Built-in channel ('app') platform adapter for the shared binding driver.
@@ -1454,40 +1741,34 @@ const taskFinishAdapter: BindingPlatformAdapter = {
 const channelAdapter: BindingPlatformAdapter = {
   scopeKinds: new Set(['app']),
   logTag: 'Orchestrator',
-  buildInjectNotification: (binding, count) => {
-    const name = _storage?.getChannel(Number(binding.scopeKey))?.name ?? binding.scopeKey
-    return (
-      `[System notification: You have ${count} new message(s) in #${name}. ` +
-      `Call check_messages to read them when you're ready.]`
-    )
-  },
+  buildInjectNotification: (binding, count) => buildStreamNotification(binding, count),
   ensureWorkspace: (binding) => {
     const projectId = binding.projectId
     if (projectId == null) return Promise.resolve(null)
     return provisionWorkspaceForBinding(binding.agentId, projectId)
   },
-  startChat: (binding, workspaceId) => {
-    const name = _storage?.getChannel(Number(binding.scopeKey))?.name ?? binding.scopeKey
-    return startBindingChat(binding, buildWakeUpPrompt(name), workspaceId, false)
-  },
-  getUnreadCount: (binding) =>
-    _storage?.getUnreadChannelMessages(binding.agentId, Number(binding.scopeKey)).length ?? 0,
-  onBreakerTrip: (binding, unreadCount) => {
+  startChat: async (binding, workspaceId) => {
     const storage = _storage
-    if (!storage) return
-    const channelId = Number(binding.scopeKey)
-    const agent = storage.getAgent(binding.agentId)
-    const agentName = agent?.name ?? `Agent ${binding.agentId}`
-    const sysMsg = storage.createMessage({
-      channelId,
-      senderType: 'system',
-      senderName: 'system',
-      content:
-        `${agentName} failed to respond after ${MAX_IDLE_RETRIES} attempts ` +
-        `(${unreadCount} unread). Likely a provider error — check the agent's model/provider configuration.`,
-    })
-    emitChannelEvent(channelId, { type: 'channel_message', data: sysMsg })
+    if (!storage) throw new Error('Orchestrator not initialised')
+    const name = storage.getChannel(Number(binding.scopeKey))?.name ?? binding.scopeKey
+    // The wake-up prompt is the messages themselves: nothing to "go check" (and
+    // announce in the channel) before the agent can answer them.
+    const wake = collectWakeMessages(storage, binding, name)
+    const followUp = getFollowUps(storage, binding.id)
+    const prompt = followUp > 0
+      ? buildPeerFollowUpPrompt(`#${name}`, wake.messages, followUp >= MAX_AGENT_FOLLOW_UPS)
+      : buildWakeUpPrompt(`#${name}`, wake.messages)
+    const chatId = await startBindingChat(binding, prompt, workspaceId, false, wake.files)
+    markWakeDelivered(storage, binding, wake.lastId)
+    return chatId
   },
+  getUnreadCount: (binding) => streamUnreadCount(binding),
+  planRewake: (binding) => {
+    // The turn is over; a pending peer nudge is judged here instead.
+    cancelPeerNudge(binding.id)
+    return planChannelRewake(binding)
+  },
+  onBreakerTrip: (binding, unreadCount) => postBreakerNotice(binding, unreadCount),
   onIdle: (binding) => {
     if (binding.projectId != null) {
       emitProjectEvent(binding.projectId, {
@@ -1500,17 +1781,118 @@ const channelAdapter: BindingPlatformAdapter = {
   },
 }
 
+// ---- Shared by the channel and thread adapters ----
+
+function streamUnreadCount(binding: AgentBinding): number {
+  const storage = _storage
+  const stream = storage ? streamOfBinding(storage, binding) : null
+  return storage && stream ? unreadIn(storage, binding.agentId, stream).length : 0
+}
+
+function buildStreamNotification(binding: AgentBinding, count: number): string {
+  const storage = _storage
+  const stream = storage ? streamOfBinding(storage, binding) : null
+  if (!storage || !stream) {
+    return `[System notification: You have ${count} new message(s). Call check_messages to read them when you're ready.]`
+  }
+  // Read at send time (after the debounce), so the count matches what check_messages returns.
+  const unread = unreadIn(storage, binding.agentId, stream)
+  return (
+    `[System notification: You have ${unread.length || count} new message(s) in ${bindingWhere(storage, stream)}${describeSenders(unread)}. ` +
+    `Call check_messages to read them when you're ready.]`
+  )
+}
+
+function postBreakerNotice(binding: AgentBinding, unreadCount: number): void {
+  const storage = _storage
+  if (!storage) return
+  const agentName = storage.getAgent(binding.agentId)?.name ?? `Agent ${binding.agentId}`
+  postBindingNotice(
+    storage,
+    binding,
+    `${agentName} failed to respond after ${MAX_IDLE_RETRIES} attempts ` +
+      `(${unreadCount} unread). Likely a provider error — check the agent's model/provider configuration.`,
+  )
+}
+
+/**
+ * Thread sessions ('thread' bindings): the same turn loop as a channel session,
+ * on the thread's stream. The first turn starts from the thread's root and the
+ * channel messages before it; the workspace is the one the binding was created
+ * with (its agent's shared workspace).
+ */
+const threadAdapter: BindingPlatformAdapter = {
+  scopeKinds: new Set(['thread']),
+  logTag: 'Thread',
+  buildInjectNotification: (binding, count) => buildStreamNotification(binding, count),
+  ensureWorkspace: (binding) => {
+    const projectId = binding.projectId
+    if (projectId == null) return Promise.resolve(null)
+    const channelSession = _storage?.listBindings({ scopeKind: 'app', agentId: binding.agentId, projectId })
+      .find((b) => b.workspaceId != null)
+    return channelSession?.workspaceId != null
+      ? Promise.resolve(channelSession.workspaceId)
+      : provisionWorkspaceForBinding(binding.agentId, projectId)
+  },
+  startChat: async (binding, workspaceId) => {
+    const storage = _storage
+    if (!storage) throw new Error('Orchestrator not initialised')
+    const stream = streamOfBinding(storage, binding)
+    if (stream?.kind !== 'thread') throw new Error(`binding ${binding.id} is not a thread session`)
+    const turn = buildThreadTurnPrompt(storage, binding, stream)
+    const chatId = await startBindingChat(binding, turn.prompt, workspaceId, false, turn.files)
+    markWakeDelivered(storage, binding, turn.lastId)
+    return chatId
+  },
+  getUnreadCount: (binding) => streamUnreadCount(binding),
+  planRewake: (binding) => {
+    cancelPeerNudge(binding.id)
+    return planChannelRewake(binding)
+  },
+  onBreakerTrip: (binding, unreadCount) => postBreakerNotice(binding, unreadCount),
+  onIdle: (binding) => {
+    if (binding.projectId != null) {
+      emitProjectEvent(binding.projectId, {
+        type: 'agent_status',
+        agentId: binding.agentId,
+        projectId: binding.projectId,
+        status: 'idle',
+      })
+    }
+    const storage = _storage
+    if (storage) emitThreadUpdated(storage, Number(binding.scopeKey))
+  },
+}
+
 /**
  * Called when an agent's chat stream ends (per binding). Thin wrapper over the
- * shared driver with the channel adapter — kept so drainAgentChat can trigger a
- * finish by binding id without knowing about adapters.
+ * shared driver with the binding's adapter — kept so drainAgentChat can trigger
+ * a finish by binding id without knowing about adapters.
  */
 export async function handleBindingFinish(bindingId: number): Promise<void> {
   if (!_storage) return
   // Task turns drain through here too; the channel adapter ignores task scope, so
   // without this a finished task binding stayed 'active' forever.
-  const adapter = _storage.getBinding(bindingId)?.scopeKind === 'task' ? taskFinishAdapter : channelAdapter
+  const kind = _storage.getBinding(bindingId)?.scopeKind
+  const adapter = kind === 'task' ? taskFinishAdapter : kind === 'thread' ? threadAdapter : channelAdapter
   await driverHandleFinish(_storage, adapter, bindingId)
+}
+
+/**
+ * Tear down an agent's thread sessions in a channel (it left the channel, or
+ * the channel is going away) and hand back the threads it owned there.
+ */
+export async function dropThreadSessions(channelId: number, agentId: number | null): Promise<void> {
+  const storage = _storage
+  if (!storage) return
+  for (const thread of storage.listThreads(channelId, { limit: 100_000 })) {
+    for (const binding of storage.listBindingsForScope('thread', String(thread.rootMessageId))) {
+      if (agentId != null && binding.agentId !== agentId) continue
+      await resetBinding(storage, binding)
+      storage.deleteBinding(binding.id)
+    }
+  }
+  if (agentId != null) storage.releaseThreadsOwnedBy(channelId, agentId)
 }
 
 // Re-export so unchanged callers compile — first-startup prompt constant is

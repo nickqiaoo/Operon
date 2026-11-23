@@ -13,7 +13,7 @@ import {
 import { useIntl } from "react-intl"
 import type { NotificationKind } from "@/types/notification"
 import { AgentIcon, activeEntryTitle } from "@/components/active/ActiveConversations"
-import { dismissibleNotification, type ActiveEntry } from "@/lib/active-conversations"
+import { dismissibleNotification, entryNotificationIds, type ActiveEntry } from "@/lib/active-conversations"
 import { cn } from "@/lib/utils"
 import { useInboxStore } from "@/stores/inbox-store"
 import { InboxApprovals } from "./InboxApprovals"
@@ -27,6 +27,7 @@ const KIND_ICON: Record<NotificationKind, typeof MessageSquare> = {
   task_needs_input: CircleAlert,
   task_done: CheckCircle2,
   task_failed: XCircle,
+  task_reply: MessageSquare,
   sdd_gate: ShieldCheck,
   spec_gate: ShieldCheck,
   spec_blocked: CircleAlert,
@@ -52,6 +53,7 @@ export const INBOX_KIND_SYMBOL: Record<NotificationKind, string> = {
   task_needs_input: "exclamationmark.circle",
   task_done: "checkmark.circle",
   task_failed: "xmark.circle",
+  task_reply: "message",
   sdd_gate: "checkmark.shield",
   spec_gate: "checkmark.shield",
   spec_blocked: "exclamationmark.triangle",
@@ -147,7 +149,7 @@ export function FocusInboxRow({ entry, location, onOpen }: FocusInboxRowProps) {
               aria-label={intl.formatMessage({ id: "inbox.dismiss", defaultMessage: "Dismiss" })}
               onClick={(e) => {
                 e.stopPropagation()
-                void markRead([dismissible.id])
+                void markRead(entryNotificationIds(entry))
               }}
               className="invisible absolute right-0 top-0 rounded-md p-0.5 text-muted-foreground/60 hover:bg-accent-hover hover:text-foreground group-hover:visible"
             >

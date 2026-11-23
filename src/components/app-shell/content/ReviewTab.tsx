@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useIntl } from "react-intl"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Virtualizer } from "@pierre/diffs/react"
+import { TouchSafeVirtualizer } from "@/components/diff/TouchSafeVirtualizer"
 import type { FileDiffOptions } from "@pierre/diffs"
 import { DiffWorkerProvider } from '@/components/diff/DiffWorkerProvider'
 import { PIERRE_HIGHLIGHTER, PIERRE_THEME } from "@shared/tool-rendering/pierre-theme"
@@ -610,11 +610,11 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
               />
             </div>
           ) : (
-            // Pierre's <Virtualizer> is the scroll container: each <FileDiff>
+            // Pierre's Virtualizer (touch-safe wrapper) is the scroll container: each <FileDiff>
             // inside auto-detects it (via VirtualizerContext) and only renders
             // the on-screen window of a file, drawing an equal-height
             // placeholder for the rest. Keeps scrolling smooth with many files.
-            <Virtualizer
+            <TouchSafeVirtualizer
               className="code-scrollbar min-h-0 flex-1 overflow-auto"
               contentClassName="space-y-1 pb-2 pt-0"
             >
@@ -634,7 +634,7 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
                   loadFullFilesEnabled={loadFullFilesEnabled}
                 />
               ))}
-            </Virtualizer>
+            </TouchSafeVirtualizer>
           )}
           {error == null &&
             files != null &&

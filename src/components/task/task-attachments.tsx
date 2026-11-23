@@ -37,6 +37,8 @@ export interface ImageUploads {
   uploading: boolean
   remove: (id: string) => void
   clear: () => void
+  /** Add picked files (a file input); non-images are ignored. */
+  addFiles: (files: FileList | File[] | null | undefined) => void
   /** Wire onto a textarea: pasting or dropping images adds them; text pastes are left alone. */
   inputProps: {
     onPaste: (e: ClipboardEvent<HTMLElement>) => void
@@ -50,29 +52,30 @@ export interface ImageUploads {
  * of `items` (the description editor saves it to the task right away). Without
  * it, images accumulate until `clear()` (composers send them with the message).
  */
-export function useImageUploads(options: { onUploaded?: (a: TaskAttachment) => void } = {}): ImageUploads {
+export function useImageUploads(options: { onUploaded?: (a: TaskAttachment) => void; maxImages?: number } = {}): ImageUploads {
   const intl = useIntl()
   const [items, setItems] = useState<PendingImage[]>([])
-  const itemsRef = useRef(items)
-  itemsRef.current = items
+  const itemsRef = useRef<PendingImage[]>([])
+  const maxImages = options.maxImages ?? MAX_IMAGES
   const onUploadedRef = useRef(options.onUploaded)
   onUploadedRef.current = options.onUploaded
 
   // Thumbnails still on screen hold blob: URLs; free them when the composer goes away.
   useEffect(() => () => {
     for (const item of itemsRef.current) URL.revokeObjectURL(item.previewUrl)
+    itemsRef.current = []
   }, [])
 
   const drop = useCallback((id: string) => {
-    setItems((prev) => {
-      const gone = prev.find((i) => i.id === id)
-      if (gone) URL.revokeObjectURL(gone.previewUrl)
-      return prev.filter((i) => i.id !== id)
-    })
+    const gone = itemsRef.current.find((item) => item.id === id)
+    if (!gone) return
+    URL.revokeObjectURL(gone.previewUrl)
+    itemsRef.current = itemsRef.current.filter((item) => item.id !== id)
+    setItems(itemsRef.current)
   }, [])
 
   const add = useCallback((files: File[]) => {
-    const room = MAX_IMAGES - itemsRef.current.length
+    const room = maxImages - itemsRef.current.length
     if (room <= 0) return
     for (const file of files.slice(0, room)) {
       const item: PendingImage = {
@@ -82,8 +85,9 @@ export function useImageUploads(options: { onUploaded?: (a: TaskAttachment) => v
         mediaType: file.type,
         uploaded: null,
       }
-      setItems((prev) => [...prev, item])
+      itemsRef.current = [...itemsRef.current, item]
       void uploadFile(file).then((stored) => {
+        if (!itemsRef.current.some((pending) => pending.id === item.id)) return
         if (!stored) {
           drop(item.id)
           toast.error(intl.formatMessage({ id: 'task.attachments.uploadFailed', defaultMessage: 'Image upload failed' }))
@@ -95,10 +99,12 @@ export function useImageUploads(options: { onUploaded?: (a: TaskAttachment) => v
           drop(item.id)
           return
         }
-        setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, uploaded: attachment } : i)))
+        itemsRef.current = itemsRef.current.map((i) => (i.id === item.id ? { ...i, uploaded: attachment } : i))
+        setItems(itemsRef.current)
       })
     }
-  }, [drop, intl])
+    setItems(itemsRef.current)
+  }, [drop, intl, maxImages])
 
   const onPaste = useCallback((e: ClipboardEvent<HTMLElement>) => {
     const files = imageFiles(e.clipboardData?.files)
@@ -108,6 +114,7 @@ export function useImageUploads(options: { onUploaded?: (a: TaskAttachment) => v
   }, [add])
 
   const onDrop = useCallback((e: DragEvent<HTMLElement>) => {
+    if (Array.from(e.dataTransfer?.types ?? []).includes('Files')) e.preventDefault()
     const files = imageFiles(e.dataTransfer?.files)
     if (files.length === 0) return
     e.preventDefault()
@@ -120,8 +127,14 @@ export function useImageUploads(options: { onUploaded?: (a: TaskAttachment) => v
 
   const clear = useCallback(() => {
     for (const item of itemsRef.current) URL.revokeObjectURL(item.previewUrl)
-    setItems([])
+    itemsRef.current = []
+    setItems(itemsRef.current)
   }, [])
+
+  const addFiles = useCallback((files: FileList | File[] | null | undefined) => {
+    const images = Array.isArray(files) ? files.filter((f) => f.type.startsWith('image/')) : imageFiles(files)
+    if (images.length > 0) add(images)
+  }, [add])
 
   return {
     items,
@@ -129,6 +142,7 @@ export function useImageUploads(options: { onUploaded?: (a: TaskAttachment) => v
     uploading: items.some((i) => !i.uploaded),
     remove: drop,
     clear,
+    addFiles,
     inputProps: { onPaste, onDrop, onDragOver },
   }
 }

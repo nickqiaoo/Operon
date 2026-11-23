@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, type RefObject } from "react"
 import { useIntl, type IntlShape } from "react-intl"
 import { activeEntryTitle, useLocationLabel } from "@/components/active/ActiveConversations"
-import { dismissibleNotification, unreadNotificationIds, type ActiveEntry } from "@/lib/active-conversations"
+import { dismissibleNotification, entryNotificationIds, unreadNotificationIds, type ActiveEntry } from "@/lib/active-conversations"
 import { formatRelativeTime } from "@/lib/format"
 import { useInboxUnread } from "@/lib/inbox-queries"
 import { hasNativeTabBar, NativeShell, type NativeInboxState } from "@/lib/native"
@@ -101,8 +101,7 @@ export function NativeInboxSheet({ handle, onOpen, onAttentionChange }: NativeIn
           void NativeShell.dismissInboxSheet().catch(() => {})
           openFocusEntry(entry, open)
         } else if (action === "archive" && entry) {
-          const notification = dismissibleNotification(entry)
-          if (notification) void markRead([notification.id])
+          if (dismissibleNotification(entry)) void markRead(entryNotificationIds(entry))
         } else if (action === "markAllRead") {
           void markRead(current.unreadIds)
         }

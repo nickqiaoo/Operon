@@ -1,5 +1,5 @@
 import { FormattedMessage, useIntl } from 'react-intl'
-import { Hash, MessageSquare, Send, GitBranch, ListChecks, RotateCcw } from 'lucide-react'
+import { Hash, MessageSquare, MessagesSquare, Send, GitBranch, ListChecks, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { scopeLabel, agentStatusLabel } from './channel-i18n'
 import type { AgentBinding, AgentSessionStatus, BindingScopeKind, BindingStatus } from '@/types/channel'
@@ -19,6 +19,7 @@ const SCOPE_ICON: Record<BindingScopeKind, typeof MessageSquare> = {
   telegram: Send,
   linear: GitBranch,
   task: ListChecks,
+  thread: MessagesSquare,
 }
 
 /** Anything with a status — both AgentSession and AgentBinding satisfy this. */

@@ -153,7 +153,7 @@ export function TaskDetailPlaceholder({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-6 md:py-5">
         <div className="mx-auto w-full max-w-3xl space-y-6">
-          {task && <h1 className="text-xl font-semibold leading-snug [overflow-wrap:anywhere]">{task.title}</h1>}
+          {task && <h1 className={cn("text-xl font-semibold leading-snug [overflow-wrap:anywhere]", task.titlePending && "shimmer motion-reduce:shimmer-none")}>{task.title}</h1>}
           {error ? (
             <div className="flex items-center gap-2 text-xs text-destructive">
               <FormattedMessage id="task.detail.loadError" defaultMessage="Couldn't load this task: {error}" values={{ error }} />
@@ -219,6 +219,7 @@ export function TaskDetailView({
   const isArchived = detail.archivedAt != null
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(detail.title)
+  const titleAtEdit = useRef(detail.title)
   const [editingDesc, setEditingDesc] = useState(false)
   const [descDraft, setDescDraft] = useState(detail.description)
   const [commentDraft, setCommentDraft] = useState('')
@@ -241,7 +242,9 @@ export function TaskDetailView({
   const saveTitle = () => {
     setEditingTitle(false)
     const next = titleDraft.trim()
-    if (next && next !== detail.title) {
+    // Against the title the edit started from: a generated title landing while the
+    // field was open is not something to overwrite with an unchanged placeholder.
+    if (next && next !== titleAtEdit.current && next !== detail.title) {
       updateDetail({ title: next })
     } else {
       setTitleDraft(detail.title)
@@ -351,10 +354,14 @@ export function TaskDetailView({
           ) : (
             <h1
               onClick={() => {
+                titleAtEdit.current = detail.title
                 setTitleDraft(detail.title)
                 setEditingTitle(true)
               }}
-              className="text-xl font-semibold leading-snug [overflow-wrap:anywhere] cursor-text hover:bg-row-hover rounded-lg px-2 -mx-2"
+              className={cn(
+                "text-xl font-semibold leading-snug [overflow-wrap:anywhere] cursor-text hover:bg-row-hover rounded-lg px-2 -mx-2",
+                detail.titlePending && "shimmer motion-reduce:shimmer-none",
+              )}
             >
               {detail.title}
             </h1>
@@ -543,7 +550,8 @@ export function TaskDetailView({
             >
               <SelectTrigger size="sm" className={cn(FIELD_TRIGGER, 'max-w-full')}>
                 <span className="flex min-w-0 items-center gap-2 overflow-hidden">
-                  <TaskAssigneeAvatar task={detail} agents={agents} />
+                  {/* The status line under the picker already says it is working. */}
+                  <TaskAssigneeAvatar task={detail} agents={agents} showRunning={false} />
                   <span className="min-w-0 truncate text-sm" title={assigneeName}>
                     {assigneeName}
                   </span>
@@ -1235,7 +1243,7 @@ function TimelineMarker({ children, emphasis }: { children: React.ReactNode; emp
       className={cn(
         'relative z-[1] flex h-6 w-6 shrink-0 items-center justify-center rounded-full ring-4 ring-background',
         emphasis
-          ? 'bg-muted text-foreground/80 dark:bg-muted'
+          ? 'bg-background text-foreground/80'
           : 'bg-background text-muted-foreground/70 border border-border/50 dark:border-border/35',
       )}
     >
@@ -1275,7 +1283,7 @@ function ActivityItem({ activity: a, taskId, agents }: { activity: TaskActivity;
       // under the name.
       <div className="flex items-start gap-3 py-2.5">
         {commentAgent ? (
-          <AgentAvatar provider={commentAgent.provider} size="sm" className="relative z-[1] ring-4 ring-background" />
+          <AgentAvatar provider={commentAgent.provider} size="sm" className="relative z-[1] bg-background ring-4 ring-background" />
         ) : (
           <TimelineMarker emphasis>
             <ActorIcon activity={a} />

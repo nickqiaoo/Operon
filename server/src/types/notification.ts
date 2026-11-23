@@ -10,6 +10,12 @@ export type NotificationKind =
   | 'task_needs_input'
   | 'task_done'
   | 'task_failed'
+  /**
+   * A task's agent finished a turn without moving the task (it answered a
+   * comment, or stopped short of handing in). Severity follows the task: still
+   * in review → 'action'. Written over the task's own `task:<id>` row.
+   */
+  | 'task_reply'
   | 'sdd_gate'
   /** An OperonSpec waits on the user at a gate (design ready, change ready to sign). */
   | 'spec_gate'

@@ -36,6 +36,7 @@ import { NewWorkspaceDialog } from "./NewWorkspaceDialog"
 import { createProjectWorkspace } from "@/lib/workspace-actions"
 import { startNewChat, startNewChatInWorkspace } from "@/lib/new-chat"
 import { useRailFlyout } from "./use-rail-flyout"
+import { ChannelList } from "@/components/channel/ChannelList"
 import { projectSidebarEntries } from "./workspace-groups"
 
 type GitWorktreeEntry = {
@@ -771,6 +772,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
   const intl = useIntl()
   const machine = useContext(MachineActionsContext)
   const projectsLabel = intl.formatMessage({ id: "sidebar.projects", defaultMessage: "Projects" })
+  const channelsLabel = intl.formatMessage({ id: "sidebar.channels", defaultMessage: "Channels" })
   const focusLabel = intl.formatMessage({ id: "sidebar.focus", defaultMessage: "Focus" })
   const addRepositoryLabel = intl.formatMessage({ id: "sidebar.addRepository", defaultMessage: "Add repository" })
   // Collapsed by the user, as opposed to the panel making way off the workspace views.
@@ -804,18 +806,25 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
   const projectsTriggerRef = useRef<HTMLButtonElement>(null)
   const projectTreeRef = useRef<HTMLDivElement>(null)
   const projectTreeId = useId()
+  const channelsTriggerRef = useRef<HTMLButtonElement>(null)
+  const channelListRef = useRef<HTMLDivElement>(null)
+  const channelListId = useId()
   const { flyout, close: closeFlyout, pin: pinFlyout, holdOpen: holdFlyoutOpen, triggerHover, panelHover } = useRailFlyout()
   const flyoutOpen = collapsed && flyout !== null
   const flyoutPinned = flyoutOpen && flyout.pinned
   const floating = collapsed && flyout?.kind === "projects"
+  const floatingChannels = collapsed && flyout?.kind === "channels"
+  const flyoutKind = flyout?.kind
 
-  // Escape: the floating tree is about to go inert, so hand focus back to its
+  // Escape: the floating list is about to go inert, so hand focus back to its
   // trigger rather than drop it. Only if it is in there: a hover-opened panel
   // must not pull focus from the composer.
   const closePreview = useCallback(() => {
     closeFlyout()
     if (projectTreeRef.current?.contains(document.activeElement)) {
       projectsTriggerRef.current?.focus({ preventScroll: true })
+    } else if (channelListRef.current?.contains(document.activeElement)) {
+      channelsTriggerRef.current?.focus({ preventScroll: true })
     }
   }, [closeFlyout])
 
@@ -825,7 +834,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
   const closeAfterNavigate = useCallback(() => {
     closeFlyout()
     const focused = document.activeElement
-    if (focused instanceof HTMLElement && projectTreeRef.current?.contains(focused)) focused.blur()
+    if (focused instanceof HTMLElement && (projectTreeRef.current?.contains(focused) || channelListRef.current?.contains(focused))) focused.blur()
   }, [closeFlyout])
 
   useEffect(() => {
@@ -834,8 +843,8 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
 
   useEffect(() => {
     if (!flyoutOpen || newWorkspaceProjectId !== null) return
-    const tree = projectTreeRef.current
-    const trigger = projectsTriggerRef.current
+    const tree = flyoutKind === "channels" ? channelListRef.current : projectTreeRef.current
+    const trigger = flyoutKind === "channels" ? channelsTriggerRef.current : projectsTriggerRef.current
     const isInside = (target: EventTarget | null) => target instanceof Node &&
       (tree?.contains(target) || trigger?.contains(target))
     const dismissOutside = (event: Event) => {
@@ -860,7 +869,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
       document.removeEventListener("focusin", dismissOutside)
       window.removeEventListener("keydown", dismissEscape)
     }
-  }, [flyoutOpen, flyoutPinned, closeFlyout, closePreview, newWorkspaceProjectId])
+  }, [flyoutOpen, flyoutKind, flyoutPinned, closeFlyout, closePreview, newWorkspaceProjectId])
 
   const handleOpenSpec = useCallback((taskId: number, projectId: number) => {
     onOpenSpec?.(taskId, projectId)
@@ -957,7 +966,10 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
 
   const onWorkspaceView = isWorkspaceView(mainView)
   const projectsSelected = onWorkspaceView || floating
-  const treeShown = !collapsed || floating
+  // Expanded, the panel holds the channel list on Channels and the project tree
+  // everywhere else; collapsed, each shows only while it floats.
+  const treeShown = collapsed ? floating : !channelsActive
+  const channelListShown = collapsed ? floatingChannels : channelsActive
   const bottomInset = "pb-[max(0.75rem,var(--ios-shell-safe-bottom,0px))]"
 
   // Two columns: the icon rail, identical in both modes, and the panel beside
@@ -981,8 +993,23 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
             onClick={() => { closeFlyout(); showMain({ kind: "assistant" }) }} />
           <SidebarNavItem icon={LayoutDashboard} label={intl.formatMessage({ id: "sidebar.board", defaultMessage: "Board" })} collapsed={collapsed} active={boardActive}
             onClick={() => { closeFlyout(); showMain({ kind: "board", view: "board" }); trackEvent("page_opened", { page: "board" }) }} />
-          <SidebarNavItem icon={Hash} label={intl.formatMessage({ id: "sidebar.channels", defaultMessage: "Channels" })} collapsed={collapsed} active={channelsActive}
-            onClick={() => { closeFlyout(); showMain({ kind: "board", view: "channels" }); trackEvent("page_opened", { page: "channels" }) }} />
+          <SidebarNavItem ref={channelsTriggerRef} icon={Hash} label={channelsLabel} collapsed={collapsed} active={channelsActive || floatingChannels}
+            aria-expanded={collapsed ? floatingChannels : undefined} aria-controls={channelListId} aria-haspopup={collapsed ? "dialog" : undefined}
+            tooltip={!floatingChannels} hoverTooltip={!collapsed}
+            {...(collapsed ? triggerHover("channels") : {})}
+            onClick={() => {
+              // Elsewhere it goes to the page; on the page with the panel
+              // collapsed it floats the channel list, pinned, like Projects.
+              if (!channelsActive || !collapsed) {
+                closeFlyout()
+                showMain({ kind: "board", view: "channels" })
+                trackEvent("page_opened", { page: "channels" })
+              } else if (floatingChannels && flyoutPinned) {
+                closeFlyout()
+              } else {
+                pinFlyout("channels")
+              }
+            }} />
           <ProjectsRailButton ref={projectsTriggerRef} label={projectsLabel} collapsed={collapsed}
             active={projectsSelected} data-testid="sidebar-projects-button"
             aria-expanded={collapsed ? floating : undefined} aria-controls={projectTreeId} aria-haspopup={collapsed ? "dialog" : undefined}
@@ -1056,6 +1083,9 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
               ? cn(railFlyoutClassName, "py-2")
               : cn("sidebar-label-fade flex-1", bottomInset),
             !treeShown && "invisible pointer-events-none opacity-0",
+            // Kept mounted (scroll and folders stay) but out of the column while
+            // the channel list has the panel.
+            !collapsed && !treeShown && "absolute inset-x-0 bottom-0 top-10",
             floating && railFlyoutEnterClassName,
           )}
           style={{ width, maxWidth: collapsed ? RAIL_FLYOUT_MAX_WIDTH : maxWidth }}
@@ -1135,6 +1165,32 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
               {!sidebarFocus && <RecentConversations onOpenNotification={onOpenNotification ?? noop} onOpenChat={onOpenChat ?? noop} onNavigate={closeAfterNavigate} />}
             </div>
           </ScrollArea>
+        </div>
+
+        {/* The channel list: the panel's content on Channels, and what floats
+            out of the rail's # when the panel is collapsed. */}
+        <div
+          ref={channelListRef}
+          id={channelListId}
+          data-testid="channel-list"
+          role={collapsed ? "dialog" : "region"}
+          aria-label={channelsLabel}
+          aria-hidden={!channelListShown}
+          inert={!channelListShown}
+          tabIndex={-1}
+          className={cn(
+            "flex min-h-0 flex-col outline-none",
+            collapsed
+              ? cn(railFlyoutClassName, "py-2")
+              : cn("sidebar-label-fade flex-1", bottomInset),
+            !channelListShown && "invisible pointer-events-none opacity-0",
+            !collapsed && !channelListShown && "absolute inset-x-0 bottom-0 top-10",
+            floatingChannels && railFlyoutEnterClassName,
+          )}
+          style={{ width, maxWidth: collapsed ? RAIL_FLYOUT_MAX_WIDTH : maxWidth }}
+          {...panelHover}
+        >
+          <ChannelList shown={channelListShown} onNavigate={closeAfterNavigate} />
         </div>
       </div>
 

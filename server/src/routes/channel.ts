@@ -5,8 +5,10 @@ import type {
   ChannelStorageAdapter,
   ProjectStorageAdapter,
 } from '../storage/interface.js'
-import { emitChannelEvent, onChannelEvent, onProjectEvent } from '../services/channel-bus.js'
-import { routeMessageToAgents } from '../services/channel/agent-orchestrator.js'
+import { onChannelEvent, onProjectEvent, publishChannelMessage } from '../services/channel-bus.js'
+import { dropThreadSessions, routeMessageToAgents } from '../services/channel/agent-orchestrator.js'
+import { channelSessionsWaiting, ensureThreadForHumanReply, removeThreadMember, resolveThreadRoot, threadView } from '../services/channel/threads.js'
+import { sanitizeChannelAttachments } from '../services/channel/channel-attachments.js'
 import { resetBinding } from '../services/channel/binding-reset.js'
 import { handleChannelSlashCommand } from '../services/channel/channel-commands.js'
 import { abortChat } from '../services/ai.js'
@@ -64,16 +66,16 @@ export function agentRoutes(storage: ChannelStorage) {
     return c.json({ success: true })
   })
 
-  // Stop all active app bindings for the agent in a project (every project without ?projectId=)
+  // Stop all active channel and thread sessions of the agent in a project (every project without ?projectId=)
   router.post('/:id/stop', async (c) => {
     const agentId = parseInt(c.req.param('id'), 10)
     const projectId = parseInt(c.req.query('projectId') ?? '0', 10)
-    const bindings = storage.listBindings({
-      scopeKind: 'app',
+    const bindings = (['app', 'thread'] as const).flatMap((scopeKind) => storage.listBindings({
+      scopeKind,
       agentId,
       projectId: projectId > 0 ? projectId : undefined,
       status: 'active',
-    })
+    }))
     let stoppedAny = false
     for (const b of bindings) {
       if (b.activeChatId == null) continue
@@ -90,7 +92,8 @@ export function agentRoutes(storage: ChannelStorage) {
   router.post('/:id/reset', async (c) => {
     const agentId = parseInt(c.req.param('id'), 10)
     const projectId = parseInt(c.req.query('projectId') ?? '0', 10)
-    const bindings = storage.listBindings({ scopeKind: 'app', agentId, projectId: projectId > 0 ? projectId : undefined })
+    const bindings = (['app', 'thread'] as const).flatMap((scopeKind) =>
+      storage.listBindings({ scopeKind, agentId, projectId: projectId > 0 ? projectId : undefined }))
     for (const b of bindings) {
       await resetBinding(storage, b)
     }
@@ -170,6 +173,7 @@ export function channelRoutes(storage: ChannelStorage) {
       await resetBinding(storage, binding)
       storage.deleteBinding(binding.id)
     }
+    await dropThreadSessions(id, null)
     storage.deleteChannel(id)
     return c.json({ success: true })
   })
@@ -194,7 +198,7 @@ export function channelRoutes(storage: ChannelStorage) {
       senderName: 'system',
       content: `${storage.getAgent(agentId)?.name ?? 'Agent'} joined the channel`,
     })
-    emitChannelEvent(channelId, { type: 'channel_message', data: joinMsg })
+    publishChannelMessage(storage, joinMsg)
     return c.json({ member })
   })
 
@@ -211,6 +215,8 @@ export function channelRoutes(storage: ChannelStorage) {
       await resetBinding(storage, binding)
       storage.deleteBinding(binding.id)
     }
+    // Its thread sessions in this channel go too, and the threads it owned are nobody's now.
+    await dropThreadSessions(channelId, agentId)
     return c.json({ success: true })
   })
 
@@ -229,13 +235,17 @@ export function channelRoutes(storage: ChannelStorage) {
   router.post('/:id/messages', async (c) => {
     const channelId = parseInt(c.req.param('id'), 10)
     const body = await c.req.json<Omit<CreateMessageInput, 'channelId'>>()
-    const message = storage.createMessage({ ...body, channelId })
+    // Only images already in this node's attachment store (POST /api/attachments first).
+    const attachments = sanitizeChannelAttachments(body.attachments)
+    if (!body.content?.trim() && attachments.length === 0) return c.json({ error: 'A message needs text or an image' }, 400)
+    // Thread replies go through /replies, which checks the root.
+    const message = storage.createMessage({ ...body, content: body.content ?? '', channelId, threadRootId: null, senderBindingId: null, attachments })
     console.log(`[Channel] Message created: id=${message.id} channel=${channelId} sender=${message.senderName} type=${message.senderType}`)
-    emitChannelEvent(channelId, { type: 'channel_message', data: message })
+    publishChannelMessage(storage, message)
     // Intercept human slash commands (/reset) before routing — parity with IM.
     // When handled, the command is NOT forwarded to the model.
     const handled = await handleChannelSlashCommand(storage, channelId, message, (m) =>
-      emitChannelEvent(channelId, { type: 'channel_message', data: m }),
+      publishChannelMessage(storage, m),
     )
     if (!handled) {
       // Route to agents asynchronously — do not block the HTTP response
@@ -249,20 +259,70 @@ export function channelRoutes(storage: ChannelStorage) {
   // ---- Thread replies ----
 
   router.get('/:id/messages/:mid/replies', (c) => {
+    const channelId = parseInt(c.req.param('id'), 10)
     const mid = parseInt(c.req.param('mid'), 10)
+    const resolved = resolveThreadRoot(storage, channelId, mid)
+    if ('error' in resolved) return c.json({ error: resolved.error }, 404)
     return c.json({ replies: storage.listThreadReplies(mid) })
   })
 
   router.post('/:id/messages/:mid/replies', async (c) => {
     const channelId = parseInt(c.req.param('id'), 10)
     const threadRootId = parseInt(c.req.param('mid'), 10)
+    // The root must be a top-level message of this channel: a reply under
+    // anything else would be stored where no thread shows it.
+    const resolved = resolveThreadRoot(storage, channelId, threadRootId)
+    if ('error' in resolved) return c.json({ error: resolved.error }, 400)
     const body = await c.req.json<Omit<CreateMessageInput, 'channelId' | 'threadRootId'>>()
-    const message = storage.createMessage({ ...body, channelId, threadRootId })
-    emitChannelEvent(channelId, { type: 'channel_message', data: message })
-    routeMessageToAgents(channelId, message).catch((err) => {
-      console.error('[Channel] routeMessageToAgents error:', err)
+    const attachments = sanitizeChannelAttachments(body.attachments)
+    if (!body.content?.trim() && attachments.length === 0) return c.json({ error: 'A reply needs text or an image' }, 400)
+    ensureThreadForHumanReply(storage, resolved.root)
+    const message = storage.createMessage({
+      channelId,
+      threadRootId,
+      senderType: body.senderType,
+      senderId: body.senderId ?? null,
+      senderName: body.senderName,
+      content: body.content ?? '',
+      attachments,
     })
-    return c.json({ message })
+    const posted = publishChannelMessage(storage, message)
+    // Same slash commands as the main channel; in a thread they act on the thread's sessions.
+    const handled = await handleChannelSlashCommand(storage, channelId, message, (m) =>
+      publishChannelMessage(storage, m),
+    )
+    if (!handled) {
+      routeMessageToAgents(channelId, message).catch((err) => {
+        console.error('[Channel] routeMessageToAgents error:', err)
+      })
+    }
+    return c.json(posted)
+  })
+
+  // ---- Threads ----
+
+  router.get('/:id/threads', (c) => {
+    const channelId = parseInt(c.req.param('id'), 10)
+    const threads = storage.listThreads(channelId).map((t) => threadView(storage, t))
+    return c.json({ threads })
+  })
+
+  // Take an agent out of a thread: its thread session stops, and it no longer hears the thread.
+  router.delete('/:id/threads/:rootId/members/:agentId', async (c) => {
+    const channelId = parseInt(c.req.param('id'), 10)
+    const rootId = parseInt(c.req.param('rootId'), 10)
+    const agentId = parseInt(c.req.param('agentId'), 10)
+    const thread = storage.getThread(rootId)
+    if (!thread || thread.channelId !== channelId) return c.json({ error: 'No such thread in this channel' }, 404)
+    const removed = await removeThreadMember(storage, rootId, agentId, (b) => resetBinding(storage, b))
+    if (!removed) return c.json({ error: 'That agent is not in this thread' }, 404)
+    return c.json({ success: true })
+  })
+
+  // Channel sessions waiting on a person (thread sessions' come with their thread).
+  router.get('/:id/waiting', (c) => {
+    const channelId = parseInt(c.req.param('id'), 10)
+    return c.json({ waiting: channelSessionsWaiting(storage, channelId) })
   })
 
   // ---- SSE stream ----

@@ -11,7 +11,7 @@ import { notify } from '../notification-service.js'
 import { observePendingInputPart, clearPendingApprovals } from './chat-pending-input.js'
 // Registers the inbox as a subscriber to pending input.
 import './approval-inbox.js'
-import { resolveMcpServersForSession } from '../mcp-config.js'
+import { OPERON_OWN_MCP_SERVERS, resolveMcpServersForSession } from '../mcp-config.js'
 import { ensurePluginsLoaded } from '../operon-runtime/plugins.js'
 import { getSshEnvironment } from '../ssh-environments.js'
 import { SPEC_CHAT_HINT } from '../spec/prompts.js'
@@ -183,6 +183,12 @@ export async function startChat(
   const instructions = !sshEnvironment && payload.agentContext?.sourceChatId != null
     ? [payload.instructions?.trim(), SPEC_CHAT_HINT].filter(Boolean).join('\n\n')
     : payload.instructions
+  // Codex's approveForMe reviewer judges each MCP call and can't tell the host
+  // from an outside destination; our own servers skip it (see OPERON_OWN_MCP_SERVERS).
+  // Codex only: the options block is part of the session key for every provider.
+  const approvedMcpServers = providerId === 'codex' && mcpServers
+    ? OPERON_OWN_MCP_SERVERS.filter((name) => name in mcpServers)
+    : []
   const session = await sessionManager.getOrCreate(chatId, providerId, {
     cwd,
     env: payload.env,
@@ -194,6 +200,7 @@ export async function startChat(
     mcpServers,
     instructions,
     ...(sshEnvironment ? { operon: { sshEnvironment } } : {}),
+    ...(approvedMcpServers.length > 0 ? { codex: { approvedMcpServers } } : {}),
     ...(chatId > 0 ? { opencode: { callerTag: String(chatId) } } : {}),
     ...resolveForkSource(chatId),
   })

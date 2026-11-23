@@ -10,6 +10,8 @@ export type NotificationKind =
   | 'task_needs_input'
   | 'task_done'
   | 'task_failed'
+  /** A task's agent finished a turn without moving the task (e.g. it answered a comment). */
+  | 'task_reply'
   | 'sdd_gate'
   | 'spec_gate'
   | 'spec_blocked'

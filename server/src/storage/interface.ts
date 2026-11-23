@@ -26,6 +26,8 @@ import type {
   Channel,
   ChannelMember,
   ChannelMessage,
+  ChannelThread,
+  ChannelThreadStatus,
   CreateAgentInput,
   CreateChannelInput,
   CreateMessageInput,
@@ -317,9 +319,39 @@ export interface ChannelStorageAdapter {
   createMessage(input: CreateMessageInput): ChannelMessage
   listMessages(channelId: number, opts?: { before?: number; limit?: number }): { messages: ChannelMessage[]; hasMore: boolean }
   listThreadReplies(threadRootId: number): ChannelMessage[]
+  getChannelMessage(id: number): ChannelMessage | null
 
-  // Channel-message unread (cursor lives in agent_message_cursors via AgentBindingStorageAdapter)
+  // Threads (one row per thread; keyed by its root message)
+  getThread(rootMessageId: number): ChannelThread | null
+  /** Most recently active first. */
+  listThreads(channelId: number, opts?: { limit?: number }): ChannelThread[]
+  /** Create the thread row if it does not exist yet (owner as given); returns the row either way. */
+  ensureThread(input: {
+    rootMessageId: number
+    channelId: number
+    ownerAgentId: number | null
+    createdByType: 'human' | 'agent'
+    createdById?: number | null
+  }): ChannelThread
+  /**
+   * Give an ownerless thread an owner. Returns the row after the attempt — its
+   * owner is someone else when the thread was already taken.
+   */
+  claimThread(rootMessageId: number, agentId: number): ChannelThread | null
+  updateThread(rootMessageId: number, updates: { status?: ChannelThreadStatus; summary?: string; ownerAgentId?: number | null }): ChannelThread | null
+  /** An agent left the channel: the threads it owned there go back to nobody. */
+  releaseThreadsOwnedBy(channelId: number, agentId: number): void
+
+  // Unread (cursors live in agent_message_cursors via AgentBindingStorageAdapter).
+  // Both leave out the session's own messages: the ones its binding posted (and,
+  // for older rows without a binding, the ones the agent posted).
+  /**
+   * The channel session's stream: main-channel messages, plus replies in threads
+   * nobody owns yet (whoever takes such a thread claims it with open_thread).
+   */
   getUnreadChannelMessages(agentId: number, channelId: number): ChannelMessage[]
+  /** A thread session's stream: the replies in that one thread. */
+  getUnreadThreadMessages(agentId: number, rootMessageId: number): ChannelMessage[]
 }
 
 export type TaskChangeListener = (before: Task, after: Task) => void
@@ -337,6 +369,11 @@ export interface TaskStorageAdapter {
   taskList(query: ListTasksQuery): TaskListItem[]
   taskDetail(id: number): TaskDetail | null
   taskUpdate(id: number, updates: UpdateProjectTaskInput, actor?: TaskActor): Task | null
+  /**
+   * Swap a generated title in for the placeholder, only while the title is
+   * still that placeholder and still `auto`. False when someone edited it meanwhile.
+   */
+  taskReplaceAutoTitle(id: number, placeholder: string, title: string): boolean
   /** Archive a task and its descendants, or restore only this task. Logs each change. */
   taskSetArchived(id: number, archived: boolean, actor?: TaskActor): Task | null
   /**

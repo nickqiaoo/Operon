@@ -602,41 +602,9 @@ public enum AppDiscovery {
 }
 
 enum AppSafetyPolicy {
-    private static let blockedBundleIdentifiers: Set<String> = [
-        "com.1password.1password",
-        "com.1password.safari",
-        "com.bitwarden.desktop",
-        "com.dashlane.dashlanephonefinal",
-        "com.lastpass.lastpass",
-        "com.nordsec.nordpass",
-        "me.proton.pass.electron",
-        "me.proton.pass.catalyst",
-        "com.apple.terminal",
-        "com.googlecode.iterm2",
-        "dev.warp.warp-stable",
-        "net.kovidgoyal.kitty",
-        "com.github.wez.wezterm",
-        "com.mitchellh.ghostty",
-        "com.raphaelamorim.rio",
-        "dev.commandline.waveterm",
-        "com.openai.codex",
-        "com.openai.codex.alpha",
-        "com.openai.codex.beta",
-        "com.openai.codex.dev",
-        "com.openai.codex.nightly",
-        "com.openai.chat.alpha",
-        "com.openai.chat.beta",
-        "com.openai.chat.nightly",
-        "com.openai.chat.mac-debug",
-        "com.openai.atlas",
-        "com.openai.atlas.alpha",
-        "com.openai.atlas.beta",
-        "com.apple.usernotificationcenter",
-        "com.apple.localauthenticationremoteservice",
-        "com.apple.securityagent",
-        "com.apple.screencontinuity",
-        "top.chatcode.operon",
-    ]
+    // Operon removed the built-in block list: every app goes through the
+    // normal approval flow instead of being refused outright.
+    private static let blockedBundleIdentifiers: Set<String> = []
 
     static func isBlocked(bundleIdentifier: String?) -> Bool {
         guard let bundleIdentifier else {

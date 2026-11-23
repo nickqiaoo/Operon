@@ -162,24 +162,12 @@ function useResetLabel() {
   };
 }
 
-/** Status text, not a fill: the `status-*` ramp is the one tuned for text contrast. */
-const leftTone = (used: number): string => {
-  switch (usageLevel(used)) {
-    case 'critical':
-      return 'text-status-error';
-    case 'warn':
-      return 'text-status-warn';
-    default:
-      return 'text-foreground';
-  }
-};
-
-function DetailRow({ label, value, valueClassName, hint }: { label: string; value: string; valueClassName?: string; hint?: string | null }) {
+function DetailRow({ label, value, hint }: { label: string; value: string; hint?: string | null }) {
   return (
     <div className="px-3.5 py-1.5">
       <div className="flex items-baseline justify-between gap-4 text-sm">
         <span>{label}</span>
-        <span className={cn('tabular-nums', valueClassName)}>{value}</span>
+        <span className="tabular-nums">{value}</span>
       </div>
       {hint ? <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">{hint}</div> : null}
     </div>
@@ -210,7 +198,6 @@ function UsageDetails({ usage, onNavigate }: { usage: ProviderUsage; onNavigate:
           <DetailRow
             label={intl.formatMessage({ id: 'usageRail.shortTitle', defaultMessage: '5-hour limit' })}
             value={percentLeft(usage.shortPercent)}
-            valueClassName={leftTone(usage.shortPercent)}
             hint={resetLabel(usage.shortResetsAt)}
           />
         )}
@@ -218,7 +205,6 @@ function UsageDetails({ usage, onNavigate }: { usage: ProviderUsage; onNavigate:
           <DetailRow
             label={intl.formatMessage({ id: 'usageRail.longTitle', defaultMessage: 'Weekly limit' })}
             value={percentLeft(usage.longPercent)}
-            valueClassName={leftTone(usage.longPercent)}
             hint={resetLabel(usage.longResetsAt)}
           />
         )}

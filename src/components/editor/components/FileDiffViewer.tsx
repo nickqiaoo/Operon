@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { FileDiff, Virtualizer } from '@pierre/diffs/react';
+import { FileDiff } from '@pierre/diffs/react';
+import { TouchSafeVirtualizer } from '@/components/diff/TouchSafeVirtualizer';
 import { DEFAULT_VIRTUAL_FILE_METRICS } from '@pierre/diffs';
 import { useThemeStore } from '@/stores/theme-store';
 import { useReviewDisplayStore } from '@/stores/review-display-store';
@@ -60,9 +61,9 @@ export function FileDiffViewer({ filePath, oldContent, newContent, className }: 
     <div className={className}>
       <DiffWorkerProvider>
         {isLarge ? (
-          <Virtualizer className="pierre-hscroll h-120 overflow-auto rounded-lg" config={{ overscrollSize: 400 }}>
+          <TouchSafeVirtualizer className="pierre-hscroll h-120 overflow-auto rounded-lg" config={{ overscrollSize: 400 }}>
             {diff}
-          </Virtualizer>
+          </TouchSafeVirtualizer>
         ) : (
           <div className={isMobile ? 'pierre-hscroll rounded-lg' : undefined}>{diff}</div>
         )}

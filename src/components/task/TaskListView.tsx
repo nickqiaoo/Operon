@@ -89,7 +89,7 @@ function TaskRow({
       <TaskRef projectId={task.projectId} number={task.number} className="text-xs text-muted-foreground/50 min-w-12 max-w-32 shrink-0" />
       {archived && <Archive className="w-3 h-3 text-muted-foreground/50 shrink-0" />}
       <span className="flex min-w-0 flex-1 flex-col items-start gap-1">
-        <span className="w-full truncate text-sm text-foreground/90">{task.title}</span>
+        <span className={cn("w-full truncate text-sm text-foreground/90", task.titlePending && "shimmer motion-reduce:shimmer-none")}>{task.title}</span>
         {/* On the phone the spec badge sits under the title: as a column of its
             own it squeezed the title to a few letters. A spec task's badge also
             carries its running state, so it never shows the chip as well. */}

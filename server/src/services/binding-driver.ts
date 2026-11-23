@@ -93,6 +93,12 @@ export interface BindingPlatformAdapter {
   startChat(binding: AgentBinding, workspaceId: number | null): Promise<number>
   /** How many unread messages remain for this binding's stream. */
   getUnreadCount(binding: AgentBinding): number
+  /**
+   * Optional: with unread pending at turn end, decide whether it warrants
+   * another turn (e.g. the channel caps wakes caused only by other agents).
+   * Omitted = always re-wake. May advance the cursor past what it skips.
+   */
+  planRewake?(binding: AgentBinding): boolean
   /** Side effect when the breaker trips (post a system / IM notice). */
   onBreakerTrip(binding: AgentBinding, unreadCount: number): void | Promise<void>
   /** Side effect when the binding settles idle (e.g. emit agent_status). */
@@ -144,7 +150,7 @@ export async function handleBindingFinish(
 
   const unreadCount = adapter.getUnreadCount(binding)
 
-  if (unreadCount > 0) {
+  if (unreadCount > 0 && (adapter.planRewake?.(binding) ?? true)) {
     const workspaceId = binding.workspaceId
     if (workspaceId == null) {
       console.warn(
@@ -177,7 +183,10 @@ export async function handleBindingFinish(
     }
   } else {
     retryTracker.clear(bindingId)
-    console.log(`[${adapter.logTag}] handleBindingFinish: binding=${bindingId} no unread — idling`)
+    console.log(
+      `[${adapter.logTag}] handleBindingFinish: binding=${bindingId} ` +
+        `${unreadCount > 0 ? `${unreadCount} unread, no re-wake planned` : 'no unread'} — idling`,
+    )
     storage.updateBinding(bindingId, { status: 'idle' })
     adapter.onIdle(binding)
   }

@@ -8,6 +8,9 @@ import type {
   CreateChannelInput,
   ChannelMember,
   ChannelMessage,
+  ChannelThread,
+  ThreadRootActivity,
+  WaitingSession,
   CreateMessageInput,
   AgentSession,
   AgentBinding,
@@ -631,8 +634,20 @@ export function channelThreadReplies(channelId: number, messageId: number) {
   return request<{ replies: ChannelMessage[] }>(`/channels/${channelId}/messages/${messageId}/replies`)
 }
 
+export function channelWaitingSessions(channelId: number) {
+  return request<{ waiting: WaitingSession[] }>(`/channels/${channelId}/waiting`)
+}
+
+export function channelThreadList(channelId: number) {
+  return request<{ threads: ChannelThread[] }>(`/channels/${channelId}/threads`)
+}
+
+export function channelThreadMemberRemove(channelId: number, rootMessageId: number, agentId: number) {
+  return request<{ success: boolean }>(`/channels/${channelId}/threads/${rootMessageId}/members/${agentId}`, { method: 'DELETE' })
+}
+
 export function channelThreadReply(channelId: number, messageId: number, body: Omit<CreateMessageInput, 'channelId' | 'threadRootId'>) {
-  return request<{ message: ChannelMessage }>(`/channels/${channelId}/messages/${messageId}/replies`, {
+  return request<{ message: ChannelMessage; threadRoot?: ThreadRootActivity }>(`/channels/${channelId}/messages/${messageId}/replies`, {
     method: 'POST',
     body: JSON.stringify(body),
   })

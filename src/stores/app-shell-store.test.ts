@@ -231,7 +231,18 @@ describe("sidebar panel follows the view", async () => {
     useNavigationStore.getState().showMain({ kind: "assistant" })
     useAppShellStore.getState().toggleSidebar()
     expect(shown()).toBe(true)
+    useNavigationStore.getState().showMain({ kind: "board", view: "board" })
+    expect(shown()).toBe(false)
+  })
+
+  it("comes out on Channels, whose channel list it holds, and collapses there with the toggle", () => {
     useNavigationStore.getState().showMain({ kind: "board", view: "channels" })
+    expect(shown()).toBe(true)
+    useAppShellStore.getState().toggleSidebar()
+    expect(shown()).toBe(false)
+    // The collapse is the user's standing choice, like on the workspace views.
+    expect(useAppShellStore.getState().sidebarCollapsed).toBe(true)
+    useNavigationStore.getState().showWorkbench()
     expect(shown()).toBe(false)
   })
 

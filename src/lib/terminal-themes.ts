@@ -56,7 +56,7 @@ function theme(
 //    the live `--color-background` token (see TerminalInstance.buildTheme); the
 //    hexes below are the default-theme values, used as a fallback. The rest of
 //    the palette harmonizes with the brand colors (purple #6358DC/#8B7DF0,
-//    green #3DB87A/#4FCC8E, warm #E5845C/#F09570). These are the defaults. ──
+//    green #3DB87A/#4FCC8E, warm #FF9500/#FF9F0A). These are the defaults. ──
 
 const OPERON_DARK = theme(
   "operon-dark", "Operon Dark", "dark",

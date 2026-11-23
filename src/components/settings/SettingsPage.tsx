@@ -13,6 +13,7 @@ import { EnvSettings } from "./EnvSettings"
 import { MemorySettings } from "./MemorySettings"
 import { ConfigEditor } from "./ConfigEditor"
 import { CliPathSetting } from "./CliPathSetting"
+import { CliAutoUpdateSettings } from "./CliAutoUpdateSettings"
 import { ClaudeTogglesSettings } from "./ClaudeTogglesSettings"
 import { AcpAgentInstaller } from "./AcpAgentInstaller"
 import { AntigravityAuthStatus } from "./AntigravityAuthStatus"
@@ -275,6 +276,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
                                         description={<FormattedMessage id="settings.cli.pathDesc" defaultMessage="Automatically detected from your shell PATH. Add an override only when needed." />}
                                         placeholder="/usr/local/bin/claude"
                                     />
+                                    <CliAutoUpdateSettings adapterId="claude-code" name="Claude Code" />
                                     <ClaudeTogglesSettings />
                                     <ConfigEditor configDir=".claude" files={CLAUDE_CODE_FILES} />
                                 </div>
@@ -287,6 +289,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
                                         description={<FormattedMessage id="settings.cli.pathDesc" defaultMessage="Automatically detected from your shell PATH. Add an override only when needed." />}
                                         placeholder="/usr/local/bin/codex"
                                     />
+                                    <CliAutoUpdateSettings adapterId="codex" name="Codex" />
                                     <ConfigEditor configDir=".codex" files={CODEX_FILES} />
                                 </div>
                             )}

@@ -3,7 +3,7 @@
  * Replaces AgentSession (channel) + IMChannelBinding (mate); also covers Linear.
  */
 
-export type BindingScopeKind = 'app' | 'slack' | 'telegram' | 'linear' | 'task'
+export type BindingScopeKind = 'app' | 'slack' | 'telegram' | 'linear' | 'task' | 'thread'
 
 export type BindingChannelKind = 'channel' | 'dm'
 
@@ -20,6 +20,8 @@ export interface AgentBinding {
    *   slack  → source_channel (Slack channel id)
    *   telegram → source_channel (TG chat id)
    *   linear → Linear agent_session_id (also stored in agent_session_id col)
+   *   task   → String(task.id)
+   *   thread → String(root message id) — the agent's session for one channel thread
    */
   scopeKey: string
   scopeDisplayName: string | null
@@ -82,7 +84,8 @@ export interface ListBindingsQuery {
 
 // ---------- Cursor ----------
 
-export type CursorStreamKind = 'app' | 'mate'
+/** app: a channel's main stream (key = channel id); thread: one thread (key = root message id). */
+export type CursorStreamKind = 'app' | 'mate' | 'thread'
 
 export interface AgentMessageCursor {
   agentId: number

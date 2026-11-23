@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils'
 import { PageVisibleContext, usePageVisible } from '@/lib/page-visibility'
 import { useChannelStore } from '@/stores/channel-store'
-import { ProjectFilterSelect, useProjectFilter } from '@/components/project/ProjectFilterSelect'
+import { BOARD_PROJECT_FILTER_KEY, ProjectFilterSelect, useProjectFilter } from '@/components/project/ProjectFilterSelect'
 import { useTaskStore } from '@/stores/task-store'
 import { AgentMenu, ProjectAgentDialog } from './AgentMenu'
 import { ChannelsView } from './ChannelsView'
@@ -46,7 +46,7 @@ export function BoardPage({ view, onViewChange, onOpenWorkspace, onOpenChat, ini
   const agentCount = useChannelStore((s) => s.agents.length)
   const loadTasks = useTaskStore((s) => s.load)
   const openDetail = useTaskStore((s) => s.openDetail)
-  const [filter, changeFilter] = useProjectFilter('operon.boardProjectFilter')
+  const [filter, changeFilter] = useProjectFilter(BOARD_PROJECT_FILTER_KEY)
   const [channelFocus, setChannelFocus] = useState<{ channelId: number; messageId: number | null } | null>(null)
   const [agentsOpen, setAgentsOpen] = useState(false)
   const [detailAgent, setDetailAgent] = useState<Agent | null>(null)

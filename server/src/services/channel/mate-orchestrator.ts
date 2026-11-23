@@ -287,6 +287,7 @@ async function startMateChat(binding: AgentBinding, workspaceId: number | null):
     providerId: agent.provider,
     modelId: agent.model,
     modeId: agent.permissionMode || undefined,
+    thinkingLevel: agent.thinkingLevel || undefined,
     workspaceId,
     env: resolveAgentEnv(agent),
     // Persona travels as session instructions, re-derived on EVERY start —

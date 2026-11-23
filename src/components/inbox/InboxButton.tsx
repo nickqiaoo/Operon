@@ -2,15 +2,15 @@ import { Bell } from "lucide-react"
 import { useState } from "react"
 import { useIntl } from "react-intl"
 import { MobileSheet } from "@/components/mobile/MobileSheet"
-import { activeAttentionCounts, type ActiveEntry } from "@/lib/active-conversations"
+import { activeAttentionCounts, entryNotificationIds, type ActiveEntry } from "@/lib/active-conversations"
 import { cn } from "@/lib/utils"
 import { useInboxStore } from "@/stores/inbox-store"
 import { InboxPanel, usePhoneFocusEntries } from "./InboxPanel"
 
 /** Go to a row, reading the notice behind it so it leaves the list. */
 export function openFocusEntry(entry: ActiveEntry, onOpen: (entry: ActiveEntry) => void): void {
-  const { notification } = entry
-  if (notification && notification.readAt == null) void useInboxStore.getState().markRead([notification.id])
+  const ids = entryNotificationIds(entry)
+  if (ids.length > 0) void useInboxStore.getState().markRead(ids)
   onOpen(entry)
 }
 

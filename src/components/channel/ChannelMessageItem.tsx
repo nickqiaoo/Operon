@@ -1,24 +1,33 @@
 import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
-import { Check, ChevronRight, Copy, MessageSquare } from 'lucide-react'
+import { Check, ChevronRight, CircleAlert, Copy, MessageSquare, ShieldAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDateTime } from '@/lib/format'
-import type { ChannelMessage, Agent } from '@/types/channel'
+import type { ChannelMessage, ChannelThread, Agent } from '@/types/channel'
 import type { TaskListItem } from '@/types/task'
 import { StatusIcon, TaskRef } from '@/components/task/task-meta'
+import { ChannelImages } from './ChannelImages'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import { AgentAvatar } from '@/components/icons/AgentAvatar'
 
 /** How long the copy button stays on its confirmed state. Matches the chat composer's. */
 const COPIED_RESET_MS = 1500
 
-const PROVIDER_NAME_COLOR: Record<string, string> = {
-  'claude-code': 'text-[#C26B45] dark:text-[#E89572]',
-  codex: 'text-[#10A37F] dark:text-[#3FBE9B]',
-  opencode: 'text-[#7C5CD3] dark:text-[#A48BE6]',
-  kimi: 'text-[#5165FF] dark:text-[#8794FF]',
-  grok: 'text-[#1A1A1A] dark:text-[#E8E8E8]',
-}
+/**
+ * Agent name colors — category colors (telling members apart), so literals.
+ * Picked by agent id: ids are sequential, so agents created around the same
+ * time (i.e. the ones that end up in one channel) never share a color.
+ */
+const AGENT_NAME_COLORS = [
+  'text-[#C2410C] dark:text-[#FB923C]', // orange
+  'text-[#047857] dark:text-[#34D399]', // emerald
+  'text-[#6D28D9] dark:text-[#A78BFA]', // violet
+  'text-[#1D4ED8] dark:text-[#60A5FA]', // blue
+  'text-[#BE185D] dark:text-[#F472B6]', // pink
+  'text-[#B45309] dark:text-[#FBBF24]', // amber
+  'text-[#0E7490] dark:text-[#22D3EE]', // cyan
+  'text-[#4D7C0F] dark:text-[#A3E635]', // lime
+] as const
 
 interface ChannelMessageItemProps {
   message: ChannelMessage
@@ -31,6 +40,8 @@ interface ChannelMessageItemProps {
   onOpenTask?: (taskId: number) => void
   /** Flashed after a jump here from a task. */
   highlighted?: boolean
+  /** The thread under this message, when there is one. */
+  thread?: ChannelThread
 }
 
 export const ChannelMessageItem = memo(function ChannelMessageItem({
@@ -41,6 +52,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
   tasks,
   onOpenTask,
   highlighted,
+  thread,
 }: ChannelMessageItemProps) {
   const intl = useIntl()
   const isAgent = message.senderType === 'agent'
@@ -75,15 +87,24 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
   }
 
   const isUser = !isAgent
+  const hasText = message.content.trim() !== ''
+  const hasImages = (message.attachments?.length ?? 0) > 0
   const senderName = isAgent
     ? (agent?.name ?? message.senderName)
     : intl.formatMessage({ id: 'channel.message.you', defaultMessage: 'You' })
 
   const actions = (
     <div className={cn(
-      'absolute -top-3.5 z-10 flex items-center gap-0.5 rounded-lg border border-border/60 bg-popover p-0.5 shadow-float dark:border-border/35',
-      'opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto',
-      isUser ? 'left-0' : 'right-2',
+      'absolute z-10 flex items-center gap-0.5 rounded-lg border border-border/60 bg-popover p-0.5 shadow-float dark:border-border/35',
+      // Keyboard focus keeps it open; a mouse click must not — focus-within
+      // left the bar pinned after clicking Copy, so two bars showed at once.
+      'opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto has-[:focus-visible]:opacity-100 has-[:focus-visible]:pointer-events-auto',
+      // Yours: beside the bubble, in the empty space on its left — anchored
+      // over the bubble it covered short messages ("hi") and ran past the
+      // column edge. Agents': on the name row's empty right end, not poking up
+      // into the previous message; grouped lines have no name row, so it sits
+      // above as before.
+      isUser ? 'right-full top-0 mr-1.5' : cn('right-2', grouped ? '-top-3.5' : 'top-1.5'),
     )}>
       <ActionButton icon={<MessageSquare className="size-3.5" />} label={intl.formatMessage({ id: 'channel.message.reply', defaultMessage: 'Reply' })} onClick={() => onReply(message.id)} />
       <ActionButton
@@ -100,10 +121,12 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
 
   const footer = (
     <>
-      {message.replyCount > 0 && (
+      {(message.replyCount > 0 || thread) && (
         <ThreadSummary
           count={message.replyCount}
           lastReplyAt={message.lastReplyAt}
+          thread={thread}
+          agents={agents}
           onClick={() => onReply(message.id)}
         />
       )}
@@ -146,11 +169,16 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
             {formatTime(message.createdAt)}
           </span>
         )}
-        <div className="relative max-w-[85%] md:max-w-[75%]">
+        <div className="relative flex max-w-[85%] flex-col items-end md:max-w-[75%]">
           {actions}
-          <div className="rounded-xl bg-muted px-3.5 py-2 text-sm leading-relaxed text-foreground phone:text-base">
-            <MarkdownRenderer content={message.content} />
-          </div>
+          {hasText && (
+            <div className="rounded-xl bg-muted px-3.5 py-2 text-sm leading-relaxed text-foreground phone:text-base">
+              <MarkdownRenderer content={message.content} />
+            </div>
+          )}
+          {hasImages && (
+            <ChannelImages attachments={message.attachments!} align="end" className={hasText ? 'mt-1.5' : undefined} />
+          )}
         </div>
         <div className="flex max-w-[85%] flex-col items-end md:max-w-[75%]">{footer}</div>
       </div>
@@ -173,7 +201,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
       <div className="min-w-0 flex-1">
         {!grouped && (
           <div className="mb-1 flex items-baseline gap-2 leading-none">
-            <span className={cn('text-[13px] font-semibold', providerNameColor(agent?.provider))}>
+            <span className={cn('text-[13px] font-semibold', agentNameColor(agent?.id))}>
               {senderName}
             </span>
             <span className="text-[11px] text-muted-foreground/60 tabular-nums">
@@ -181,18 +209,22 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
             </span>
           </div>
         )}
-        <div className="text-sm leading-relaxed text-foreground phone:text-base">
-          <MarkdownRenderer content={message.content} />
-        </div>
+        {hasText && (
+          <div className="text-sm leading-relaxed text-foreground phone:text-base">
+            <MarkdownRenderer content={message.content} />
+          </div>
+        )}
+        {hasImages && <ChannelImages attachments={message.attachments!} className={hasText ? 'mt-1.5' : undefined} />}
         {footer}
       </div>
     </div>
   )
 })
 
-/** Agent name color, by provider — a category color, so it stays a literal. */
-export function providerNameColor(provider: string | undefined): string {
-  return PROVIDER_NAME_COLOR[provider ?? ''] ?? 'text-tint'
+/** Per-agent name color, so members of a channel are easy to tell apart. */
+export function agentNameColor(agentId: number | undefined): string {
+  if (agentId == null) return 'text-tint'
+  return AGENT_NAME_COLORS[Math.abs(agentId) % AGENT_NAME_COLORS.length]
 }
 
 /** A one-line event ("Reset Claude…") between messages: a quiet rule, not a pill. */
@@ -207,37 +239,104 @@ function SystemNotice({ content }: { content: string }) {
 }
 
 /**
- * Thread entry under a message. In a channel the clarifying questions and specs
- * live in the thread, so this is the one thing under a message that must not
- * be missed: a small bordered row with the count in link color.
+ * Thread entry under a message. In a channel the work on a message happens in
+ * its thread, so this is the one thing under a message that must not be
+ * missed: a small bordered row with the count in link color, who owns the
+ * thread, what state it is in, and the owner's one-line summary.
  */
-function ThreadSummary({ count, lastReplyAt, onClick }: { count: number; lastReplyAt: number | null | undefined; onClick: () => void }) {
+function ThreadSummary({ count, lastReplyAt, thread, agents, onClick }: {
+  count: number
+  lastReplyAt: number | null | undefined
+  thread: ChannelThread | undefined
+  agents: Agent[]
+  onClick: () => void
+}) {
+  const owner = thread?.ownerAgentId != null ? agents.find((a) => a.id === thread.ownerAgentId) : undefined
+  const running = (thread?.activeAgentIds.length ?? 0) > 0
   return (
     <button
       type="button"
       onClick={onClick}
-      className="group/thread mt-1.5 flex max-w-full items-center gap-2 rounded-lg border border-border/50 bg-background px-2.5 py-1 text-xs transition-colors hover:bg-row-hover dark:border-border/35"
+      className="group/thread mt-1.5 flex max-w-full flex-col items-start gap-0.5 rounded-lg border border-border/50 bg-background px-2.5 py-1 text-left text-xs transition-colors hover:bg-row-hover dark:border-border/35"
     >
-      <MessageSquare className="size-3.5 shrink-0 text-link" />
-      <span className="font-medium text-link">
-        <FormattedMessage
-          id="channel.message.replyCount"
-          defaultMessage="{count, plural, one {# reply} other {# replies}}"
-          values={{ count }}
-        />
-      </span>
-      {lastReplyAt != null && (
-        <span className="truncate text-muted-foreground/70 tabular-nums">
+      <span className="flex max-w-full items-center gap-2">
+        <MessageSquare className="size-3.5 shrink-0 text-link" />
+        <span className="shrink-0 font-medium text-link">
           <FormattedMessage
-            id="channel.message.lastReply"
-            defaultMessage="Last reply {time}"
-            values={{ time: formatReplyTime(lastReplyAt) }}
+            id="channel.message.replyCount"
+            defaultMessage="{count, plural, one {# reply} other {# replies}}"
+            values={{ count }}
           />
         </span>
+        {owner && (
+          <span className="flex min-w-0 shrink items-center gap-1 text-foreground/85">
+            <AgentAvatar provider={owner.provider} size="sm" className="size-4" />
+            <span className="truncate">{owner.name}</span>
+          </span>
+        )}
+        {thread && <ThreadStatusLabel status={thread.status} running={running} needsApproval={thread.waiting.length > 0} />}
+        {lastReplyAt != null && !running && (
+          <span className="truncate text-muted-foreground/70 tabular-nums">
+            <FormattedMessage
+              id="channel.message.lastReply"
+              defaultMessage="Last reply {time}"
+              values={{ time: formatReplyTime(lastReplyAt) }}
+            />
+          </span>
+        )}
+        <ChevronRight className="-mr-1 size-3.5 shrink-0 text-muted-foreground/60 opacity-0 transition-opacity group-hover/thread:opacity-100" />
+      </span>
+      {thread?.summary && (
+        <span className="max-w-full truncate pl-5.5 text-muted-foreground">{thread.summary}</span>
       )}
-      <ChevronRight className="-mr-1 size-3.5 shrink-0 text-muted-foreground/60 opacity-0 transition-opacity group-hover/thread:opacity-100" />
     </button>
   )
+}
+
+/**
+ * A thread's state in a few words: "Needs approval" while one of its sessions
+ * is blocked on a person, "Working" (shimmering) while one runs, otherwise what
+ * the owner reported — "Needs input" or "Done". An open thread with nothing
+ * running says nothing.
+ */
+export function ThreadStatusLabel({ status, running, needsApproval = false, className }: {
+  status: ChannelThread['status']
+  running: boolean
+  needsApproval?: boolean
+  className?: string
+}) {
+  if (needsApproval) {
+    return (
+      <span className={cn('flex shrink-0 items-center gap-1 text-status-warn', className)}>
+        <ShieldAlert className="size-3" />
+        <FormattedMessage id="channel.thread.status.needsApproval" defaultMessage="Needs approval" />
+      </span>
+    )
+  }
+  if (running) {
+    return (
+      <span className={cn('shrink-0 text-muted-foreground shimmer motion-reduce:shimmer-none', className)}>
+        <FormattedMessage id="channel.thread.status.working" defaultMessage="Working" />
+      </span>
+    )
+  }
+  if (status === 'waiting') {
+    return (
+      <span className={cn('flex shrink-0 items-center gap-1 text-status-warn', className)}>
+        <CircleAlert className="size-3" />
+        <FormattedMessage id="channel.thread.status.waiting" defaultMessage="Needs input" />
+      </span>
+    )
+  }
+  if (status === 'done') {
+    return (
+      <span className={cn('flex shrink-0 items-center gap-1 text-status-ok', className)}>
+        <Check className="size-3" />
+        <FormattedMessage id="channel.thread.status.done" defaultMessage="Done" />
+      </span>
+    )
+  }
+  return null
 }
 
 function ActionButton({ icon, label, onClick }: { icon: ReactNode; label: string; onClick: () => void }) {

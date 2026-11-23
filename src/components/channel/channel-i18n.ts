@@ -28,6 +28,7 @@ export const SCOPE_MESSAGES = defineMessages({
   telegram: { id: "channel.scope.telegram", defaultMessage: "telegram" },
   linear: { id: "channel.scope.linear", defaultMessage: "linear" },
   task: { id: "channel.scope.task", defaultMessage: "task" },
+  thread: { id: "channel.scope.thread", defaultMessage: "thread" },
 }) satisfies Record<BindingScopeKind, MessageDescriptor>
 
 export function scopeLabel(intl: IntlShape, kind: BindingScopeKind): string {

@@ -14,6 +14,7 @@ import {
   activeAttentionCounts,
   buildActiveEntries,
   chatIdOfTab,
+  entryNotificationIds,
   focusPriorityEntries,
   unreadNotificationIds,
   type ActiveEntry,
@@ -136,6 +137,14 @@ export function useActiveAttentionCounts(): { needs: number; done: number } {
 function useOpenActiveEntry(onOpenNotification: (notification: Notification) => void, onOpenChat: OpenChat) {
   return useCallback((entry: ActiveEntry) => {
     const navigation = useNavigationStore.getState()
+    // A task's row goes to the task, even when its session is what it is shown by:
+    // that is where its review, comments and replies are.
+    if (entry.notification?.taskId != null) {
+      const ids = entryNotificationIds(entry)
+      if (ids.length > 0) void useInboxStore.getState().markRead(ids)
+      onOpenNotification(entry.notification)
+      return
+    }
     if (entry.chatId != null) {
       // Re-entering from the session list should show the latest output,
       // including a running turn whose tab still holds an earlier position.

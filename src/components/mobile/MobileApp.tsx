@@ -296,7 +296,10 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
 
   // An inbox row: its conversation, else wherever its notice points (a board task).
   const handleOpenFocusEntry = useCallback((entry: ActiveEntry) => {
-    if (entry.chatId != null) {
+    // A task's row opens the task, even when its session is what it is shown by.
+    if (entry.notification?.taskId != null) {
+      handleOpenNotification(entry.notification)
+    } else if (entry.chatId != null) {
       handleOpenNotification({
         chatId: entry.chatId,
         workspaceId: entry.workspaceId,

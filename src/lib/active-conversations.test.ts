@@ -5,6 +5,7 @@ import {
   activeAttentionCounts,
   buildActiveEntries,
   dismissibleNotification,
+  entryNotificationIds,
   focusPriorityEntries,
   unreadNotificationIds,
   type ActiveInput,
@@ -262,5 +263,36 @@ describe("buildActiveEntries: external agents fold into their lead", () => {
       parentOfChat,
     }))
     expect(summary(entries)).toEqual([["chat:54", "done"]])
+  })
+
+  it("shows a task and its agent's session as one row", () => {
+    const entries = buildActiveEntries(input({
+      recentChats: [recent(40, 40, { title: "#3 Fix login" })],
+      buckets: [{ workspaceId: 10, tabs: [tab("chat:40", 40)] }],
+      unseenTabIds: new Set(["chat:40"]),
+      unread: [
+        notification(6, { kind: "task_in_review", severity: "action", chatId: 40, taskId: 3, sourceKey: "task:3", updatedAt: 6 }),
+        notification(9, { kind: "chat_complete", chatId: 40, sourceKey: "chat:40", updatedAt: 9 }),
+      ],
+    }))
+
+    expect(summary(entries)).toEqual([["chat:40", "needs"]])
+    expect(entries[0].notification?.id).toBe(6)
+    // Opening or dismissing the row reads both of its notices.
+    expect(entryNotificationIds(entries[0]).sort((a, b) => a - b)).toEqual([6, 9])
+  })
+
+  it("counts an agent's reply on a task, but keeps a finished task for the Focus view", () => {
+    const unread = [
+      notification(6, { kind: "task_reply", chatId: 40, taskId: 3, sourceKey: "task:3" }),
+      notification(7, { kind: "task_done", chatId: 41, taskId: 4, sourceKey: "task:4" }),
+    ]
+    const recentChats = [recent(40), recent(41)]
+
+    expect(summary(buildActiveEntries(input({ recentChats, unread })))).toEqual([["chat:40", "done"], ["chat:41", "recent"]])
+    expect(summary(buildActiveEntries(input({ recentChats, unread, includeInfo: true })))).toEqual([
+      ["chat:41", "done"],
+      ["chat:40", "done"],
+    ])
   })
 })

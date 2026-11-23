@@ -41,10 +41,19 @@ export function TaskExecutionIndicator({ task, className }: { task: TaskListItem
 }
 
 /** Includes hidden Spec agents; the dot describes this task's own execution. */
-export function TaskAssigneeAvatar({ task, agents }: { task: TaskListItem; agents: Agent[] }) {
+export function TaskAssigneeAvatar({
+  task,
+  agents,
+  showRunning = true,
+}: {
+  task: TaskListItem
+  agents: Agent[]
+  /** Off where the run is already spelled out beside it (the detail view's status line). */
+  showRunning?: boolean
+}) {
   const agent = (task.assignedAgent?.id === task.assignedAgentId ? task.assignedAgent : null) ?? agents.find((a) => a.id === task.assignedAgentId)
   if (!agent) return <span className="size-5 shrink-0 rounded-full border border-dashed border-muted-foreground/40" title="Unassigned" />
-  const running = isTaskRunning(task) && task.executionAgent?.id === agent.id
+  const running = showRunning && isTaskRunning(task) && task.executionAgent?.id === agent.id
   return (
     <span className="relative inline-flex shrink-0" title={agent.name}>
       <AgentAvatar provider={agent.provider} size="sm" />

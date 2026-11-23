@@ -20,6 +20,13 @@ export type TaskCreatedBy = 'human' | 'agent'
  */
 export type TaskWorkspaceMode = 'new' | 'shared'
 
+/**
+ * Who wrote the title. `auto`: left blank at creation, so the server derived a
+ * placeholder from the description and replaces it with a generated one; any
+ * later title edit makes it `user`.
+ */
+export type TaskTitleSource = 'user' | 'auto'
+
 /** The task's latest GitHub pull request (a `github_pr` surface), for its card. */
 export interface TaskPullRequest {
   number: number
@@ -51,6 +58,9 @@ export interface Task {
   projectId: number
   number: number
   title: string
+  titleSource: TaskTitleSource
+  /** Response-only: the title is still being generated (set by `withTaskExecution`). */
+  titlePending?: boolean
   description: string
   /** Images attached to the description; sent to the agent with the dispatch prompt. */
   attachments: TaskAttachment[]
@@ -210,6 +220,8 @@ export interface TaskDetail extends Task {
 export interface CreateTaskInput {
   projectId: number
   title: string
+  /** Default 'user'. The REST route sets 'auto' when the title was left blank. */
+  titleSource?: TaskTitleSource
   description?: string
   attachments?: TaskAttachment[]
   workspaceMode?: TaskWorkspaceMode
@@ -230,6 +242,8 @@ export interface CreateTaskInput {
 
 export interface UpdateTaskInput {
   title?: string
+  /** Defaults to 'user' whenever `title` is set: an edited title is never replaced by a generated one. */
+  titleSource?: TaskTitleSource
   description?: string
   attachments?: TaskAttachment[]
   workspaceMode?: TaskWorkspaceMode

@@ -297,6 +297,11 @@ const VERSION_CACHE_TTL_MS = 60_000
 
 const versionCache = new Map<CliAdapterId, { info: CliVersionInfo; expiresAt: number }>()
 
+/** Drop the cached `--version` result, e.g. after the CLI updated itself. */
+export function invalidateCliVersionCache(adapterId: CliAdapterId): void {
+  versionCache.delete(adapterId)
+}
+
 /**
  * Run `<cli> --version` and report the version, or a message explaining why it
  * could not run.

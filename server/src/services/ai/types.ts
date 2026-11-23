@@ -73,6 +73,12 @@ export interface AgentMcpContext {
    */
   channelId?: number
   /**
+   * Thread this session is bound to (a thread session within `channelId`).
+   * Scopes workspace_chat to that thread: check_messages reads the thread, and
+   * the thread tools (update_thread) act on it.
+   */
+  threadRootId?: number
+  /**
    * Direct workspace chat this session IS (interactive user chat). Threaded to
    * the taskboard MCP so `start_spec` can start a spec from this chat and
    * deliver its results back here. Mutually exclusive with channelId. When set,

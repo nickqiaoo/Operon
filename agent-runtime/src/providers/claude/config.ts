@@ -79,8 +79,20 @@ function resolveThinkingLevel(level?: string): ClaudeThinkingLevel {
  * agent messaging): auto-approved so the host's plumbing never raises a prompt.
  * Shared with the other Claude-SDK-shaped providers (Qoder), which name MCP
  * tools the same way.
+ *
+ * The servers that are wholly the host's own are allowed by server name
+ * (`mcp__<server>` matches every tool on it): a list of tool names went stale
+ * each time one was added — channel agents stalled on approvals for
+ * open_thread / update_thread and the newer taskboard tools, with nobody
+ * watching the chat to answer. The per-tool names below stay for clients that
+ * only match exact names.
  */
 export const OPERON_INFRA_ALLOWED_TOOLS = [
+  'mcp__memory',
+  'mcp__workspace_chat',
+  'mcp__taskboard',
+  'mcp__im_chat',
+  'mcp__team_inbox',
   'mcp__memory__memory_search',
   'mcp__memory__memory_upsert',
   'mcp__external_agent__external_agent_run',
@@ -92,8 +104,9 @@ export const OPERON_INFRA_ALLOWED_TOOLS = [
   'mcp__workspace_chat__check_messages',
   'mcp__workspace_chat__read_history',
   'mcp__workspace_chat__list_server',
-  'mcp__workspace_chat__upload_file',
-  'mcp__workspace_chat__view_file',
+  'mcp__workspace_chat__open_thread',
+  'mcp__workspace_chat__list_threads',
+  'mcp__workspace_chat__update_thread',
   'mcp__taskboard__list_project_tasks',
   'mcp__taskboard__get_project_task',
   'mcp__taskboard__create_project_task',

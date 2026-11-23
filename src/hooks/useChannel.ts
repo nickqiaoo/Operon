@@ -1,18 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { applyThreadUpdate, applyWaitingSessions, channelKeys } from '@/lib/channel-queries'
 import { subscribeSse } from '@/lib/sse'
 import { useChannelStore } from '@/stores/channel-store'
-import type { ChannelMessage, ChannelEvent } from '@/types/channel'
+import type { ChannelAttachment, ChannelMessage, ChannelEvent, ThreadRootActivity } from '@/types/channel'
 
 interface UseChannelOptions {
   channelId: number | null
 }
 
 const PAGE_SIZE = 50
+const NO_MESSAGES: ChannelMessage[] = []
 
 /** How long a `typing_start` is trusted before we clear it ourselves, in case
  *  the matching `typing_stop` never arrives (agent crashed, stream dropped). */
 const TYPING_TTL_MS = 30_000
+
+function mergeMessages(snapshot: ChannelMessage[], live: ChannelMessage[]): ChannelMessage[] {
+  const byId = new Map(snapshot.map((message) => [message.id, message]))
+  for (const message of live) {
+    if (!byId.has(message.id)) byId.set(message.id, message)
+  }
+  return [...byId.values()].sort((a, b) => a.id - b.id)
+}
 
 export function useChannel({ channelId }: UseChannelOptions) {
   const [messages, setMessages] = useState<ChannelMessage[]>([])
@@ -22,6 +33,32 @@ export function useChannel({ channelId }: UseChannelOptions) {
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const typingTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
+  const queryClient = useQueryClient()
+  const threadActivity = useRef(new Map<number, ThreadRootActivity>())
+  const legacyReplies = useRef(new Set<number>())
+  const applyThreadActivity = useCallback((message: ChannelMessage) => {
+    const activity = threadActivity.current.get(message.id)
+    return activity && activity.replyCount > message.replyCount ? { ...message, ...activity } : message
+  }, [])
+  const updateReplyCount = useCallback((reply: ChannelMessage, activity?: ThreadRootActivity) => {
+    if (activity) {
+      const previous = threadActivity.current.get(activity.id)
+      if (previous && previous.replyCount >= activity.replyCount) return
+      threadActivity.current.set(activity.id, activity)
+      setMessages((prev) => prev.map((message) => message.id === activity.id ? applyThreadActivity(message) : message))
+      return
+    }
+    // Older nodes send only the reply. Count its POST and SSE delivery once.
+    if (reply.threadRootId == null || legacyReplies.current.has(reply.id)) return
+    legacyReplies.current.add(reply.id)
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === reply.threadRootId
+          ? { ...m, replyCount: m.replyCount + 1, lastReplyAt: Math.max(m.lastReplyAt ?? 0, reply.createdAt) }
+          : m
+      )
+    )
+  }, [applyThreadActivity])
 
   // Field selectors, not `useChannelStore()`. This hook backs the whole chat
   // view, so subscribing to the entire store re-rendered every message on any
@@ -32,6 +69,8 @@ export function useChannel({ channelId }: UseChannelOptions) {
 
   // Load initial messages when channel changes
   useEffect(() => {
+    threadActivity.current.clear()
+    legacyReplies.current.clear()
     if (!channelId) {
       setMessages([])
       setHasMore(false)
@@ -46,7 +85,7 @@ export function useChannel({ channelId }: UseChannelOptions) {
     api.channelMessageList(channelId, { limit: PAGE_SIZE })
       .then((res) => {
         if (cancelled) return
-        setMessages(res.messages.filter((m) => !m.threadRootId))
+        setMessages((prev) => mergeMessages(res.messages.filter((m) => !m.threadRootId), prev).map(applyThreadActivity))
         setHasMore(res.hasMore)
       })
       .catch((err: unknown) => {
@@ -58,7 +97,7 @@ export function useChannel({ channelId }: UseChannelOptions) {
     return () => {
       cancelled = true
     }
-  }, [channelId])
+  }, [applyThreadActivity, channelId])
 
   // Mirrors of the paging state that `loadMore` reads. Kept in refs so its
   // identity depends on `channelId` alone: it feeds ChannelChat's scroll
@@ -88,7 +127,7 @@ export function useChannel({ channelId }: UseChannelOptions) {
       // The user switched channels while this page was loading.
       if (currentChannelRef.current !== channelId) return
       const older = res.messages.filter((m) => !m.threadRootId)
-      setMessages((prev) => [...older, ...prev])
+      setMessages((prev) => mergeMessages(older, prev).map(applyThreadActivity))
       setHasMore(res.hasMore)
     } catch (err) {
       console.error(err)
@@ -96,7 +135,7 @@ export function useChannel({ channelId }: UseChannelOptions) {
       loadingMoreRef.current = false
       setLoadingMore(false)
     }
-  }, [channelId])
+  }, [applyThreadActivity, channelId])
 
   // Sync thread roots to store for sidebar display
   useEffect(() => {
@@ -111,10 +150,10 @@ export function useChannel({ channelId }: UseChannelOptions) {
       return
     }
     let cancelled = false
-    setThreadMessages([])
+    setThreadMessages((prev) => prev.filter((m) => m.threadRootId === threadRootId))
     api.channelThreadReplies(channelId, threadRootId)
       .then(({ replies }) => {
-        if (!cancelled) setThreadMessages(replies)
+        if (!cancelled) setThreadMessages((prev) => mergeMessages(replies, prev.filter((m) => m.threadRootId === threadRootId)))
       })
       .catch((err: unknown) => {
         if (!cancelled) console.error(err)
@@ -142,23 +181,14 @@ export function useChannel({ channelId }: UseChannelOptions) {
     if (event.type === 'channel_message') {
       const msg = event.data
       if (msg.threadRootId) {
-        // Thread reply
-        setThreadMessages((prev) => {
-          if (prev.some((m) => m.id === msg.id)) return prev
-          return [...prev, msg]
-        })
-        // Update replyCount on root message
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === msg.threadRootId
-              ? { ...m, replyCount: m.replyCount + 1, lastReplyAt: msg.createdAt }
-              : m
-          )
-        )
+        if (msg.threadRootId === useChannelStore.getState().threadRootId) {
+          setThreadMessages((prev) => mergeMessages(prev.filter((m) => m.threadRootId === msg.threadRootId), [msg]))
+        }
+        updateReplyCount(msg, event.threadRoot)
       } else {
         setMessages((prev) => {
           if (prev.some((m) => m.id === msg.id)) return prev
-          return [...prev, msg]
+          return [...prev, applyThreadActivity(msg)]
         })
       }
       // Stop typing for this agent if it's an agent message
@@ -169,6 +199,10 @@ export function useChannel({ channelId }: UseChannelOptions) {
       const msg = event.data
       setMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)))
       setThreadMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)))
+    } else if (event.type === 'thread_updated') {
+      applyThreadUpdate(queryClient, event.data)
+    } else if (event.type === 'sessions_waiting') {
+      if (channelId) applyWaitingSessions(queryClient, channelId, event.data)
     } else if (event.type === 'agent_status') {
       // Update session status in store in real time
       useChannelStore.getState().updateSessionStatus(event.agentId, event.projectId, event.status)
@@ -190,7 +224,7 @@ export function useChannel({ channelId }: UseChannelOptions) {
     } else if (event.type === 'typing_stop') {
       clearTyping(event.agentId)
     }
-  }, [clearTyping])
+  }, [applyThreadActivity, channelId, clearTyping, queryClient, updateReplyCount])
 
   // SSE subscription
   useEffect(() => {
@@ -198,9 +232,14 @@ export function useChannel({ channelId }: UseChannelOptions) {
     const subscription = subscribeSse<ChannelEvent>({
       url: () => api.channelStreamUrl(channelId),
       onEvent: handleEvent,
+      // Thread updates missed while the stream was down: read the list again.
+      onError: () => {
+        void queryClient.invalidateQueries({ queryKey: channelKeys.threads(channelId) })
+        void queryClient.invalidateQueries({ queryKey: channelKeys.waiting(channelId) })
+      },
     })
     return () => subscription.close()
-  }, [channelId, handleEvent])
+  }, [channelId, handleEvent, queryClient])
 
   // Drop pending typing timers on unmount / channel switch — they'd otherwise
   // keep a reference to this hook's setState for up to TYPING_TTL_MS.
@@ -212,42 +251,39 @@ export function useChannel({ channelId }: UseChannelOptions) {
     }
   }, [])
 
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (content: string, attachments: ChannelAttachment[] = []) => {
     if (!channelId) return
     const { message } = await api.channelMessageCreate(channelId, {
       senderType: 'human',
       senderName: 'you',
       content,
+      ...(attachments.length > 0 ? { attachments } : {}),
     })
+    if (currentChannelRef.current !== channelId) return
     setMessages((prev) => {
       if (prev.some((m) => m.id === message.id)) return prev
       return [...prev, message]
     })
   }, [channelId])
 
-  const sendThreadReply = useCallback(async (content: string) => {
+  const sendThreadReply = useCallback(async (content: string, attachments: ChannelAttachment[] = []) => {
     if (!channelId || !threadRootId) return
-    const { message } = await api.channelThreadReply(channelId, threadRootId, {
+    const { message, threadRoot } = await api.channelThreadReply(channelId, threadRootId, {
       senderType: 'human',
       senderName: 'you',
       content,
+      ...(attachments.length > 0 ? { attachments } : {}),
     })
-    setThreadMessages((prev) => {
-      if (prev.some((m) => m.id === message.id)) return prev
-      return [...prev, message]
-    })
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === threadRootId
-          ? { ...m, replyCount: m.replyCount + 1, lastReplyAt: message.createdAt }
-          : m
-      )
-    )
-  }, [channelId, threadRootId])
+    if (currentChannelRef.current !== channelId) return
+    if (useChannelStore.getState().threadRootId === threadRootId) {
+      setThreadMessages((prev) => mergeMessages(prev.filter((m) => m.threadRootId === threadRootId), [message]))
+    }
+    updateReplyCount(message, threadRoot)
+  }, [channelId, threadRootId, updateReplyCount])
 
   return {
     messages,
-    threadMessages,
+    threadMessages: threadMessages[0]?.threadRootId === threadRootId ? threadMessages : NO_MESSAGES,
     typingAgentIds,
     loading,
     loadingMore,

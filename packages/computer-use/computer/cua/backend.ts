@@ -38,50 +38,6 @@ import type {
 import { SkyComputerUseError, SkyComputerUseTransportError, type NativePipeConnection } from "../wire.ts";
 import { CuaDaemonTransport, type CuaToolResult } from "./daemon.ts";
 
-/**
- * Apps Computer Use refuses to drive, copied from the Swift engine's
- * `AppSafetyPolicy.blockedBundleIdentifiers`. Password managers, terminals,
- * agent front-ends, the macOS security agents, and Operon itself. This is a
- * safety boundary, so it is duplicated deliberately rather than derived: the
- * engine being replaced must not be the thing that decides what the replacement
- * is allowed to touch.
- */
-export const BLOCKED_BUNDLE_IDS: ReadonlySet<string> = new Set([
-  "com.1password.1password",
-  "com.1password.safari",
-  "com.bitwarden.desktop",
-  "com.dashlane.dashlanephonefinal",
-  "com.lastpass.lastpass",
-  "com.nordsec.nordpass",
-  "me.proton.pass.electron",
-  "me.proton.pass.catalyst",
-  "com.apple.terminal",
-  "com.googlecode.iterm2",
-  "dev.warp.warp-stable",
-  "net.kovidgoyal.kitty",
-  "com.github.wez.wezterm",
-  "com.mitchellh.ghostty",
-  "com.raphaelamorim.rio",
-  "dev.commandline.waveterm",
-  "com.openai.codex",
-  "com.openai.codex.alpha",
-  "com.openai.codex.beta",
-  "com.openai.codex.dev",
-  "com.openai.codex.nightly",
-  "com.openai.chat.alpha",
-  "com.openai.chat.beta",
-  "com.openai.chat.nightly",
-  "com.openai.chat.mac-debug",
-  "com.openai.atlas",
-  "com.openai.atlas.alpha",
-  "com.openai.atlas.beta",
-  "com.apple.usernotificationcenter",
-  "com.apple.localauthenticationremoteservice",
-  "com.apple.securityagent",
-  "com.apple.screencontinuity",
-  "top.chatcode.operon",
-]);
-
 /** How long a resolved (app -> pid, window) mapping is trusted. */
 const RESOLUTION_TTL_MS = 1_500;
 
@@ -453,16 +409,17 @@ export class CuaDriverBackend implements ComputerUseBackend {
         requestType: "getAppPolicy",
       });
     }
-    const forbidden = BLOCKED_BUNDLE_IDS.has(bundleIdentifier.toLowerCase());
+    // No built-in block list: every app goes through the normal approval flow
+    // (ask, or the user's own allow / block rules).
     return {
-      allowPersistentApproval: !forbidden,
-      decision: forbidden ? "forbidden" : "allowed",
+      allowPersistentApproval: true,
+      decision: "allowed",
       target: {
         appPath: match?.launch_path ?? bundleIdentifier,
         bundleIdentifier,
         displayName: match?.name ?? bundleIdentifier,
-        risk: forbidden ? "high" : "low",
-        warningSubtitle: forbidden ? "This app is protected for safety reasons." : null,
+        risk: "low",
+        warningSubtitle: null,
       },
     };
   }

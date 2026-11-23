@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useCallback, useSyncExternalStore } from "react"
 import { FormattedMessage } from "react-intl"
 import { Folder } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -15,24 +15,41 @@ function readFilter(storageKey: string): number | null {
   }
 }
 
+// Live value per key, shared by every hook on that key: the Channels page's
+// header picks the project and the sidebar's channel list narrows with it.
+const filterValues = new Map<string, number | null>()
+const filterListeners = new Map<string, Set<() => void>>()
+
+function currentFilter(storageKey: string): number | null {
+  if (!filterValues.has(storageKey)) filterValues.set(storageKey, readFilter(storageKey))
+  return filterValues.get(storageKey) ?? null
+}
+
 /**
  * A page over every project, narrowed to one or not (null = all). Remembered per
- * page under `storageKey`; a remembered project that has since been removed
- * reads as all.
+ * page under `storageKey` and shared by everything reading that key; a
+ * remembered project that has since been removed reads as all.
  */
 export function useProjectFilter(storageKey: string): [number | null, (projectId: number | null) => void] {
   const projects = useProjectStore((s) => s.projects)
-  const [projectId, setProjectId] = useState<number | null>(() => readFilter(storageKey))
+  const subscribe = useCallback((listener: () => void) => {
+    const listeners = filterListeners.get(storageKey) ?? new Set()
+    filterListeners.set(storageKey, listeners)
+    listeners.add(listener)
+    return () => { listeners.delete(listener) }
+  }, [storageKey])
+  const projectId = useSyncExternalStore(subscribe, () => currentFilter(storageKey))
   const filter = projectId != null && projects.some((p) => p.id === projectId) ? projectId : null
-  const change = (next: number | null) => {
-    setProjectId(next)
+  const change = useCallback((next: number | null) => {
+    filterValues.set(storageKey, next)
     try {
       if (next == null) window.localStorage.removeItem(storageKey)
       else window.localStorage.setItem(storageKey, String(next))
     } catch {
       // Storage unavailable: the filter just isn't remembered.
     }
-  }
+    filterListeners.get(storageKey)?.forEach((listener) => listener())
+  }, [storageKey])
   return [filter, change]
 }
 
@@ -76,3 +93,6 @@ export function ProjectFilterSelect({
     </Select>
   )
 }
+
+/** The Board and Channels pages' filter, also read by the sidebar's channel list. */
+export const BOARD_PROJECT_FILTER_KEY = "operon.boardProjectFilter"

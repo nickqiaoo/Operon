@@ -31,8 +31,9 @@ function postSystem(
   channelId: number,
   content: string,
   emit: (m: ChannelMessage) => void,
+  threadRootId: number | null = null,
 ): void {
-  const msg = storage.createMessage({ channelId, senderType: 'system', senderName: 'system', content })
+  const msg = storage.createMessage({ channelId, threadRootId, senderType: 'system', senderName: 'system', content })
   emit(msg)
 }
 
@@ -40,6 +41,8 @@ function postSystem(
  * Handle a human `/reset` (optionally `@agent /reset`) posted to an in-app
  * channel. Resolves the leading `@mentions` to the channel's member agents and
  * resets each one's binding for THIS channel, so its next message cold-starts.
+ * In a thread it resets the thread sessions instead (the mentioned agents', or
+ * the owner's when nobody is mentioned); the channel sessions are left alone.
  *
  * Returns `true` when the message was a `/reset` and has been handled — the
  * caller must then NOT route it to agents. Returns `false` for anything that is
@@ -63,6 +66,34 @@ export async function handleChannelSlashCommand(
     .filter((a): a is NonNullable<typeof a> => a != null)
   const wanted = new Set(mentions.map((n) => n.toLowerCase()))
   const targets = memberAgents.filter((a) => wanted.has(a.name.toLowerCase()))
+
+  const rootId = message.threadRootId
+  if (rootId != null) {
+    const ownerId = storage.getThread(rootId)?.ownerAgentId ?? null
+    const inThread = targets.length > 0 ? targets : memberAgents.filter((a) => a.id === ownerId)
+    if (inThread.length === 0) {
+      postSystem(storage, channelId, 'Mention an agent to reset its session in this thread, e.g. `@Codex /reset`.', emit, rootId)
+      return true
+    }
+    const reset: string[] = []
+    for (const agent of inThread) {
+      const binding = storage.getBindingByScope('thread', String(rootId), agent.id)
+      if (binding) {
+        await resetBinding(storage, binding)
+        reset.push(agent.name)
+      }
+    }
+    postSystem(
+      storage,
+      channelId,
+      reset.length > 0
+        ? `🔄 Reset ${reset.join(', ')} in this thread — the next reply starts a fresh session.`
+        : `Nothing to reset for ${inThread.map((a) => a.name).join(', ')} in this thread (no session).`,
+      emit,
+      rootId,
+    )
+    return true
+  }
 
   if (targets.length === 0) {
     // A channel is multi-agent, so `/reset` must name a target — mirror the IM

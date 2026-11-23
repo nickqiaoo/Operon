@@ -213,7 +213,7 @@ function CardBody({ task, agents, dragging }: CardBodyProps) {
         </span>
       </div>
       {/* anywhere: a path or file name in the title has no spaces to break at, and would run out of the card. */}
-      <div className="text-sm text-foreground/90 leading-snug line-clamp-3 [overflow-wrap:anywhere]">{task.title}</div>
+      <div className={cn("text-sm text-foreground/90 leading-snug line-clamp-3 [overflow-wrap:anywhere]", task.titlePending && "shimmer motion-reduce:shimmer-none")}>{task.title}</div>
       {!specCardBadgeShown(task) && <TaskExecutionIndicator task={task} className="flex w-full" />}
       {task.labels.length > 0 && (
         <div className="flex min-w-0 flex-wrap items-center gap-1">

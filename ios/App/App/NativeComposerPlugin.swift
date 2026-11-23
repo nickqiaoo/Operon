@@ -74,6 +74,7 @@ public final class NativeComposerPlugin: CAPPlugin, CAPBridgedPlugin, UIDocument
             self.editor = editor
             editor.onEvent = { [weak self] name, data in self?.notifyListeners(name, data: data) }
             editor.onPickFiles = { [weak self] photos in self?.pickFiles(photos: photos) }
+            editor.onImageItem = { [weak self] provider, owner in self?.loadImage(provider, owner: owner) }
             if editor.superview == nil {
                 root.view.insertSubview(editor, aboveSubview: root.bridgeController.view)
             }
@@ -182,17 +183,23 @@ public final class NativeComposerPlugin: CAPPlugin, CAPBridgedPlugin, UIDocument
         guard let owner = pickingOwner else { return }
         pickingOwner = nil
         for result in results {
-            result.itemProvider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { [weak self] url, _ in
-                guard let url, let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return }
-                guard size <= 10 * 1024 * 1024 else {
-                    DispatchQueue.main.async { self?.showFileWarning() }
-                    return
-                }
-                guard let data = try? Data(contentsOf: url) else { return }
-                let type = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "image/jpeg"
-                let file: JSObject = ["name": url.lastPathComponent, "type": type, "url": "data:\(type);base64,\(data.base64EncodedString())"]
-                DispatchQueue.main.async { self?.notifyListeners("files", data: ["id": owner, "files": [file]]) }
+            loadImage(result.itemProvider, owner: owner)
+        }
+    }
+
+    private func loadImage(_ provider: NSItemProvider, owner: String) {
+        guard let identifier = provider.registeredTypeIdentifiers.first(where: { UTType($0)?.conforms(to: .image) == true }) else { return }
+        provider.loadFileRepresentation(forTypeIdentifier: identifier) { [weak self] url, _ in
+            guard let url, let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return }
+            guard size <= 10 * 1024 * 1024 else {
+                DispatchQueue.main.async { self?.showFileWarning() }
+                return
             }
+            guard let data = try? Data(contentsOf: url) else { return }
+            let type = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
+                ?? UTType(identifier)?.preferredMIMEType ?? "image/jpeg"
+            let file: JSObject = ["name": url.lastPathComponent, "type": type, "url": "data:\(type);base64,\(data.base64EncodedString())"]
+            DispatchQueue.main.async { self?.notifyListeners("files", data: ["id": owner, "files": [file]]) }
         }
     }
 
@@ -209,7 +216,7 @@ private final class ComposerTokenContainer: UIView {
     }
 }
 
-final class NativeComposerView: UIView, UITextViewDelegate {
+final class NativeComposerView: UIView, UITextViewDelegate, UITextPasteDelegate {
     private(set) var owner = ""
     private var revision = 0
     private let glass: UIVisualEffectView
@@ -243,6 +250,11 @@ final class NativeComposerView: UIView, UITextViewDelegate {
     private var submissionPending = false
     var onEvent: ((String, JSObject) -> Void)?
     var onPickFiles: ((Bool) -> Void)?
+    var onImageItem: ((NSItemProvider, String) -> Void)?
+    private lazy var defaultPasteConfiguration = textView.pasteConfiguration
+    private lazy var imagePasteConfiguration = UIPasteConfiguration(acceptableTypeIdentifiers:
+        (defaultPasteConfiguration?.acceptableTypeIdentifiers ?? [UTType.text.identifier, UTType.url.identifier])
+            + [UTType.image.identifier])
 
     override init(frame: CGRect) {
         if #available(iOS 26.0, *) {
@@ -286,6 +298,7 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         textView.accessibilityLabel = "Message"
         textView.accessibilityIdentifier = "native-message-input"
         textView.delegate = self
+        textView.pasteDelegate = self
         textView.addSubview(inlineTokens)
         placeholder.font = textView.font
         placeholder.textColor = .placeholderText
@@ -365,7 +378,9 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         let menuItems = next["menu"] as? [JSObject] ?? []
         let custom = menuElements(menuItems)
         var attachmentActions: [UIMenuElement] = []
-        if next["allowAttachments"] as? Bool == true {
+        let allowsAttachments = next["allowAttachments"] as? Bool == true
+        textView.pasteConfiguration = allowsAttachments ? imagePasteConfiguration : defaultPasteConfiguration
+        if allowsAttachments {
             attachmentActions = [
                 UIAction(title: "Photo Library", image: UIImage(systemName: "photo.on.rectangle")) { [weak self] _ in self?.onPickFiles?(true) },
                 UIAction(title: "Choose Files", image: UIImage(systemName: "folder")) { [weak self] _ in self?.onPickFiles?(false) },
@@ -699,6 +714,16 @@ final class NativeComposerView: UIView, UITextViewDelegate {
     }
     func textViewDidBeginEditing(_ textView: UITextView) { refresh() }
     func textViewDidEndEditing(_ textView: UITextView) { flushChange(); refresh() }
+
+    func textPasteConfigurationSupporting(_ supporting: UITextPasteConfigurationSupporting, transform item: UITextPasteItem) {
+        guard state["allowAttachments"] as? Bool == true,
+              item.itemProvider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else {
+            item.setDefaultResult()
+            return
+        }
+        onImageItem?(item.itemProvider, owner)
+        item.setNoResult()
+    }
 
     private func scheduleChange() {
         draftSync?.cancel()

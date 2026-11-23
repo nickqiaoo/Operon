@@ -4,7 +4,7 @@ import { withTaskExecution } from '../services/task-execution.js'
 import { subscribeWorkflowEvents } from '../services/workflow/hub.js'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import type { AgentBindingStorageAdapter, ChannelStorageAdapter, NotificationStorageAdapter, TaskStorageAdapter } from '../storage/interface.js'
+import type { AgentBindingStorageAdapter, ChannelStorageAdapter, NotificationStorageAdapter, ProjectStorageAdapter, TaskStorageAdapter } from '../storage/interface.js'
 import {
   dispatchProjectTask,
   wakeTaskBinding,
@@ -15,6 +15,7 @@ import { broadcastTask } from '../services/task-events.js'
 import { onTaskEvent } from '../services/channel-bus.js'
 import { commentOnTaskAsHuman, updateTaskAsHuman } from '../services/task-human-actions.js'
 import { sanitizeTaskAttachments } from '../services/task-attachments.js'
+import { placeholderTaskTitle, startTaskTitleGeneration } from '../services/task-title.js'
 import {
   SubtaskProposalError,
   confirmSubtaskProposal,
@@ -62,7 +63,13 @@ function projectScope(raw: string | undefined): number | undefined {
  * the convention used elsewhere (e.g. /api/agents/:id/stop?projectId=). The
  * list reads (tasks, labels, stream) take no projectId for every project.
  */
-export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdapter & ChannelStorageAdapter & Pick<AgentBindingStorageAdapter, 'getBindingByActiveChatId'>) {
+export function taskRoutes(
+  storage: TaskStorageAdapter &
+    NotificationStorageAdapter &
+    ChannelStorageAdapter &
+    Pick<AgentBindingStorageAdapter, 'getBindingByActiveChatId'> &
+    Pick<ProjectStorageAdapter, 'getProject'>,
+) {
   const router = new Hono()
 
   // ---- Labels (registered before /:id so 'labels' is never parsed as an id) ----
@@ -138,17 +145,24 @@ export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdap
   })
 
   router.post('/', async (c) => {
-    const input = await c.req.json<CreateTaskInput>()
-    if (!input.projectId || !input.title?.trim()) {
-      return c.json({ error: 'projectId and title required' }, 400)
-    }
+    const input = await c.req.json<Partial<CreateTaskInput>>()
+    const title = typeof input.title === 'string' ? input.title.trim() : ''
+    const description = typeof input.description === 'string' ? input.description : ''
+    if (!input.projectId) return c.json({ error: 'projectId required' }, 400)
+    // A blank title is generated from the description; images alone say nothing to title.
+    if (!title && !description.trim()) return c.json({ error: 'title or description required' }, 400)
+    const auto = !title
     const task = storage.taskCreate({
       ...input,
+      projectId: input.projectId,
+      title: auto ? placeholderTaskTitle(description) : title,
+      titleSource: auto ? 'auto' : 'user',
       attachments: sanitizeTaskAttachments(input.attachments),
       workspaceMode: parseWorkspaceMode(input.workspaceMode),
     })
+    if (auto) void startTaskTitleGeneration(storage, task.id)
     broadcastTask(storage, task.id)
-    return c.json({ task: storage.taskDetail(task.id) })
+    return c.json({ task: withTaskExecution(storage, storage.taskDetail(task.id)) })
   })
 
   /**

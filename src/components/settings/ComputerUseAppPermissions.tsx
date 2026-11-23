@@ -4,17 +4,14 @@ import {
     AppWindow,
     Ban,
     Check,
-    ChevronDown,
     ChevronsUpDown,
     Layers,
     Loader2,
-    Lock,
     RefreshCw,
     Trash2,
 } from "lucide-react"
 import { defineMessages, FormattedMessage, useIntl, type MessageDescriptor } from "react-intl"
 import { Button } from "@/components/ui/button"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
@@ -169,14 +166,7 @@ export function ComputerUseAppPermissions() {
         }
     }
 
-    // Protected apps are refused whatever the rule, so offering them would only
-    // create a rule that can never take effect.
-    const pickable = useMemo(() => {
-        const protectedIds = new Set(data?.protectedApps.map((app) => app.bundleId.toLowerCase()) ?? [])
-        return installed
-            .filter((app) => !protectedIds.has(app.bundleId.toLowerCase()))
-            .sort((a, b) => a.name.localeCompare(b.name))
-    }, [installed, data])
+    const pickable = useMemo(() => [...installed].sort((a, b) => a.name.localeCompare(b.name)), [installed])
 
     const addRule = async (rule: "allow" | "block") => {
         if (picked == null) return
@@ -325,36 +315,6 @@ export function ComputerUseAppPermissions() {
                             </Button>
                         </div>
                     )}
-
-                    <Collapsible>
-                        <CollapsibleTrigger className="group flex w-full items-center gap-2 rounded-lg px-1 py-1 text-left text-xs text-muted-foreground transition-colors hover:text-foreground">
-                            <Lock className="h-3.5 w-3.5 shrink-0" />
-                            <span className="flex-1">
-                                <FormattedMessage
-                                    id="settings.computerUse.apps.protected"
-                                    defaultMessage="{count} apps are always off-limits for safety"
-                                    values={{ count: data.protectedApps.length }}
-                                />
-                            </span>
-                            <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                            <p className="mt-2 px-1 text-xs text-muted-foreground">
-                                <FormattedMessage
-                                    id="settings.computerUse.apps.protectedDesc"
-                                    defaultMessage="Password managers, terminals, other agents, macOS security prompts and Operon itself. These cannot be allowed."
-                                />
-                            </p>
-                            <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-lg border border-border/40 bg-background/40 p-3 text-xs text-muted-foreground">
-                                {data.protectedApps.map((app) => (
-                                    <div key={app.bundleId} className="contents">
-                                        <span className="truncate">{app.name ?? "—"}</span>
-                                        <span className="truncate font-mono text-[11px]">{app.bundleId}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </CollapsibleContent>
-                    </Collapsible>
                 </section>
             )}
 

@@ -289,12 +289,11 @@ describe("CuaDriverBackend policy", () => {
     });
   });
 
-  it("forbids a password manager, matching the Swift engine's block list", async () => {
+  it("has no built-in block list: formerly protected apps go through normal approval", async () => {
     const { backend } = backendWith((name) => (name === "list_apps" ? APPS : WINDOWS));
     const policy = await backend.getAppPolicy("com.1password.1password");
-    expect(policy.decision).toBe("forbidden");
-    expect(policy.allowPersistentApproval).toBe(false);
-    expect(policy.target.risk).toBe("high");
+    expect(policy.decision).toBe("allowed");
+    expect(policy.allowPersistentApproval).toBe(true);
   });
 
   it("resolves an app by name and by path, not only by bundle id", async () => {

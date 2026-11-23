@@ -39,8 +39,10 @@ import { initProviderConfigService } from './services/provider-config.js'
 import { envRoutes } from './routes/env.js'
 import { initEnvConfigService } from './services/env-config.js'
 import { cliPathConfigRoutes } from './routes/cli-path-config.js'
+import { cliAutoUpdateRoutes } from './routes/cli-auto-update.js'
 import { acpAgentRoutes } from './routes/acp-agents.js'
 import { initCliPathConfigService } from './services/cli-path-config.js'
+import { initCliAutoUpdateService } from './services/cli-auto-update.js'
 import { diffPreviewConfigRoutes } from './routes/diff-preview-config.js'
 import { claudeTogglesRoutes } from './routes/claude-toggles.js'
 import { initClaudeTogglesService } from './services/claude-toggles.js'
@@ -200,6 +202,7 @@ export async function createApp(deps: AppDeps) {
     initEmbeddingConfig(deps.storage)
   }
   initCliPathConfigService(deps.storage)
+  initCliAutoUpdateService(deps.storage)
   initDiffPreviewConfigService(deps.storage)
   initClaudeTogglesService(deps.storage)
   initCommitMessageConfigService(deps.storage)
@@ -361,6 +364,7 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/provider-configs', providerConfigRoutes())
   app.route('/api/env', envRoutes())
   app.route('/api/cli-paths', cliPathConfigRoutes())
+  app.route('/api/cli-auto-update', cliAutoUpdateRoutes())
   app.route('/api/acp-agents', acpAgentRoutes())
   app.route('/api/diff-preview', diffPreviewConfigRoutes())
   app.route('/api/claude-toggles', claudeTogglesRoutes())

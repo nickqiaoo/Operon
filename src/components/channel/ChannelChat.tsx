@@ -8,10 +8,15 @@ import { useChannelStore } from '@/stores/channel-store'
 import { useTaskStore } from '@/stores/task-store'
 import type { TaskListItem } from '@/types/task'
 import { useChannel } from '@/hooks/useChannel'
+import { useChannelThreadMap, useChannelWaitingSessions } from '@/lib/channel-queries'
+import { SessionApprovals } from './SessionApprovals'
 import { ChannelMessageItem } from './ChannelMessageItem'
 import { ThreadPanel } from './ThreadPanel'
-import { COMPOSER_TEXTAREA_CLASS, ComposerFrame, ComposerSendButton } from './ComposerFrame'
+import { COMPOSER_TEXTAREA_CLASS, ComposerAttachButton, ComposerFrame, ComposerSendButton, ComposerSendError } from './ComposerFrame'
+import { PendingImageStrip } from '@/components/task/task-attachments'
+import { useChannelComposer } from './useChannelComposer'
 import { useScrollActivity } from '@/hooks/useScrollActivity'
+import { useScrollFade } from '@/components/ai-elements/use-scroll-fade'
 import { ResizeHandle } from '@/components/app-shell/ResizeHandle'
 import { useNativeShellOverlay } from '@/hooks/useNativeShellOverlay'
 import { useIsMobileShell } from '@/hooks/useIsMobile'
@@ -53,7 +58,6 @@ const clampThreadWidth = (v: number) =>
 
 export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = false, onClose, onBack, onOpenTask, focusMessageId = null, onFocusConsumed }: ChannelChatProps) {
   const intl = useIntl()
-  const [input, setInput] = useState('')
   const [atBottom, setAtBottom] = useState(true)
   const [newCount, setNewCount] = useState(0)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -109,6 +113,9 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
   const { messages, threadMessages, typingAgentIds, loading, loadingMore, hasMore, loadMore, sendMessage, sendThreadReply } = useChannel({
     channelId,
   })
+  const threads = useChannelThreadMap(channelId)
+  // Channel sessions blocked on an approval or a question; thread sessions' show in their thread.
+  const { data: waitingSessions = [] } = useChannelWaitingSessions(channelId)
 
   useEffect(() => {
     void loadMembers(channelId)
@@ -169,6 +176,32 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
       prevScrollHeightRef.current = scrollRef.current.scrollHeight
     }
   }, [messages, atBottom])
+
+  // A growing composer shrinks the transcript from below (desktop: it's a flex
+  // sibling; phone: it floats and pads the transcript's end). Shift scrollTop by
+  // the same amount so the bottom edge stays put and messages get pushed up
+  // instead of being covered.
+  const viewportHeightRef = useRef(0)
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    viewportHeightRef.current = el.clientHeight
+    const observer = new ResizeObserver(() => {
+      const prev = viewportHeightRef.current
+      const cur = el.clientHeight
+      viewportHeightRef.current = cur
+      if (prev > 0 && cur !== prev) el.scrollTop += prev - cur
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+  const prevComposerHeightRef = useRef(composerHeight)
+  useLayoutEffect(() => {
+    const delta = composerHeight - prevComposerHeightRef.current
+    prevComposerHeightRef.current = composerHeight
+    const el = scrollRef.current
+    if (el && delta !== 0 && isMobile) el.scrollTop += delta
+  }, [composerHeight, isMobile])
 
   // Opening the keyboard shrinks the transcript by the keyboard's height, which
   // leaves a reader who was at the bottom looking at older messages. Re-pin —
@@ -233,15 +266,14 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
     setNewCount(0)
   }
 
-  const handleSend = useCallback(async () => {
-    const text = input.trim()
-    if (!text) return
-    setInput('')
-    setMention((s) => ({ ...s, open: false }))
-    // Phone: sending ends the typing, so the keyboard goes. (UIKit does its own.)
-    if (isMobile) textareaRef.current?.blur()
-    await sendMessage(text)
-  }, [input, isMobile, sendMessage, setMention])
+  const { input, setInput, images, sending, sendFailed, canSend, submit } = useChannelComposer(sendMessage)
+
+  const handleSend = useCallback(async (text?: string) => {
+    if (await submit(text)) {
+      setMention((s) => ({ ...s, open: false }))
+      if (isMobile) textareaRef.current?.blur()
+    }
+  }, [isMobile, setMention, submit])
 
   const mentionMatches = useMentionMatches(memberAgents, mention.query)
 
@@ -266,7 +298,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
       node.focus()
       node.setSelectionRange(cursor, cursor)
     })
-  }, [mention.atIndex, setMention, input, nativeComposer])
+  }, [mention.atIndex, setInput, setMention, input, nativeComposer])
 
   const updateMentionFromCaret = useCallback(() => {
     const el = textareaRef.current
@@ -337,6 +369,13 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
     ? messages.find((m) => m.id === threadRootId) ?? null
     : null
 
+  // Fade the transcript's edges where it meets the header and the composer
+  // (like the main chat) instead of cutting a row of text in half. Not on a
+  // phone: there the transcript runs on under the floating glass composer.
+  const transcriptContentRef = useRef<HTMLDivElement>(null)
+  const fadeEdges = !isMobile && !loading && messages.length > 0
+  useScrollFade(scrollRef, transcriptContentRef, fadeEdges)
+
   const showRightPanel = threadRootId
   // On a phone the thread is a full-screen overlay; the native iOS tab bar
   // would otherwise sit on top of it.
@@ -373,7 +412,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
           <button
             type="button"
             onClick={onManageMembers}
-            className="flex h-7 items-center gap-2 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
+            className="group/members flex h-7 items-center gap-2 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
             title={intl.formatMessage({ id: 'channel.manageMembers', defaultMessage: 'Manage members' })}
           >
             <MemberStack agents={memberAgents} />
@@ -404,7 +443,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
             <div className="flex-1 min-h-0 relative overflow-hidden">
               <div
                 ref={scrollRef}
-                className="h-full overflow-y-auto overflow-x-hidden transcript-scrollbar"
+                className={`h-full overflow-y-auto overflow-x-hidden transcript-scrollbar${fadeEdges ? ' scroll-fade-y' : ''}`}
                 onScroll={handleScroll}
               >
                 {loading ? (
@@ -418,6 +457,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                   </div>
                 ) : (
                   <div
+                    ref={transcriptContentRef}
                     className="mx-auto max-w-4xl px-2 pb-6 pt-2 md:px-4"
                     style={isMobile ? { paddingBottom: `${composerHeight + 16}px` } : undefined}
                   >
@@ -443,6 +483,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                           tasks={tasksByMessage.get(msg.id)}
                           onOpenTask={onOpenTask}
                           highlighted={flashId === msg.id}
+                          thread={threads.get(msg.id)}
                         />
                       )
                     })}
@@ -506,8 +547,21 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
               ref={composerRef}
               // With the keyboard down the home indicator, with it up the keyboard:
               // it covers that strip, so the two never stack (0 on desktop).
-              className="shrink-0 p-3 pb-[calc(0.75rem+max(env(safe-area-inset-bottom),var(--keyboard-height)))] phone:absolute phone:inset-x-0 phone:bottom-0 phone:z-20"
+              // No top padding on desktop: the transcript fades into the composer
+              // there, and a padded strip read as a blank band between the two.
+              className="shrink-0 px-3 pt-0 phone:pt-3 pb-[calc(0.75rem+max(env(safe-area-inset-bottom),var(--keyboard-height)))] phone:absolute phone:inset-x-0 phone:bottom-0 phone:z-20"
             >
+              {waitingSessions.length > 0 && (
+                <div className="mx-auto mb-2 max-w-4xl">
+                  <SessionApprovals waiting={waitingSessions} agents={agents} />
+                </div>
+              )}
+              {images.items.length > 0 && (
+                <div className="mx-auto mb-2 max-w-4xl">
+                  <PendingImageStrip uploads={images} />
+                </div>
+              )}
+              {sendFailed && <ComposerSendError className="mx-auto max-w-4xl" />}
               {nativeComposer ? <NativeChatComposer
                 active={!showRightPanel}
                 value={input}
@@ -517,14 +571,19 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                   const token = detectMentionToken(text, cursor)
                   setMention({ open: !!token, query: token?.query ?? '', atIndex: token?.atIndex ?? -1, selectedIndex: 0 })
                 }}
-                onSubmit={() => void handleSend()}
+                onSubmit={(text) => void handleSend(text)}
+                onFiles={images.addFiles}
+                hasContext={images.items.length > 0}
+                keepTextOnSend
+                submitting={sending || images.uploading}
                 placeholder="Message this channel…"
                 suggestions={mention.open ? mentionMatches.map((agent) => ({ id: String(agent.id), title: agent.name, subtitle: `${agent.provider} · ${agent.model}` })) : []}
                 onAction={(action) => {
                   const agent = mentionMatches.find((item) => `suggestion:${item.id}` === action)
                   if (agent) insertMention(agent)
                 }}
-              /> : <ComposerFrame className="max-w-4xl mx-auto" floating={isMobile}>
+              /> :
+              <ComposerFrame className="max-w-4xl mx-auto" floating={isMobile} {...images.inputProps}>
                 {mention.open && (
                   <MentionPicker
                     agents={mentionMatches}
@@ -534,6 +593,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                     onHoverIndex={(idx) => setMention((s) => ({ ...s, selectedIndex: idx }))}
                   />
                 )}
+                <ComposerAttachButton onFiles={images.addFiles} />
                 <textarea
                   ref={textareaRef}
                   value={input}
@@ -546,7 +606,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                   rows={1}
                   className={`${COMPOSER_TEXTAREA_CLASS} min-w-0 field-sizing-content`}
                 />
-                <ComposerSendButton disabled={!input.trim()} onClick={() => void handleSend()} />
+                <ComposerSendButton disabled={!canSend} onClick={() => void handleSend()} />
               </ComposerFrame>}
             </div>
       </div>
@@ -556,9 +616,12 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
       {showRightPanel && (
         <div
           ref={threadWrapperRef}
-          className="fixed inset-0 z-50 flex flex-col min-h-0 bg-background md:relative md:z-auto md:w-[var(--thread-w)] md:shrink-0 md:bg-transparent"
+          // The status-bar inset only belongs to the full-screen overlay. As a side
+          // panel it sits under the page's titlebar like the channel column, which
+          // already cleared the status bar; padding it again pushed the thread header
+          // ~24px below the channel header on iPad (desktop's inset is 0, so it hid there).
+          className="fixed inset-0 z-50 flex flex-col min-h-0 bg-background pt-[env(safe-area-inset-top)] md:relative md:z-auto md:w-[var(--thread-w)] md:shrink-0 md:bg-transparent md:pt-0"
           style={{
-            paddingTop: "env(safe-area-inset-top)",
             // With the phone keyboard up, it covers the home-indicator strip, so
             // the two insets don't stack — take whichever is taller.
             paddingBottom: "max(env(safe-area-inset-bottom), var(--keyboard-height))",
@@ -579,13 +642,15 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
           </div>
           {threadRootId && (
             <ThreadPanel
+              key={threadRootId}
               channelName={channel?.name ?? null}
               rootMessage={rootMessage}
+              thread={threadRootId != null ? threads.get(threadRootId) : undefined}
               replies={threadMessages}
               agents={agents}
               typingAgentIds={typingAgentIds}
               onClose={() => setThreadRootId(null)}
-              onSendReply={(text) => void sendThreadReply(text)}
+              onSendReply={sendThreadReply}
               mobileKeyboardOpen={mobileKeyboardOpen}
             />
           )}
@@ -595,21 +660,29 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
   )
 }
 
+const STACK_DISC = 'bg-muted ring-2 ring-background transition-[box-shadow] group-hover/members:ring-secondary-hover'
+
 function MemberStack({ agents }: { agents: { id: number; provider: string }[] }) {
   const visible = agents.slice(0, 3)
   const extra = agents.length - visible.length
   if (agents.length === 0) return null
   return (
-    <div className="flex -space-x-2">
+    // Overlapped like a face pile. Bare logos have nothing to stack, so this one
+    // place gives each a muted disc; the ring is the cut-out between discs and
+    // follows the button's hover fill so it never shows as a mismatched halo.
+    <div className="flex items-center -space-x-1.5">
       {visible.map((a) => (
-        <div key={a.id} className="ring-2 ring-background rounded-full">
-          <AgentAvatar provider={a.provider} size="sm" />
-        </div>
+        <AgentAvatar
+          key={a.id}
+          provider={a.provider}
+          size="sm"
+          className={`${STACK_DISC} [&>img]:size-3.5 [&>svg]:size-3.5`}
+        />
       ))}
       {extra > 0 && (
-        <div className="flex-none flex items-center justify-center w-6 h-6 rounded-full bg-muted text-[10px] font-semibold text-muted-foreground ring-2 ring-background">
+        <span className={`${STACK_DISC} flex size-6 flex-none items-center justify-center rounded-full text-[10px] font-semibold tabular-nums text-muted-foreground`}>
           +{extra}
-        </div>
+        </span>
       )}
     </div>
   )

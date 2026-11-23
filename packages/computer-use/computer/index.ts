@@ -275,8 +275,6 @@ function decideTarget(policy: MacAppPolicyResult): MacAppPolicyResult["target"] 
       return policy.target;
     case "denied":
       throw new Error(`Computer Use is blocked from using the app '${bundleIdentifier}' by your organization's policy.`);
-    case "forbidden":
-      throw new Error(`Computer Use is not allowed to use the app '${bundleIdentifier}' for safety reasons.`);
   }
 }
 

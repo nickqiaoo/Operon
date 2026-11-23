@@ -88,6 +88,9 @@ import type {
   Channel,
   ChannelMember,
   ChannelMessage,
+  ChannelAttachment,
+  ChannelThread,
+  ChannelThreadStatus,
   CreateAgentInput,
   CreateChannelInput,
   CreateMessageInput,
@@ -1707,7 +1710,7 @@ export class SqliteStorage
     const now = Date.now()
     const result = this.db
       .prepare(
-        'INSERT INTO agents (name, provider, model, instructions, permission_mode, can_delegate, hidden, env, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO agents (name, provider, model, instructions, permission_mode, thinking_level, can_delegate, hidden, env, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       .run(
         input.name,
@@ -1715,6 +1718,7 @@ export class SqliteStorage
         input.model,
         input.instructions ?? '',
         input.permissionMode ?? '',
+        input.thinkingLevel ?? '',
         input.canDelegate ? 1 : 0,
         input.hidden ? 1 : 0,
         JSON.stringify(input.env ?? []),
@@ -1752,6 +1756,10 @@ export class SqliteStorage
     if (updates.permissionMode !== undefined) {
       fields.push('permission_mode = ?')
       values.push(updates.permissionMode)
+    }
+    if (updates.thinkingLevel !== undefined) {
+      fields.push('thinking_level = ?')
+      values.push(updates.thinkingLevel)
     }
     if (updates.canDelegate !== undefined) {
       fields.push('can_delegate = ?')
@@ -1819,6 +1827,12 @@ export class SqliteStorage
       this.db
         .prepare("DELETE FROM agent_message_cursors WHERE stream_kind = 'app' AND stream_key = ?")
         .run(String(id))
+      const roots = this.db
+        .prepare('SELECT root_message_id FROM channel_threads WHERE channel_id = ?')
+        .all(id) as Array<{ root_message_id: number }>
+      const dropThreadCursor = this.db.prepare("DELETE FROM agent_message_cursors WHERE stream_kind = 'thread' AND stream_key = ?")
+      for (const r of roots) dropThreadCursor.run(String(r.root_message_id))
+      this.db.prepare('DELETE FROM channel_threads WHERE channel_id = ?').run(id)
       this.db.prepare('DELETE FROM channel_messages WHERE channel_id = ?').run(id)
       this.db.prepare('DELETE FROM channel_members WHERE channel_id = ?').run(id)
       this.db.prepare('DELETE FROM channels WHERE id = ?').run(id)
@@ -1876,7 +1890,7 @@ export class SqliteStorage
     const now = Date.now()
     const result = this.db
       .prepare(
-        'INSERT INTO channel_messages (channel_id, thread_root_id, sender_type, sender_id, sender_name, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO channel_messages (channel_id, thread_root_id, sender_type, sender_id, sender_name, content, sender_binding_id, attachments, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
       )
       .run(
         input.channelId,
@@ -1885,6 +1899,8 @@ export class SqliteStorage
         input.senderId ?? null,
         input.senderName,
         input.content,
+        input.senderBindingId ?? null,
+        input.attachments && input.attachments.length > 0 ? JSON.stringify(input.attachments) : null,
         now
       )
     const id = result.lastInsertRowid as number
@@ -1894,6 +1910,9 @@ export class SqliteStorage
         .prepare(
           'UPDATE channel_messages SET reply_count = reply_count + 1, last_reply_at = ? WHERE id = ?'
         )
+        .run(now, input.threadRootId)
+      this.db
+        .prepare('UPDATE channel_threads SET updated_at = ? WHERE root_message_id = ?')
         .run(now, input.threadRootId)
     }
     return {
@@ -1906,6 +1925,8 @@ export class SqliteStorage
       content: input.content,
       replyCount: 0,
       lastReplyAt: null,
+      senderBindingId: input.senderBindingId ?? null,
+      attachments: input.attachments ?? [],
       createdAt: now,
     }
   }
@@ -1921,6 +1942,8 @@ export class SqliteStorage
       content: row.content as string,
       replyCount: row.reply_count as number,
       lastReplyAt: row.last_reply_at as number | null,
+      senderBindingId: (row.sender_binding_id as number | null) ?? null,
+      attachments: parseChannelAttachments(row.attachments),
       createdAt: row.created_at as number,
     }
   }
@@ -1957,6 +1980,102 @@ export class SqliteStorage
     return rows.map(row => this.rowToChannelMessage(row))
   }
 
+  getChannelMessage(id: number): ChannelMessage | null {
+    const row = this.db
+      .prepare('SELECT * FROM channel_messages WHERE id = ?')
+      .get(id) as Record<string, unknown> | undefined
+    return row ? this.rowToChannelMessage(row) : null
+  }
+
+  // ---- Channel: Threads ----
+
+  private rowToChannelThread(row: Record<string, unknown>): ChannelThread {
+    return {
+      rootMessageId: row.root_message_id as number,
+      channelId: row.channel_id as number,
+      ownerAgentId: (row.owner_agent_id as number | null) ?? null,
+      status: row.status as ChannelThreadStatus,
+      summary: (row.summary as string) ?? '',
+      createdByType: row.created_by_type as 'human' | 'agent',
+      createdById: (row.created_by_id as number | null) ?? null,
+      createdAt: row.created_at as number,
+      updatedAt: row.updated_at as number,
+    }
+  }
+
+  getThread(rootMessageId: number): ChannelThread | null {
+    const row = this.db
+      .prepare('SELECT * FROM channel_threads WHERE root_message_id = ?')
+      .get(rootMessageId) as Record<string, unknown> | undefined
+    return row ? this.rowToChannelThread(row) : null
+  }
+
+  listThreads(channelId: number, opts?: { limit?: number }): ChannelThread[] {
+    const rows = this.db
+      .prepare('SELECT * FROM channel_threads WHERE channel_id = ? ORDER BY updated_at DESC, root_message_id DESC LIMIT ?')
+      .all(channelId, opts?.limit ?? 200) as Array<Record<string, unknown>>
+    return rows.map((row) => this.rowToChannelThread(row))
+  }
+
+  ensureThread(input: {
+    rootMessageId: number
+    channelId: number
+    ownerAgentId: number | null
+    createdByType: 'human' | 'agent'
+    createdById?: number | null
+  }): ChannelThread {
+    const now = Date.now()
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO channel_threads
+           (root_message_id, channel_id, owner_agent_id, status, summary, created_by_type, created_by_id, created_at, updated_at)
+         VALUES (?, ?, ?, 'open', '', ?, ?, ?, ?)`,
+      )
+      .run(input.rootMessageId, input.channelId, input.ownerAgentId, input.createdByType, input.createdById ?? null, now, now)
+    return this.getThread(input.rootMessageId)!
+  }
+
+  claimThread(rootMessageId: number, agentId: number): ChannelThread | null {
+    this.db
+      .prepare('UPDATE channel_threads SET owner_agent_id = ?, updated_at = ? WHERE root_message_id = ? AND owner_agent_id IS NULL')
+      .run(agentId, Date.now(), rootMessageId)
+    return this.getThread(rootMessageId)
+  }
+
+  updateThread(
+    rootMessageId: number,
+    updates: { status?: ChannelThreadStatus; summary?: string; ownerAgentId?: number | null },
+  ): ChannelThread | null {
+    const sets: string[] = []
+    const values: unknown[] = []
+    if (updates.status !== undefined) {
+      sets.push('status = ?')
+      values.push(updates.status)
+    }
+    if (updates.summary !== undefined) {
+      sets.push('summary = ?')
+      values.push(updates.summary)
+    }
+    if (updates.ownerAgentId !== undefined) {
+      sets.push('owner_agent_id = ?')
+      values.push(updates.ownerAgentId)
+    }
+    if (sets.length > 0) {
+      sets.push('updated_at = ?')
+      values.push(Date.now())
+      this.db
+        .prepare(`UPDATE channel_threads SET ${sets.join(', ')} WHERE root_message_id = ?`)
+        .run(...values, rootMessageId)
+    }
+    return this.getThread(rootMessageId)
+  }
+
+  releaseThreadsOwnedBy(channelId: number, agentId: number): void {
+    this.db
+      .prepare('UPDATE channel_threads SET owner_agent_id = NULL, updated_at = ? WHERE channel_id = ? AND owner_agent_id = ?')
+      .run(Date.now(), channelId, agentId)
+  }
+
   // ---- Project tasks (local Linear) ----
 
   taskCreate(input: CreateProjectTaskInput): Task {
@@ -1968,15 +2087,16 @@ export class SqliteStorage
       const res = this.db
         .prepare(
           `INSERT INTO tasks (
-             project_id, number, title, description, attachments, workspace_mode, priority,
+             project_id, number, title, title_source, description, attachments, workspace_mode, priority,
              assigned_agent_id, parent_task_id, source_channel_id, source_chat_id, source_message_id,
              blocked_by, created_by, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           input.projectId,
           n,
           input.title,
+          input.titleSource === 'auto' ? 'auto' : 'user',
           input.description ?? '',
           input.attachments?.length ? JSON.stringify(input.attachments) : null,
           input.workspaceMode === 'shared' ? 'shared' : null,
@@ -2102,7 +2222,10 @@ export class SqliteStorage
       fields.push(`${col} = ?`)
       values.push(val)
     }
-    if (updates.title !== undefined) set('title', updates.title)
+    if (updates.title !== undefined) {
+      set('title', updates.title)
+      set('title_source', updates.titleSource === 'auto' ? 'auto' : 'user')
+    }
     if (updates.description !== undefined) set('description', updates.description)
     if (updates.workspaceMode !== undefined) set('workspace_mode', updates.workspaceMode === 'shared' ? 'shared' : null)
     if (updates.attachments !== undefined) set('attachments', updates.attachments.length ? JSON.stringify(updates.attachments) : null)
@@ -2169,6 +2292,14 @@ export class SqliteStorage
         console.warn(`[Storage] task change listener failed for task ${after.id}:`, err)
       }
     }
+  }
+
+  taskReplaceAutoTitle(id: number, placeholder: string, title: string): boolean {
+    // Compare-and-set: a title edited (or the task removed) meanwhile wins.
+    const res = this.db
+      .prepare(`UPDATE tasks SET title = ?, updated_at = ? WHERE id = ? AND title_source = 'auto' AND title = ?`)
+      .run(title, Date.now(), id, placeholder)
+    return res.changes > 0
   }
 
   taskSetArchived(id: number, archived: boolean, actor?: TaskActor): Task | null {
@@ -2809,6 +2940,7 @@ export class SqliteStorage
       projectId: row.project_id as number,
       number: row.number as number,
       title: row.title as string,
+      titleSource: row.title_source === 'auto' ? 'auto' : 'user',
       description: (row.description as string) ?? '',
       attachments: parseTaskAttachments(row.attachments),
       workspaceMode: row.workspace_mode === 'shared' ? 'shared' : 'new',
@@ -2864,11 +2996,36 @@ export class SqliteStorage
   getUnreadChannelMessages(agentId: number, channelId: number): ChannelMessage[] {
     const cursor = this.getCursor(agentId, 'app', String(channelId))
     const lastReadId = cursor?.lastReadId ?? 0
+    const bindingId = this.getBindingByScope('app', String(channelId), agentId)?.id ?? -1
+    // Main-channel messages, plus replies in threads nobody owns (no row yet
+    // counts as nobody). A session's own messages are never unread for it.
     const rows = this.db
       .prepare(
-        'SELECT * FROM channel_messages WHERE channel_id = ? AND id > ? ORDER BY id ASC'
+        `SELECT m.* FROM channel_messages m
+         LEFT JOIN channel_threads t ON t.root_message_id = m.thread_root_id
+         WHERE m.channel_id = ? AND m.id > ?
+           AND (m.thread_root_id IS NULL OR t.owner_agent_id IS NULL)
+           AND NOT (m.sender_binding_id IS ?
+                    OR (m.sender_binding_id IS NULL AND m.sender_type = 'agent' AND m.sender_id = ?))
+         ORDER BY m.id ASC`
       )
-      .all(channelId, lastReadId) as Array<Record<string, unknown>>
+      .all(channelId, lastReadId, bindingId, agentId) as Array<Record<string, unknown>>
+    return rows.map(row => this.rowToChannelMessage(row))
+  }
+
+  getUnreadThreadMessages(agentId: number, rootMessageId: number): ChannelMessage[] {
+    const cursor = this.getCursor(agentId, 'thread', String(rootMessageId))
+    const lastReadId = cursor?.lastReadId ?? 0
+    const bindingId = this.getBindingByScope('thread', String(rootMessageId), agentId)?.id ?? -1
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM channel_messages
+         WHERE thread_root_id = ? AND id > ?
+           AND NOT (sender_binding_id IS ?
+                    OR (sender_binding_id IS NULL AND sender_type = 'agent' AND sender_id = ?))
+         ORDER BY id ASC`
+      )
+      .all(rootMessageId, lastReadId, bindingId, agentId) as Array<Record<string, unknown>>
     return rows.map(row => this.rowToChannelMessage(row))
   }
 
@@ -3770,6 +3927,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     model: row.model as string,
     instructions: row.instructions as string,
     permissionMode: (row.permission_mode as string | null) ?? '',
+    thinkingLevel: (row.thinking_level as string | null) ?? '',
     canDelegate: ((row.can_delegate as number | null) ?? 0) === 1,
     hidden: ((row.hidden as number | null) ?? 0) === 1,
     env: parseAgentEnv(row.env),
@@ -3919,6 +4077,22 @@ function rowToCanvasWorkflow(row: Record<string, unknown>): CanvasWorkflow {
     settings: row.settings ? JSON.parse(row.settings as string) : undefined,
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
+  }
+}
+
+function parseChannelAttachments(value: unknown): ChannelAttachment[] {
+  if (typeof value !== 'string' || value.length === 0) return []
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!Array.isArray(parsed)) return []
+    return parsed.flatMap((item): ChannelAttachment[] => {
+      if (!item || typeof item !== 'object') return []
+      const { url, mediaType, filename } = item as Record<string, unknown>
+      if (typeof url !== 'string' || typeof mediaType !== 'string') return []
+      return [{ url, mediaType, ...(typeof filename === 'string' && filename ? { filename } : {}) }]
+    })
+  } catch {
+    return []
   }
 }
 
