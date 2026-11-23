@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [1.5.38] - 2026-11-23
+
+### Added
+
+- Channels and threads show unread replies and requests waiting for your input.
+- Channel messages appear as soon as you send them. If sending fails, you can retry or discard the message.
+
+### Changed
+
+- Agent mentions use the same color as the agent's name in channel messages.
+- Codex can apply model, reasoning, service tier, and approval reviewer changes during a running turn when the provider supports live updates.
+- Channel agents receive shorter instructions on when to reply, open a thread, or update a task.
+
 ## [1.5.37] - 2026-11-23
 
 ### Added
