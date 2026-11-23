@@ -1,4 +1,5 @@
 import { broadcastTask } from '../services/task-events.js'
+import { emitChannelEvent, workingAgentIds } from '../services/channel-bus.js'
 import fs from 'fs'
 import Database from 'better-sqlite3'
 import type {
@@ -3612,6 +3613,14 @@ export class SqliteStorage
     // Push persisted session transitions to the board, including the owning Spec.
     if ('status' in updates) {
       const binding = this.getBinding(id)
+      // A channel session started or finished a turn: tell the channel's viewers
+      // who is working, so a message the agents are on doesn't look ignored.
+      if (binding?.scopeKind === 'app' && binding.status !== prevStatus) {
+        emitChannelEvent(Number(binding.scopeKey), {
+          type: 'sessions_working',
+          agentIds: workingAgentIds(this.listBindingsForScope('app', binding.scopeKey)),
+        })
+      }
       if (binding?.scopeKind === 'task') {
         const task = this.taskGet(Number(binding.scopeKey))
         if (task?.bindingId === id) {

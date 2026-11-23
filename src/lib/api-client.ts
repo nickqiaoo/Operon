@@ -638,6 +638,10 @@ export function channelWaitingSessions(channelId: number) {
   return request<{ waiting: WaitingSession[] }>(`/channels/${channelId}/waiting`)
 }
 
+export function channelWorkingAgents(channelId: number) {
+  return request<{ agentIds: number[] }>(`/channels/${channelId}/working`)
+}
+
 export function channelThreadList(channelId: number) {
   return request<{ threads: ChannelThread[] }>(`/channels/${channelId}/threads`)
 }

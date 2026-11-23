@@ -220,15 +220,41 @@ export function ensureThreadForHumanReply(storage: ThreadStorage, root: ChannelM
 
 export type OpenThreadResult =
   | { status: 'opened'; target: string; owner: string; messageId: number }
-  | { status: 'taken'; target: string; owner: string }
+  /**
+   * Someone else owns it; `latest` is what the thread says so far (the owner's
+   * brief first), so the caller can tell whether it has anything to add.
+   */
+  | { status: 'taken'; target: string; owner: string; latest: ThreadExcerpt[] }
   /** The owner already has a session working this thread: nothing was posted. */
   | { status: 'exists'; target: string; owner: string }
+
+/** A thread reply as shown to an agent that didn't get the thread. */
+export interface ThreadExcerpt {
+  sender: string
+  content: string
+}
+
+const TAKEN_EXCERPT_COUNT = 3
+const TAKEN_EXCERPT_CHARS = 1500
+
+/** The thread's first reply (normally the owner's brief) and its latest ones, trimmed. */
+function threadExcerpt(storage: ThreadStorage, rootMessageId: number): ThreadExcerpt[] {
+  const replies = storage.listThreadReplies(rootMessageId).filter((m) => m.senderType !== 'system')
+  const picked = replies.length <= TAKEN_EXCERPT_COUNT
+    ? replies
+    : [replies[0], ...replies.slice(-(TAKEN_EXCERPT_COUNT - 1))]
+  return picked.map((m) => ({
+    sender: m.senderName,
+    content: m.content.length > TAKEN_EXCERPT_CHARS ? `${m.content.slice(0, TAKEN_EXCERPT_CHARS)}…` : m.content,
+  }))
+}
 
 /**
  * open_thread: take on the work under `root` — claim the thread for `ownerId`
  * (default: the caller), post the caller's brief there, and start the owner's
  * thread session on it. One thread per message: if another agent already owns
- * it, nothing is posted and the result says who.
+ * it, nothing is posted and the result says who, with what the thread says so
+ * far — the caller may still have something to pass on to the owner.
  */
 export async function openThread(
   storage: ThreadStorage,
@@ -255,7 +281,7 @@ export async function openThread(
   if (thread.ownerAgentId == null) thread = storage.claimThread(root.id, input.ownerAgentId) ?? thread
   if (thread.ownerAgentId !== input.ownerAgentId) {
     const current = thread.ownerAgentId != null ? storage.getAgent(thread.ownerAgentId)?.name : null
-    return { status: 'taken', target, owner: current ?? 'someone else' }
+    return { status: 'taken', target, owner: current ?? 'someone else', latest: threadExcerpt(storage, root.id) }
   }
   // Already being worked by its owner's session (a second open_thread arriving
   // late, or a repeat): posting the brief again would reopen a finished thread

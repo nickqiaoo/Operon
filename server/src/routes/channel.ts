@@ -5,7 +5,7 @@ import type {
   ChannelStorageAdapter,
   ProjectStorageAdapter,
 } from '../storage/interface.js'
-import { onChannelEvent, onProjectEvent, publishChannelMessage } from '../services/channel-bus.js'
+import { onChannelEvent, onProjectEvent, publishChannelMessage, workingAgentIds } from '../services/channel-bus.js'
 import { dropThreadSessions, routeMessageToAgents } from '../services/channel/agent-orchestrator.js'
 import { channelSessionsWaiting, ensureThreadForHumanReply, removeThreadMember, resolveThreadRoot, threadView } from '../services/channel/threads.js'
 import { sanitizeChannelAttachments } from '../services/channel/channel-attachments.js'
@@ -323,6 +323,12 @@ export function channelRoutes(storage: ChannelStorage) {
   router.get('/:id/waiting', (c) => {
     const channelId = parseInt(c.req.param('id'), 10)
     return c.json({ waiting: channelSessionsWaiting(storage, channelId) })
+  })
+
+  // Members whose channel session is running a turn (thread sessions' come with their thread).
+  router.get('/:id/working', (c) => {
+    const channelId = parseInt(c.req.param('id'), 10)
+    return c.json({ agentIds: workingAgentIds(storage.listBindingsForScope('app', String(channelId))) })
   })
 
   // ---- SSE stream ----

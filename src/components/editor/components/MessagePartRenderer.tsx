@@ -41,7 +41,7 @@ import { TaskCreatedRenderer, createdTaskNumber } from './TaskCreatedRenderer';
 import { WorkspaceCreatedRenderer, createdWorkspace } from './WorkspaceCreatedRenderer';
 import { ScheduleTaskRenderer, isScheduleTaskResult } from './ScheduleTaskRenderer';
 import { HtmlRenderRenderer, isHtmlRenderResult } from './HtmlRenderFrame';
-import { ImageReadRenderer, imageReadPathOf } from './ImageReadRenderer';
+import { ImageReadRenderer, imageReadPathOf, toolImagesOf } from './ImageReadRenderer';
 import { CodeProgramRenderer } from './CodeProgramRenderer';
 import { isCodeProgramTool } from './codeProgram';
 import { UserMessageText } from './UserMessageText';
@@ -255,7 +255,7 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
       return (
         <ImageReadRenderer
           toolPart={toolPart}
-          path={imageReadPath}
+          images={toolImagesOf(toolPart)}
           messageId={message.id}
           partIndex={partIndex}
           onPermissionDecide={onPermissionDecide}
@@ -440,6 +440,21 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
           />
         );
       }
+    }
+
+    // A call that returned pictures (a screenshot tool) shows them beside its
+    // row, as a Read of an image does.
+    const outputImages = toolImagesOf(toolPart);
+    if (outputImages.length > 0) {
+      return (
+        <ImageReadRenderer
+          toolPart={toolPart}
+          images={outputImages}
+          messageId={message.id}
+          partIndex={partIndex}
+          onPermissionDecide={onPermissionDecide}
+        />
+      );
     }
 
     // Same one-line row the finished call collapses into, so a running tool

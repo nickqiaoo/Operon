@@ -85,7 +85,7 @@ const TOOLS: Tool[] = [
   {
     name: 'open_thread',
     description:
-      "Channel sessions only. Take on the work under a message in a thread: opens the thread under it (or takes over one nobody owns), posts your brief there as its first reply, and starts a thread session — yours, or the named member's — that does the work and reports back. One thread per message: if another agent already owns it, nothing is posted and the result says who.",
+      "Channel sessions only. Take on the work under a message in a thread: opens the thread under it (or takes over one nobody owns), posts your brief there as its first reply, and starts a thread session — yours, or the named member's — that does the work and reports back. One thread per message: if another agent already owns it, nothing is posted and the result says who, with what the thread says so far.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -249,7 +249,15 @@ async function dispatch(
         channel: typeof args.channel === 'string' ? args.channel : undefined,
       })
       if (result.status === 'taken') {
-        return `Not opened — ${result.target} is already owned by @${result.owner}. Nothing was posted; leave the work to them.`
+        const latest = result.latest.length > 0
+          ? `\n\nLatest in the thread:\n${result.latest.map((m) => `@${m.sender}: ${m.content}`).join('\n\n')}`
+          : ''
+        return (
+          `Not opened — ${result.target} is already owned by @${result.owner}. Nothing was posted; leave the work to them.${latest}\n\n` +
+          `If you know something this misses (a constraint, a different approach, a relevant fact), pass it on with ` +
+          `send_message(target="${result.target}", ...) — it reaches @${result.owner}. If you have nothing to add, do nothing: ` +
+          `don't post agreement or "me too".`
+        )
       }
       if (result.status === 'exists') {
         return (

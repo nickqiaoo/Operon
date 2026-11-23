@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { applyThreadUpdate, applyWaitingSessions, channelKeys } from '@/lib/channel-queries'
+import { applyThreadUpdate, applyWaitingSessions, applyWorkingAgents, channelKeys } from '@/lib/channel-queries'
 import { subscribeSse } from '@/lib/sse'
 import { useChannelStore } from '@/stores/channel-store'
 import type { ChannelAttachment, ChannelMessage, ChannelEvent, ThreadRootActivity } from '@/types/channel'
@@ -203,6 +203,8 @@ export function useChannel({ channelId }: UseChannelOptions) {
       applyThreadUpdate(queryClient, event.data)
     } else if (event.type === 'sessions_waiting') {
       if (channelId) applyWaitingSessions(queryClient, channelId, event.data)
+    } else if (event.type === 'sessions_working') {
+      if (channelId) applyWorkingAgents(queryClient, channelId, event.agentIds)
     } else if (event.type === 'agent_status') {
       // Update session status in store in real time
       useChannelStore.getState().updateSessionStatus(event.agentId, event.projectId, event.status)
@@ -236,6 +238,7 @@ export function useChannel({ channelId }: UseChannelOptions) {
       onError: () => {
         void queryClient.invalidateQueries({ queryKey: channelKeys.threads(channelId) })
         void queryClient.invalidateQueries({ queryKey: channelKeys.waiting(channelId) })
+        void queryClient.invalidateQueries({ queryKey: channelKeys.working(channelId) })
       },
     })
     return () => subscription.close()

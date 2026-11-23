@@ -327,6 +327,8 @@
   "channel.thread.title": "Thread",
   "channel.typing": "{name} is typing",
   "channel.untitled": "channel",
+  "channel.working": "{names} {count, plural, one {is working} other {are working}}",
+  "channel.working.others": "{count, plural, one {# other} other {# others}}",
   "chat.question.submit": "Submit",
   "commit.branch": "Branch",
   "commit.changes": "Changes",

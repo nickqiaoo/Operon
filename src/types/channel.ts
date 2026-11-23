@@ -186,6 +186,8 @@ export type ChannelEvent =
   | { type: 'message_updated'; data: ChannelMessage }
   | { type: 'thread_updated'; data: ChannelThread }
   | { type: 'sessions_waiting'; data: WaitingSession[] }
+  /** The members whose channel session is running a turn; the full current list. */
+  | { type: 'sessions_working'; agentIds: number[] }
   | { type: 'typing_start'; agentId: number }
   | { type: 'typing_stop'; agentId: number }
   | { type: 'agent_status'; agentId: number; projectId: number; status: AgentSessionStatus }

@@ -108,7 +108,8 @@ describe.skipIf(!opened)('channel threads', () => {
     const root = human('help')
     await service.openThread({ agentId: alice.id, message: toShortId(root.id), brief: 'On it.' })
     const second = await service.openThread({ agentId: bob.id, message: toShortId(root.id), brief: 'Me too.' })
-    expect(second).toMatchObject({ status: 'taken', owner: alice.name })
+    // The one that didn't get it sees the owner's brief, so it can tell whether it has anything to add.
+    expect(second).toMatchObject({ status: 'taken', owner: alice.name, latest: [{ sender: alice.name, content: 'On it.' }] })
     expect(storage.listThreadReplies(root.id)).toHaveLength(1)
   })
 

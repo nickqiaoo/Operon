@@ -8,9 +8,10 @@ import { useChannelStore } from '@/stores/channel-store'
 import { useTaskStore } from '@/stores/task-store'
 import type { TaskListItem } from '@/types/task'
 import { useChannel } from '@/hooks/useChannel'
-import { useChannelThreadMap, useChannelWaitingSessions } from '@/lib/channel-queries'
+import { useChannelThreadMap, useChannelWaitingSessions, useChannelWorkingAgents } from '@/lib/channel-queries'
 import { SessionApprovals } from './SessionApprovals'
 import { ChannelMessageItem } from './ChannelMessageItem'
+import { ChannelWorkingIndicator, useWorkingAfterReply } from './ChannelWorkingIndicator'
 import { ThreadPanel } from './ThreadPanel'
 import { COMPOSER_TEXTAREA_CLASS, ComposerAttachButton, ComposerFrame, ComposerSendButton, ComposerSendError } from './ComposerFrame'
 import { PendingImageStrip } from '@/components/task/task-attachments'
@@ -116,6 +117,22 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
   const threads = useChannelThreadMap(channelId)
   // Channel sessions blocked on an approval or a question; thread sessions' show in their thread.
   const { data: waitingSessions = [] } = useChannelWaitingSessions(channelId)
+  // Members on a turn in the channel itself, minus those blocked on an approval
+  // (their card above the composer says so) and those whose reply just landed.
+  // Typing events count too.
+  const sessionWorkingIds = useChannelWorkingAgents(channelId)
+  const busyIds = useMemo(
+    () => [...new Set([...sessionWorkingIds, ...typingAgentIds])],
+    [sessionWorkingIds, typingAgentIds],
+  )
+  const workingIds = useWorkingAfterReply(busyIds, messages)
+  const workingAgents = useMemo(() => {
+    const waiting = new Set(waitingSessions.map((w) => w.agentId))
+    return workingIds
+      .filter((id) => !waiting.has(id))
+      .map((id) => agents.find((a) => a.id === id))
+      .filter((a): a is Agent => !!a)
+  }, [workingIds, waitingSessions, agents])
 
   useEffect(() => {
     void loadMembers(channelId)
@@ -376,6 +393,24 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
   const fadeEdges = !isMobile && !loading && messages.length > 0
   useScrollFade(scrollRef, transcriptContentRef, fadeEdges)
 
+  // Stick to the bottom while the transcript settles. The jump on first load
+  // happens before its images have loaded (no reserved size) and, on a first
+  // visit, before the threads under messages arrive — both grow the content
+  // afterwards and left the reader stranded mid-history. It also keeps a new
+  // message or "working" line in view. Growth doesn't fire a scroll event, so
+  // `atBottom` still holds unless the reader scrolled away.
+  const hasTranscript = !loading && messages.length > 0
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    const content = transcriptContentRef.current
+    if (!hasTranscript || !el || !content) return
+    const observer = new ResizeObserver(() => {
+      if (atBottomRef.current) el.scrollTop = el.scrollHeight
+    })
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [hasTranscript])
+
   const showRightPanel = threadRootId
   // On a phone the thread is a full-screen overlay; the native iOS tab bar
   // would otherwise sit on top of it.
@@ -487,23 +522,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                         />
                       )
                     })}
-                    {/* Typing indicators */}
-                    {[...typingAgentIds].map((agentId) => {
-                      const agent = agents.find((a) => a.id === agentId)
-                      return (
-                        <div key={agentId} className="flex items-center gap-3 px-2 pt-4 text-xs text-muted-foreground/70 md:px-3">
-                          <AgentAvatar provider={agent?.provider} size="sm" className="size-7" />
-                          <span>
-                            <FormattedMessage
-                              id="channel.typing"
-                              defaultMessage="{name} is typing"
-                              values={{ name: agent?.name ?? intl.formatMessage({ id: 'channel.agentFallback', defaultMessage: 'Agent' }) }}
-                            />
-                          </span>
-                          <TypingDots />
-                        </div>
-                      )
-                    })}
+                    <ChannelWorkingIndicator agents={workingAgents} />
                     <div ref={bottomRef} />
                   </div>
                 )}
@@ -685,19 +704,5 @@ function MemberStack({ agents }: { agents: { id: number; provider: string }[] })
         </span>
       )}
     </div>
-  )
-}
-
-function TypingDots() {
-  return (
-    <span className="inline-flex items-center gap-0.5">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="w-1 h-1 rounded-full bg-muted-foreground/40 animate-bounce"
-          style={{ animationDelay: `${i * 0.15}s` }}
-        />
-      ))}
-    </span>
   )
 }

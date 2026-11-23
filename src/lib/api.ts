@@ -1247,6 +1247,7 @@ export const api = {
   channelThreadList: httpClient.channelThreadList,
   channelThreadMemberRemove: httpClient.channelThreadMemberRemove,
   channelWaitingSessions: httpClient.channelWaitingSessions,
+  channelWorkingAgents: httpClient.channelWorkingAgents,
   channelAgentSessions: httpClient.channelAgentSessions,
   channelStreamUrl: httpClient.channelStreamUrl,
   // Project-level tasks ("local Linear")

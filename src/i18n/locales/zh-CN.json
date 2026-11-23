@@ -535,6 +535,8 @@
   "channel.inputPlaceholder": "给该频道发消息…（输入 @ 提及成员）",
   "channel.newMessages": "{count, plural, other {# 条新消息}}",
   "channel.typing": "{name} 正在输入",
+  "channel.working": "{names} 正在工作",
+  "channel.working.others": "另外 {count} 位",
   "channel.addAgents": "添加 Agent",
   "channel.agentFallback": "Agent",
   "channel.mention.noMatch": "没有匹配的成员",

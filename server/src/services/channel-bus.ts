@@ -3,6 +3,7 @@ import type { AgentSessionStatus, ChannelMessage, ChannelThreadView, WaitingSess
 import type { TaskListItem } from '../types/task.js'
 import type { Notification, UnreadCounts } from '../types/notification.js'
 import type { ChannelStorageAdapter } from '../storage/interface.js'
+import type { AgentBinding } from '../types/agent-binding.js'
 
 export type ChannelEvent =
   | { type: 'channel_message'; data: ChannelMessage; threadRoot?: Pick<ChannelMessage, 'id' | 'replyCount' | 'lastReplyAt'> }
@@ -11,6 +12,8 @@ export type ChannelEvent =
   | { type: 'thread_updated'; data: ChannelThreadView }
   /** The channel sessions (not threads) waiting on a person changed; the full current list. */
   | { type: 'sessions_waiting'; data: WaitingSession[] }
+  /** Which members' channel sessions (not threads) are running a turn changed; the full current list. */
+  | { type: 'sessions_working'; agentIds: number[] }
   | { type: 'typing_start'; agentId: number }
   | { type: 'typing_stop'; agentId: number }
 
@@ -19,6 +22,11 @@ export type ProjectEvent = {
   agentId: number
   projectId: number
   status: AgentSessionStatus
+}
+
+/** The agents running a turn, out of one channel's channel sessions ('app' bindings). */
+export function workingAgentIds(sessions: Array<Pick<AgentBinding, 'agentId' | 'status'>>): number[] {
+  return sessions.filter((b) => b.status === 'active').map((b) => b.agentId)
 }
 
 const bus = new EventEmitter()

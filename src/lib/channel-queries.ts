@@ -15,6 +15,28 @@ export const channelKeys = {
   threads: (channelId: number) => ['channel', channelId, 'threads'] as const,
   /** The channel sessions (not threads) waiting on a person — kept current by `sessions_waiting`. */
   waiting: (channelId: number) => ['channel', channelId, 'waiting'] as const,
+  /** The members whose channel session is running a turn — kept current by `sessions_working`. */
+  working: (channelId: number) => ['channel', channelId, 'working'] as const,
+}
+
+const NO_AGENTS: number[] = []
+
+/**
+ * Agents running a turn in the channel itself (thread work shows on its thread).
+ * An older desktop server has no such endpoint: read that as nobody working.
+ */
+export function useChannelWorkingAgents(channelId: number | null): number[] {
+  const { data } = useQuery({
+    queryKey: channelKeys.working(channelId ?? 0),
+    queryFn: async () => (await api.channelWorkingAgents(channelId!).catch(() => ({ agentIds: NO_AGENTS }))).agentIds,
+    enabled: channelId != null && channelId > 0,
+    staleTime: Infinity,
+  })
+  return data ?? NO_AGENTS
+}
+
+export function applyWorkingAgents(queryClient: QueryClient, channelId: number, agentIds: number[]): void {
+  queryClient.setQueryData<number[]>(channelKeys.working(channelId), agentIds)
 }
 
 export function useChannelWaitingSessions(channelId: number | null) {

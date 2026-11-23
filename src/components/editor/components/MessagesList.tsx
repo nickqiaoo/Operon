@@ -28,6 +28,7 @@ import type { SendToModel } from '../SendToButton';
 import { segmentMessageParts, type Segment } from './compact-tool/segmentParts';
 import { ToolCallGroup } from './compact-tool/ToolCallGroup';
 import { ReplyImageGallery } from './ReplyImageGallery';
+import { uniqueToolImages, type ToolImage } from './ReadImages';
 import { collectSteerAttachments, findLatestTurnMessageId, groupArchivedSteers } from './steer-message';
 import { SteerAttachmentsContext } from './InjectedSteerMessage';
 import { foldMonitorEventRuns } from './background-notice';
@@ -272,6 +273,8 @@ function ArchivedSteers({ messages }: { messages: readonly UIMessage[] }) {
   );
 }
 
+const NO_TOOL_IMAGES: ToolImage[] = [];
+
 const MessageItem = memo(function MessageItem({
   message,
   scrollAnchor,
@@ -306,6 +309,13 @@ const MessageItem = memo(function MessageItem({
 }: MessageItemProps) {
   const intl = useIntl();
   const conciseMode = useChatDisplayStore((s) => s.conciseMode);
+  // Pictures the turn's tool calls read or produced, gathered under the reply
+  // (a folded turn hides the steps they came from).
+  const showReplyImages = message.role === 'assistant' && !isStreamingMessage && isLastAssistantInRound;
+  const replyToolImages = useMemo(
+    () => (showReplyImages ? uniqueToolImages(message.parts.filter(isToolPart) as ToolPartLike[]) : NO_TOOL_IMAGES),
+    [showReplyImages, message.parts],
+  );
   const [mounted, setMounted] = useState(!deferMount);
   useEffect(() => {
     if (mounted) return;
@@ -563,8 +573,8 @@ const MessageItem = memo(function MessageItem({
           one actively streaming); the turn footer is turn-level, so it stays
           gated on isLastAssistantInRound. Order: action row hugs the response
           text, then the turn footer sits below it. */}
-      {message.role === 'assistant' && !isStreamingMessage && isLastAssistantInRound && (
-        <ReplyImageGallery text={lastTextPart?.text ?? getMessageText(message)} />
+      {showReplyImages && (
+        <ReplyImageGallery text={lastTextPart?.text ?? getMessageText(message)} toolImages={replyToolImages} />
       )}
       {message.role === 'assistant' && !isStreamingMessage && !isAutomatedTurn && (
         <AssistantMessageActions

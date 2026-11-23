@@ -23,7 +23,7 @@ import type { PermissionOutcome } from '../permission-utils';
 import { isCodeProgramTool } from '../codeProgram';
 import { TodoWriteRenderer, isTodoWriteTool } from '../TodoWriteRenderer';
 import { ImageReadRenderer } from '../ImageReadRenderer';
-import { ReadImagesRow, imageReadPathOf } from '../ReadImages';
+import { ReadImagesRow, toolImagesOf, uniqueToolImages } from '../ReadImages';
 
 type MessagePart = UIMessage['parts'][number];
 
@@ -80,15 +80,15 @@ function GroupItem({
   if (isToolPart(part) && isTodoWriteTool(part as ToolPartLike)) {
     return <TodoWriteRenderer toolPart={part as ToolInvocationPart} messageId={messageId} partIndex={partIndex} />;
   }
-  // A Read of an image standing alone (a group of one) keeps its picture in view,
-  // as a folded group would. Inside an opened group it is a plain row; opening
-  // the row shows the picture.
-  const imagePath = standalone && isToolPart(part) ? imageReadPathOf(part as ToolInvocationPart) : null;
-  if (imagePath !== null) {
+  // A call with pictures (a Read of an image, a screenshot) standing alone (a
+  // group of one) keeps them in view, as a folded group would. Inside an opened
+  // group it is a plain row; opening the row shows them.
+  const images = standalone && isToolPart(part) ? toolImagesOf(part as ToolInvocationPart) : [];
+  if (images.length > 0) {
     return (
       <ImageReadRenderer
         toolPart={part as ToolInvocationPart}
-        path={imagePath}
+        images={images}
         messageId={messageId}
         partIndex={partIndex}
         onPermissionDecide={onPermissionDecide}
@@ -169,16 +169,14 @@ export function ToolCallGroup({
   const running = states.some((s) => s === 'input-streaming' || s === 'input-available');
   const failed = states.filter((s) => s === 'output-error').length;
   const summary = buildGroupSummary(toolParts, reasoningCount);
-  // Images the group read stay in view while it is folded: small beside the
-  // summary on desktop, a gallery under it on a phone. Opened, they go: each
-  // Read row shows its image when that row is opened.
-  const imagePaths = open
-    ? []
-    : [...new Set(toolParts.map((p) => imageReadPathOf(p)).filter((p): p is string => p !== null))];
+  // Images the group read or produced stay in view while it is folded: small
+  // beside the summary on desktop, a gallery under it on a phone. Opened, they
+  // go: each row shows its images when that row is opened.
+  const images = open ? [] : uniqueToolImages(toolParts);
 
   return (
     <ToolGroupCollapsible open={open} onOpenChange={handleOpenChange}>
-      <ReadImagesRow paths={imagePaths}>
+      <ReadImagesRow images={images}>
         <TraceCollapsibleTrigger>
           <TraceLine status={running ? 'running' : undefined}>
             <TraceIcon><ListTreeIcon /></TraceIcon>
