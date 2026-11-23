@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [1.5.36] - 2026-11-23
+
+### Added
+
+- Channels support image attachments, named threads, and inline approvals and questions for agent sessions.
+- New Taskboard tasks can generate a title from their description. Agent bindings can save a thinking level.
+- Settings include controls for automatic updates of bundled provider CLIs.
+- The iOS composer supports pasting images in conversations that accept attachments.
+
+### Changed
+
+- Channel agents receive more context about their peers and can manage threads through workspace chat tools.
+- Previously protected Computer Use apps, including terminals and password managers, now follow the standard app approval rules.
+- Claude Code, Qoder, and Codex sessions can use more built-in Operon MCP tools without individual approval prompts.
+
+### Fixed
+
+- Task notifications open the associated task on mobile.
+- Touch scrolling works more reliably in file diffs.
+
 ## [1.5.35] - 2026-11-22
 
 ### Added
