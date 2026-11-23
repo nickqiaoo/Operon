@@ -229,7 +229,7 @@ test('the panel makes way off the workspace views and comes back with them', asy
   const tree = page.getByTestId('project-tree')
   const width = async () => (await sidebar.boundingBox())?.width
   await expect(tree).toHaveAttribute('role', 'region')
-  for (const name of ['Assistant', 'Board', 'Channels']) {
+  for (const name of ['Assistant', 'Board']) {
     await sidebar.getByRole('button', { name, exact: true }).click()
     await expect.poll(width).toBe(52)
     // The user's choice did not change, only the view: the toggle can bring it out.
@@ -238,8 +238,12 @@ test('the panel makes way off the workspace views and comes back with them', asy
   // The toggle peeks it out on this view; the next navigation ends the peek.
   await page.getByTestId('toggle-sidebar').click()
   await expect.poll(width).toBe(276)
-  await sidebar.getByRole('button', { name: 'Board', exact: true }).click()
+  await sidebar.getByRole('button', { name: 'Assistant', exact: true }).click()
   await expect.poll(width).toBe(52)
+  await sidebar.getByRole('button', { name: 'Channels', exact: true }).click()
+  await expect.poll(width).toBe(276)
+  await expect(sidebar.getByRole('region', { name: 'Channels', exact: true })).toBeVisible()
+  await expect(tree).toBeHidden()
   // Going back to the workspace (here through the rail's Projects) brings it back.
   await sidebar.getByRole('button', { name: 'Projects', exact: true }).click()
   await expect.poll(width).toBe(276)
