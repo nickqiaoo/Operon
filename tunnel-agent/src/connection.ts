@@ -131,7 +131,7 @@ export function startAgent(opts: AgentOptions): AgentHandle {
           break
         }
         case 'ws-open':
-          handleWSOpen(f as WSOpenFrame, send, opts.localBase, wsStreams, opts.localToken)
+          handleWSOpen(f as WSOpenFrame, send, opts.localBase, wsStreams, opts.localToken, opts.delegationTunnelToken)
           break
         case 'ws-msg': {
           const m = f as WSMsgFrame

@@ -13,19 +13,20 @@ import (
 
 func TestDelegationNodeRouteScope(t *testing.T) {
 	id := "12345678-1234-1234-1234-123456789012"
-	allowed := map[string]string{
-		"delegations/catalog":                      "GET",
-		"delegations/providers/claude-code/models": "GET",
-		"delegations/sessions/" + id + "/turn":     "POST",
-		"delegations/sessions/" + id + "/control":  "POST",
-	}
-	for route, method := range allowed {
-		if !nodeDelegationRoute(method, route) || nodeDelegationRoute("DELETE", route) {
-			t.Fatalf("incorrect method scope for %s %s", method, route)
+	for _, route := range []string{"delegations/catalog", "delegations/sessions/" + id + "/turn", "chat-history", "fs/read",
+		"git/status", "terminal/ws", "projects/3/workspaces", "events", "attachments/abc", "remote-ish"} {
+		for _, method := range []string{"GET", "POST", "PUT", "PATCH", "DELETE"} {
+			if !nodeDelegationRoute(method, route) {
+				t.Fatalf("node token cannot reach %s %s", method, route)
+			}
+		}
+		if nodeDelegationRoute("OPTIONS", route) || nodeDelegationRoute("CONNECT", route) {
+			t.Fatalf("incorrect method scope for %s", route)
 		}
 	}
-	for _, route := range []string{"chat-history", "fs/read", "terminal/ws", "e2ee/devices", "e2ee/pair/start", "e2ee/pair/claim", "e2ee/pair/status/" + id, "e2ee/pair/session/" + id + "/approve", "delegations/local/settings", "delegations/local/machines", "delegations/../fs/read",
-		"delegations/sessions/not-a-uuid/turn", "delegations/providers/../models", "delegations/sessions/" + id + "/turn/x"} {
+	for _, route := range []string{"e2ee", "e2ee/devices", "E2EE/devices", "e2ee/pair/start", "e2ee/pair/session/" + id + "/approve",
+		"saas/config", "remote/abc/fs/read", "delegations/local", "delegations/local/settings", "delegations/local/machines",
+		"integrations/events/linear", "delegations/../e2ee/devices", "fs/../saas", "./e2ee", "/e2ee", "fs//read", "", "fs\\read"} {
 		if nodeDelegationRoute("GET", route) || nodeDelegationRoute("POST", route) {
 			t.Fatalf("node token can reach %s", route)
 		}
@@ -46,9 +47,9 @@ func TestDelegationProxyRejectsForeignAndOutOfScopeNodeTokens(t *testing.T) {
 	mux.HandleFunc("/u/{uid}/n/{nid}/api/{rest...}", server.handleProxy)
 	for _, path := range []string{
 		"/u/bob/n/target/api/delegations/catalog",
-		"/u/alice/n/target/api/fs/read",
 		"/u/alice/n/source/api/delegations/catalog",
 		"/u/alice/n/target/api/delegations/local/settings",
+		"/u/alice/n/target/api/e2ee/devices",
 	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Header.Set("Authorization", "Bearer "+token)

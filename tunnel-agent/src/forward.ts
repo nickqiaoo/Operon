@@ -27,8 +27,11 @@ export async function handleReq(
     // here, never forwarded from the browser — strip any client-sent value.
     headers.delete('x-operon-token')
     if (localToken) headers.set('x-operon-token', localToken)
+    // Broker stamps the source machine on requests another machine of the
+    // account makes (and strips any caller-sent copy); the token proves to the
+    // local server that the stamp came through this agent.
     headers.delete('x-operon-delegation-tunnel')
-    if (delegationTunnelToken && (f.path === '/api/delegations' || f.path.startsWith('/api/delegations/'))) {
+    if (delegationTunnelToken && headers.has('x-operon-delegation-source')) {
       headers.set('x-operon-delegation-tunnel', delegationTunnelToken)
     }
 

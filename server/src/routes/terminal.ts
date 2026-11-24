@@ -3,6 +3,9 @@ import type { NodeWebSocket } from '@hono/node-ws'
 import type WebSocket from 'ws'
 import type { WSContext, WSMessageReceive } from 'hono/ws'
 import {
+  DELEGATION_PUBLIC_KEY_HEADER,
+  DELEGATION_SOURCE_HEADER,
+  DELEGATION_TUNNEL_HEADER,
   REMOTE_E2EE_VERSION,
   REMOTE_TUNNEL_HEADER,
   decodeWebSocketFrame,
@@ -10,7 +13,10 @@ import {
   webSocketFrameAad,
 } from '@shared/e2ee/protocol'
 import * as terminalService from '../services/terminal.js'
+import { DELEGATION_NODE_ID } from '@shared/delegations'
+import { trustedDelegationTunnel } from '../services/delegation-tunnel.js'
 import {
+  delegationKeysFor,
   getConfirmedRemoteDeviceKeys,
   getRemoteE2EEMode,
   openRemoteEnvelope,
@@ -73,10 +79,19 @@ export function terminalRoutes(upgradeWebSocket: NodeWebSocket['upgradeWebSocket
     if (remote && e2ee !== REMOTE_E2EE_VERSION && getRemoteE2EEMode() === 'required') {
       return c.json({ error: 'e2ee_required', message: 'Secure pairing is required' }, 426)
     }
+    // Another machine of the account: Broker stamped which one; the E2EE
+    // middleware already checked the stamp and the receive switch.
+    const source = c.req.header(DELEGATION_SOURCE_HEADER)
+    if (source && (!remote || e2ee !== REMOTE_E2EE_VERSION || !DELEGATION_NODE_ID.test(source) ||
+        !trustedDelegationTunnel(c.req.header(DELEGATION_TUNNEL_HEADER)))) {
+      return c.json({ error: 'e2ee_required', message: 'Secure connection is required' }, 426)
+    }
     if (remote && e2ee === REMOTE_E2EE_VERSION) {
       const deviceId = c.req.query('deviceId')
       const keyId = c.req.query('keyId')
-      const keys = deviceId && keyId ? getConfirmedRemoteDeviceKeys(deviceId, keyId) : null
+      const keys = !deviceId || !keyId ? null
+        : source ? delegationKeysFor(source, c.req.header(DELEGATION_PUBLIC_KEY_HEADER), deviceId, keyId)
+          : getConfirmedRemoteDeviceKeys(deviceId, keyId)
       if (!deviceId || !keyId || !keys) return c.json({ error: 'e2ee_device_untrusted' }, 403)
       secure = {
         deviceId,

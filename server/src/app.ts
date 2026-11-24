@@ -109,6 +109,7 @@ import type { MobilePairingSummary } from './types/mobile.js'
 import { createApiTokenMiddleware } from './services/api-token.js'
 import type { RemoteE2EEMode } from '@shared/e2ee/protocol'
 import { delegationRoutes } from './routes/delegations.js'
+import { remoteMachineRoutes } from './routes/remote-machines.js'
 import { DelegationHost } from './services/delegation-host.js'
 
 export interface AppDeps {
@@ -286,8 +287,11 @@ export async function createApp(deps: AppDeps) {
   // Token first: an unauthenticated caller learns nothing about E2EE state.
   // Remote (tunneled) requests pass because the tunnel agent injects the token
   // after the broker strips nothing — see tunnel-agent/src/forward.ts.
+  stopDelegations?.()
+  const delegationHost = new DelegationHost(deps.storage)
+  stopDelegations = delegationHost.init()
   app.use('/api/*', createApiTokenMiddleware())
-  app.use('/api/*', createRemoteE2EEMiddleware())
+  app.use('/api/*', createRemoteE2EEMiddleware({ acceptsMachines: () => delegationHost.accepting() }))
 
   app.onError((err, c) => {
     console.error('Server error:', err)
@@ -308,9 +312,6 @@ export async function createApp(deps: AppDeps) {
   const ai = aiRoutes(deps.storage)
   const tasks = taskRoutes(deps.storage)
   const inbox = notificationRoutes(deps.storage)
-  stopDelegations?.()
-  const delegationHost = new DelegationHost(deps.storage)
-  stopDelegations = delegationHost.init()
   const externalAgents = externalAgentRoutes()
   const projects = projectRoutes(deps.storage)
   app.route('/api/events', eventRoutes({
@@ -370,6 +371,7 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/assistant-mcp', assistantMcpRoutes())
   app.route('/api/external-agents', externalAgents)
   app.route('/api/delegations', delegationRoutes(delegationHost))
+  app.route('/api/remote', remoteMachineRoutes(upgradeWebSocket))
   app.route('/api/workflow-mcp', workflowMcpRoutes())
   app.route('/api/provider-configs', providerConfigRoutes())
   app.route('/api/env', envRoutes())

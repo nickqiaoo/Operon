@@ -36,13 +36,33 @@ func (s *Server) handleWSProxy(w http.ResponseWriter, r *http.Request, uid, nid,
 		return
 	}
 	claims, err := s.auth.verify(token)
-	if err != nil || claims.Typ != "access" {
+	if err != nil || (claims.Typ != "access" && claims.Typ != "node") {
 		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 		return
 	}
 	if claims.Subject != uid {
 		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 		return
+	}
+	// Another machine of the account (its server opening a terminal there): the
+	// same gate as a node-token HTTP request in handleProxy.
+	var source NodeRow
+	if claims.Typ == "node" {
+		if claims.NodeID == nid || !nodeDelegationRoute(http.MethodGet, rest) {
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			return
+		}
+		from, fromActive := s.delegationNode(uid, claims.NodeID)
+		to, toActive := s.delegationNode(uid, nid)
+		if !fromActive || !toActive {
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			return
+		}
+		if from.DelegationPublicKey == "" || to.DelegationPublicKey == "" {
+			writeBrokerError(w, http.StatusConflict, "delegation_key_missing", "The machines must connect to Remote with a version of Operon that supports delegations.")
+			return
+		}
+		source = from
 	}
 	if s.lifecycle.IsDraining() {
 		writeServerDraining(w)
@@ -79,7 +99,12 @@ func (s *Server) handleWSProxy(w http.ResponseWriter, r *http.Request, uid, nid,
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	st := conn.openWS(ctx, id, path, query, sanitizeWSHeaders(r.Header))
+	headers := sanitizeWSHeaders(r.Header)
+	if source.ID != "" {
+		headers[delegationSourceHeader] = []string{source.ID}
+		headers[delegationPublicKeyHeader] = []string{source.DelegationPublicKey}
+	}
+	st := conn.openWS(ctx, id, path, query, headers)
 	slog.Debug("broker: ws tunnel open", "user", uid, "node", nid, "id", id, "path", path)
 	defer conn.closeWS(id, int(websocket.StatusNormalClosure), "")
 

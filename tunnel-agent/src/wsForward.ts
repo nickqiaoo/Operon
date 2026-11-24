@@ -26,13 +26,23 @@ export function handleWSOpen(
   localBase: string,
   streams: Map<string, LocalWS>,
   localToken?: string,
+  delegationTunnelToken?: string,
 ): void {
   const id = f.id
   const url = localBase.replace(/^http/, 'ws') + f.path + (f.query ?? '')
+  // Another machine of the account opening this one's terminal: Broker stamps
+  // which machine (and its key); the tunnel token vouches the stamp came through here.
+  const source = headerValue(f.headers, 'x-operon-delegation-source')
+  const sourceKey = headerValue(f.headers, 'x-operon-delegation-public-key')
   const local = new WebSocket(url, {
     headers: {
       'x-operon-remote-tunnel': '1',
       ...(localToken ? { 'x-operon-token': localToken } : {}),
+      ...(source && sourceKey && delegationTunnelToken ? {
+        'x-operon-delegation-source': source,
+        'x-operon-delegation-public-key': sourceKey,
+        'x-operon-delegation-tunnel': delegationTunnelToken,
+      } : {}),
     },
   })
   const queue: Array<string | Uint8Array> = []
@@ -119,4 +129,12 @@ export function handleWSClose(id: string, streams: Map<string, LocalWS>): void {
 export function closeAllWS(streams: Map<string, LocalWS>): void {
   for (const holder of streams.values()) holder.close()
   streams.clear()
+}
+
+function headerValue(headers: Record<string, string[]> | undefined, name: string): string | undefined {
+  if (!headers) return undefined
+  for (const [key, values] of Object.entries(headers)) {
+    if (key.toLowerCase() === name && values.length > 0) return values[0]
+  }
+  return undefined
 }

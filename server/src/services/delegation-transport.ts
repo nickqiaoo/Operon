@@ -82,31 +82,53 @@ async function keysFor(target: string): Promise<RemoteDirectionKeys> {
 
 interface OpenedResponse {
   response: Response
+  /** The content type the other machine's route answered with. */
+  innerType: string
   /** Decrypted body, in the order it was sent. */
   chunks: AsyncGenerator<Uint8Array>
 }
 
-async function send(target: string, apiPath: string, body: unknown, signal: AbortSignal | undefined): Promise<OpenedResponse> {
+interface SendOptions {
+  method: string
+  /** Path and query on the other machine, e.g. `/api/fs/read?path=…`. */
+  apiPath: string
+  body?: Uint8Array | string
+  contentType?: string
+  signal?: AbortSignal
+  /** How long to wait for the response head. */
+  openTimeoutMs?: number
+  /**
+   * How long a non-SSE body may stay silent. SSE gets Broker keepalives every
+   * 15s, so it always uses the short limit.
+   */
+  bodyIdleMs?: number
+}
+
+async function send(target: string, options: SendOptions): Promise<OpenedResponse> {
   const { userId, nodeId: deviceId, nodeToken } = localNode()
   if (!DELEGATION_NODE_ID.test(target) || deviceId === target) throw new DelegationHttpError(400, 'Select another machine')
   const keys = await keysFor(target)
   const keyId = getDelegationKeypair().fingerprint
-  const method = body === undefined ? 'GET' : 'POST'
-  const innerContentType = body === undefined ? '' : 'application/json'
-  const plaintext = body === undefined ? '' : typeof body === 'string' ? body : JSON.stringify(body)
-  const envelope = seal(utf8(plaintext), keys.request, requestAad({ method, apiPath, deviceId, keyId, innerContentType }))
+  const method = options.method.toUpperCase()
+  const { apiPath } = options
+  // GET and HEAD carry the sealed (empty) body in a header; everything else in the body,
+  // even when empty — the receiving machine opens a body for every other method.
+  const hasBody = method !== 'GET' && method !== 'HEAD'
+  const innerContentType = hasBody ? options.contentType ?? '' : ''
+  const plaintext = typeof options.body === 'string' ? utf8(options.body) : options.body ?? new Uint8Array()
+  const envelope = seal(hasBody ? plaintext : new Uint8Array(), keys.request, requestAad({ method, apiPath, deviceId, keyId, innerContentType }))
   const context = responseContext({ method, apiPath, requestNonce: envelope.nonce })
   const headers = new Headers({ [E2EE_HEADER]: REMOTE_E2EE_VERSION, [E2EE_DEVICE_HEADER]: deviceId, [E2EE_KEY_HEADER]: keyId,
     [E2EE_INNER_CONTENT_TYPE_HEADER]: innerContentType })
   const payload = JSON.stringify(envelope)
-  if (method === 'GET') headers.set(E2EE_PROOF_HEADER, payload)
-  else headers.set('Content-Type', innerContentType)
+  if (hasBody) headers.set('Content-Type', 'application/json')
+  else headers.set(E2EE_PROOF_HEADER, payload)
 
-  // The timeout covers getting an answer; a turn's stream then stays open as long as it is alive.
-  const opening = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+  // The timeout covers getting an answer; a stream then stays open as long as it is alive.
+  const opening = AbortSignal.timeout(options.openTimeoutMs ?? REQUEST_TIMEOUT_MS)
   const response = await brokerFetch(nodeToken, `/u/${encodeURIComponent(userId)}/n/${target}${apiPath}`, {
-    method, headers, body: method === 'POST' ? payload : undefined,
-    signal: signal ? AbortSignal.any([signal, opening]) : opening,
+    method, headers, body: hasBody ? payload : undefined,
+    signal: options.signal ? AbortSignal.any([options.signal, opening]) : opening,
   })
   if (response.headers.get(E2EE_HEADER) !== REMOTE_E2EE_VERSION) {
     const text = await readText(response)
@@ -121,11 +143,13 @@ async function send(target: string, apiPath: string, body: unknown, signal: Abor
   const aad = (seq: number, final: boolean) => responseFrameAad({
     deviceId, keyId, context, status: response.status, framing, innerContentType: innerType, seq, final,
   })
-  return { response, chunks: decryptFrames(response.body, framing, keys.response, aad) }
+  return { response, innerType, chunks: decryptFrames(response.body, framing, keys.response, aad,
+    framing === 'sse' ? STREAM_IDLE_MS : options.bodyIdleMs ?? STREAM_IDLE_MS) }
 }
 
 async function* decryptFrames(
   body: ReadableStream<Uint8Array>, framing: 'ndjson' | 'sse', key: Uint8Array, aad: (seq: number, final: boolean) => Uint8Array,
+  idleMs: number,
 ): AsyncGenerator<Uint8Array> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
@@ -133,7 +157,7 @@ async function* decryptFrames(
   let seq = 0
   let idle: ReturnType<typeof setTimeout> | undefined
   const read = () => new Promise<Awaited<ReturnType<typeof reader.read>>>((resolve, reject) => {
-    idle = setTimeout(() => reject(new DelegationHttpError(504, 'The machine stopped responding', 'node_unreachable')), STREAM_IDLE_MS)
+    idle = setTimeout(() => reject(new DelegationHttpError(504, 'The machine stopped responding', 'node_unreachable')), idleMs)
     reader.read().then(resolve, () => reject(new DelegationHttpError(503, 'The connection to the machine was lost', 'node_unreachable')))
   }).finally(() => clearTimeout(idle))
   const take = (): string | null => {
@@ -175,7 +199,10 @@ async function* decryptFrames(
 
 /** A JSON request to another machine. */
 export async function delegationRequest<T>(target: string, apiPath: string, body?: unknown): Promise<T> {
-  const { response, chunks } = await send(target, apiPath, body, AbortSignal.timeout(REQUEST_TIMEOUT_MS))
+  const { response, chunks } = await send(target, {
+    method: body === undefined ? 'GET' : 'POST', apiPath, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    ...(body === undefined ? {} : { body: typeof body === 'string' ? body : JSON.stringify(body), contentType: 'application/json' }),
+  })
   const parts: Uint8Array[] = []
   for await (const chunk of chunks) parts.push(chunk)
   const text = Buffer.concat(parts).toString('utf8')
@@ -185,7 +212,7 @@ export async function delegationRequest<T>(target: string, apiPath: string, body
 
 /** A request answered with an SSE stream; yields each event's data. */
 export async function* delegationStream(target: string, apiPath: string, body: string, signal: AbortSignal): AsyncGenerator<string> {
-  const { response, chunks } = await send(target, apiPath, body, signal)
+  const { response, chunks } = await send(target, { method: 'POST', apiPath, body, contentType: 'application/json', signal })
   const decoder = new TextDecoder()
   if (!response.ok) {
     let text = ''
@@ -202,4 +229,90 @@ export async function* delegationStream(target: string, apiPath: string, body: s
       if (data) yield data
     }
   }
+}
+
+
+/** Routes that take long before answering (a push, a commit hook, a generated message). */
+const RELAY_OPEN_TIMEOUT_MS = 5 * 60_000
+const RELAY_BODY_IDLE_MS = 5 * 60_000
+
+/** Response headers that describe the encrypted hop, not the route's answer. */
+const HOP_HEADERS = new Set([
+  E2EE_HEADER, E2EE_CONTEXT_HEADER, E2EE_FRAMING_HEADER, E2EE_INNER_CONTENT_TYPE_HEADER,
+  'content-type', 'content-length', 'content-encoding', 'transfer-encoding', 'connection', 'keep-alive', 'cache-control',
+].map((name) => name.toLowerCase()))
+
+/**
+ * Replays one of this machine's own API requests on another machine of the
+ * account: the same method, path, query and body, end-to-end encrypted through
+ * Broker, answered with the other machine's response (streams stay streams).
+ */
+export async function relayRequest(target: string, apiPath: string, request: Request): Promise<Response> {
+  const method = request.method.toUpperCase()
+  const hasBody = method !== 'GET' && method !== 'HEAD'
+  // Cancelling the relayed body must also drop the Broker request: a read
+  // pending on a quiet event stream would otherwise wait for its next event.
+  const stop = new AbortController()
+  const { response, innerType, chunks } = await send(target, {
+    method, apiPath,
+    body: hasBody ? new Uint8Array(await request.arrayBuffer()) : undefined,
+    contentType: request.headers.get('content-type') ?? '',
+    signal: AbortSignal.any([request.signal, stop.signal]),
+    openTimeoutMs: RELAY_OPEN_TIMEOUT_MS,
+    bodyIdleMs: RELAY_BODY_IDLE_MS,
+  })
+  const headers = new Headers()
+  response.headers.forEach((value, name) => {
+    const key = name.toLowerCase()
+    if (!HOP_HEADERS.has(key) && !key.startsWith('access-control-')) headers.append(name, value)
+  })
+  if (innerType) headers.set('content-type', innerType)
+  headers.set('cache-control', 'no-store')
+  if (response.status === 204 || response.status === 304 || method === 'HEAD') {
+    void drain(chunks)
+    return new Response(null, { status: response.status, headers })
+  }
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { value, done } = await chunks.next()
+        if (done) controller.close()
+        else controller.enqueue(value)
+      } catch (error) {
+        controller.error(error)
+      }
+    },
+    cancel() {
+      stop.abort()
+      void chunks.return(undefined)
+    },
+  })
+  return new Response(body, { status: response.status, headers })
+}
+
+async function drain(chunks: AsyncGenerator<Uint8Array>): Promise<void> {
+  try { for await (const _ of chunks) { /* discard */ } } catch { /* nothing to deliver */ }
+}
+
+/**
+ * How to open a WebSocket on another machine (its terminal): the Broker URL with
+ * this machine's delegation identity, the node-token subprotocol Broker
+ * authenticates, and the keys each frame is sealed with.
+ */
+export async function delegationSocket(target: string, apiPath: string): Promise<{
+  url: string
+  protocol: string
+  deviceId: string
+  keyId: string
+  keys: RemoteDirectionKeys
+}> {
+  const { userId, nodeId: deviceId, nodeToken } = localNode()
+  if (!DELEGATION_NODE_ID.test(target) || deviceId === target) throw new DelegationHttpError(400, 'Select another machine')
+  const keys = await keysFor(target)
+  const keyId = getDelegationKeypair().fingerprint
+  const url = new URL(`${BROKER_URL.replace(/^http/, 'ws')}/u/${encodeURIComponent(userId)}/n/${target}${apiPath}`)
+  url.searchParams.set('e2ee', REMOTE_E2EE_VERSION)
+  url.searchParams.set('deviceId', deviceId)
+  url.searchParams.set('keyId', keyId)
+  return { url: url.toString(), protocol: `operon.bearer.${nodeToken}`, deviceId, keyId, keys }
 }

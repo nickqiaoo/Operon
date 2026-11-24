@@ -312,7 +312,16 @@ export function revokeRemoteDevice(id: number): void {
 /** Broker-verified webhook deliveries (gateway/surfaces/route.ts) — not E2EE'd. */
 export const WEBHOOK_EVENTS_PREFIX = '/api/integrations/events/'
 
-export function createRemoteE2EEMiddleware(): MiddlewareHandler {
+export interface RemoteE2EEMiddlewareOptions {
+  /**
+   * Whether this machine serves the account's other machines ("Run agents for
+   * other machines" in Remote settings). Off: every request from another machine
+   * is refused, whatever its path.
+   */
+  acceptsMachines?: () => boolean
+}
+
+export function createRemoteE2EEMiddleware(options: RemoteE2EEMiddlewareOptions = {}): MiddlewareHandler {
   return async (c, next) => {
     if (c.req.header(REMOTE_TUNNEL_HEADER) !== '1') {
       await next()
@@ -322,6 +331,9 @@ export function createRemoteE2EEMiddleware(): MiddlewareHandler {
     if (source && (!DELEGATION_NODE_ID.test(source) || !trustedDelegationTunnel(c.req.header(DELEGATION_TUNNEL_HEADER)) ||
         !nodeDelegationRoute(c.req.method, c.req.path))) {
       return c.json({ error: 'delegation_scope_denied' }, 403)
+    }
+    if (source && !options.acceptsMachines?.()) {
+      return c.json({ error: 'delegations_disabled', message: 'This machine is not accepting requests from other machines' }, 403)
     }
     // WebSocket messages have their own ordered frame wrapper. The HTTP
     // handshake cannot carry a browser-defined header, so the terminal route
@@ -362,17 +374,9 @@ export function createRemoteE2EEMiddleware(): MiddlewareHandler {
     let keys: DirectionKeys
     let desktopId: string | undefined
     if (source) {
-      const target = getSaasConfig().nodeId
-      const publicKey = c.req.header(DELEGATION_PUBLIC_KEY_HEADER)
-      try {
-        const peer = base64ToBytes(publicKey ?? '')
-        if (!target || deviceId !== source || peer.length !== 32 || fingerprintPublicKey(peer) !== keyId) {
-          return c.json({ error: 'e2ee_key_invalid', message: 'Delegation key identity does not match' }, 403)
-        }
-        keys = deriveDelegationKeys(getDelegationKeypair().privateKey, peer, source, target)
-      } catch {
-        return c.json({ error: 'e2ee_key_invalid', message: 'Invalid delegation public key' }, 403)
-      }
+      const delegation = delegationKeysFor(source, c.req.header(DELEGATION_PUBLIC_KEY_HEADER), deviceId, keyId)
+      if (!delegation) return c.json({ error: 'e2ee_key_invalid', message: 'Delegation key identity does not match' }, 403)
+      keys = delegation
     } else {
       desktopId = getDesktopIdentity().desktopId
       const row = requireState().storage.getMobilePairingByDevice(desktopId, deviceId)
@@ -451,6 +455,24 @@ export function createRemoteE2EEMiddleware(): MiddlewareHandler {
     // bound to an earlier request's nonce. Clearing first skips the merge.
     c.res = undefined
     c.res = encrypted
+  }
+}
+
+/**
+ * Keys for another machine of the account, from the public key Broker stamped on
+ * its request. The caller has already checked the stamp came through the tunnel
+ * agent (`trustedDelegationTunnel`). Null when the claimed identity does not match it.
+ */
+export function delegationKeysFor(
+  source: string, publicKey: string | undefined, deviceId: string, keyId: string,
+): DirectionKeys | null {
+  const target = getSaasConfig().nodeId
+  try {
+    const peer = base64ToBytes(publicKey ?? '')
+    if (!target || deviceId !== source || peer.length !== 32 || fingerprintPublicKey(peer) !== keyId) return null
+    return deriveDelegationKeys(getDelegationKeypair().privateKey, peer, source, target)
+  } catch {
+    return null
   }
 }
 

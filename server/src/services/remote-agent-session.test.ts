@@ -108,7 +108,7 @@ beforeEach(() => {
   host.setAccepting(true)
   initRemoteE2EE({ storage, mode: 'required' })
   const app = new Hono()
-  app.use('/api/*', createRemoteE2EEMiddleware())
+  app.use('/api/*', createRemoteE2EEMiddleware({ acceptsMachines: () => host.accepting() }))
   app.route('/api/delegations', delegationRoutes(host))
   // Broker: authenticates the caller by node token, hands out registered keys, and
   // stamps the verified source onto the request it tunnels to the target.
@@ -200,13 +200,17 @@ describe('remote agent session', () => {
     await expect(collect(session.send('hello'))).rejects.toThrow(/not accepting/)
   })
 
-  it('keeps machine-to-machine calls to the delegation endpoints', () => {
+  it('lets another machine use the whole API except who-may-reach-this-machine settings', () => {
     const id = crypto.randomUUID()
-    expect(nodeDelegationRoute('POST', `/api/delegations/sessions/${id}/turn`)).toBe(true)
-    expect(nodeDelegationRoute('GET', '/api/delegations/providers/codex/models')).toBe(true)
-    expect(nodeDelegationRoute('GET', `/api/delegations/sessions/${id}/turn`)).toBe(false)
-    expect(nodeDelegationRoute('POST', '/api/delegations/local/settings')).toBe(false)
-    expect(nodeDelegationRoute('GET', '/api/chat-history')).toBe(false)
+    for (const path of [`/api/delegations/sessions/${id}/turn`, '/api/chat-history', '/api/fs/read?path=x', '/api/terminal/ws', '/api/git/status']) {
+      expect(nodeDelegationRoute('GET', path)).toBe(true)
+      expect(nodeDelegationRoute('DELETE', path)).toBe(true)
+    }
+    expect(nodeDelegationRoute('OPTIONS', '/api/chat-history')).toBe(false)
+    for (const path of ['/api/delegations/local/settings', '/api/e2ee/devices', '/api/E2EE/devices', '/api/saas/config',
+      '/api/remote/abc/fs/read', '/api/integrations/events/linear', '/api/fs/../e2ee/devices', '/api//e2ee', '/health']) {
+      expect(nodeDelegationRoute('POST', path)).toBe(false)
+    }
   })
 
   it('keeps binary input and errors across the wire', () => {

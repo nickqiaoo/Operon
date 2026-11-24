@@ -86,13 +86,27 @@ export interface IncomingDelegation {
   updatedAt: number
 }
 
-/** Every path one machine may call on another (checked by the target and by Broker). */
+const NODE_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
+
+/**
+ * What another machine may never call here, even with receiving turned on: the
+ * settings that decide who may reach this machine (paired devices, the Broker
+ * connection, the receive switch itself), the relay on to a third machine, and
+ * Broker's own webhook deliveries.
+ */
+const NODE_DENIED = /^\/api\/(e2ee|saas|remote|delegations\/local|integrations\/events)(\/|$)/
+
+/**
+ * Every path one machine may call on another (checked by the target and by
+ * Broker). A machine that turned on "Run agents for other machines" serves the
+ * account's other machines its whole API — files, git, terminal included — the
+ * way it serves its own window.
+ */
 export function nodeDelegationRoute(method: string, path: string): boolean {
-  if (method === 'GET' && path === '/api/delegations/catalog') return true
-  const models = /^\/api\/delegations\/providers\/([^/]+)\/models$/.exec(path)
-  if (models) return method === 'GET' && DELEGATION_PROVIDER_ID.test(models[1])
-  const session = /^\/api\/delegations\/sessions\/([^/]+)\/(turn|control)$/.exec(path)
-  return !!session && method === 'POST' && DELEGATION_ID.test(session[1])
+  if (!NODE_METHODS.has(method) || !path.startsWith('/api/')) return false
+  const lower = path.toLowerCase()
+  if (lower.includes('/../') || lower.endsWith('/..') || lower.includes('/./') || lower.includes('//') || lower.includes('\\')) return false
+  return !NODE_DENIED.test(lower)
 }
 
 /**

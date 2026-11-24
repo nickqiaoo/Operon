@@ -16,24 +16,30 @@ const (
 	delegationSourceLabelHeader = "x-operon-delegation-source-label"
 )
 
-const delegationUUID = `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`
-
-// What one machine may call on another with its node token: the target's agent
-// catalog, a provider's models, and the turn / control endpoints of an agent
-// session the caller runs there (shared/delegations.ts nodeDelegationRoute).
-var (
-	delegationModelsPath  = regexp.MustCompile(`^delegations/providers/[a-z0-9][a-z0-9-]{0,63}/models$`)
-	delegationSessionPath = regexp.MustCompile(`^delegations/sessions/` + delegationUUID + `/(turn|control)$`)
-)
+// What one machine may call on another with its node token: the target's whole
+// API — files, git, terminal included — except the settings that decide who may
+// reach it (paired devices, its Broker connection, its receive switch), the relay
+// on to a third machine, and Broker's own webhook deliveries
+// (shared/delegations.ts nodeDelegationRoute). The target also refuses everything
+// while its "Run agents for other machines" switch is off.
+var nodeDeniedPath = regexp.MustCompile(`^(e2ee|saas|remote|delegations/local|integrations/events)(/|$)`)
 
 func nodeDelegationRoute(method, path string) bool {
 	switch method {
-	case http.MethodGet:
-		return path == "delegations/catalog" || delegationModelsPath.MatchString(path)
-	case http.MethodPost:
-		return delegationSessionPath.MatchString(path)
+	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+	default:
+		return false
 	}
-	return false
+	lower := strings.ToLower(path)
+	if lower == "" || strings.HasPrefix(lower, "/") || strings.Contains(lower, "//") || strings.Contains(lower, `\`) {
+		return false
+	}
+	for _, segment := range strings.Split(lower, "/") {
+		if segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return !nodeDeniedPath.MatchString(lower)
 }
 
 // streamKeepaliveInterval bounds how long a tunneled stream may sit byte-idle
