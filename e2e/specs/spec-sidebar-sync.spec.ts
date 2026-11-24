@@ -72,8 +72,8 @@ test('Spec appears and updates in project navigation without opening the Board',
   expect(await unrelatedRenders()).toBe(rendersBeforeSpec)
   expect(await page.evaluate(() => window.__operon?.workspace?.())).toEqual(selectedWorkspace)
 
-  // A dropped connection comes back with the server's full task snapshot. Nothing
-  // in it changed, so project navigation is left alone.
+  // The project feed reconnects with a refresh to catch workspace changes missed
+  // while disconnected. The unchanged task snapshot should not add another read.
   const readsBeforeDrop = treeReads
   const streamsBeforeDrop = streamReads
   // (Offline emulation leaves an established stream open, so the server ends it.)
@@ -81,10 +81,10 @@ test('Spec appears and updates in project navigation without opening the Board',
   expect(dropped.ended).toBeGreaterThan(0)
   await expect.poll(() => streamReads).toBeGreaterThan(streamsBeforeDrop)
   await expect(row).toContainText('Stopped')
-  // The snapshot is applied 100ms after it lands (useTaskStream); give a refresh
-  // that should not happen the time to show up.
+  await expect.poll(() => treeReads).toBe(readsBeforeDrop + 1)
+  // Both feeds debounce their updates. Allow time for any duplicate read to land.
   await page.waitForTimeout(500)
-  expect(treeReads).toBe(readsBeforeDrop)
+  expect(treeReads).toBe(readsBeforeDrop + 1)
   expect(await unrelatedRenders()).toBe(rendersBeforeSpec)
 
   const archived = await page.request.post(`${apiUrl}/tasks/${task.id}/archive`, { data: { archived: true } })
