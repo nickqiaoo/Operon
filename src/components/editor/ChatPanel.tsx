@@ -6,7 +6,7 @@ import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo,
 import { isTypingTarget } from '@/lib/shadcn-react/message-scroller/components';
 import { FormattedMessage, useIntl } from 'react-intl';
 import type { FileUIPart } from 'ai';
-import { ChartPie, Gauge, Loader2, Monitor, Server } from 'lucide-react';
+import { ChartPie, Gauge, Loader2, Server } from 'lucide-react';
 import { AgentPanel, SESSION_PANEL_PAD_CLASS, type SessionUsageCard } from './agent/AgentPanel';
 import type { OperonSkillDTO } from './agent/agentControl';
 import {
@@ -26,7 +26,7 @@ import {
 import type { PromptInputFile } from '@/components/ai-elements/prompt-input-context';
 import { ChatApiProvider, useChatApi, useChatNodeId, useChatRef, useChatTransport } from '@/lib/chat-api-context';
 import { useEditorStore } from '@/stores/editor-store';
-import { externalAgentKey, isOnNode, useExternalAgentsStore } from '@/stores/external-agents-store';
+import { isOnNode, useExternalAgentsStore } from '@/stores/external-agents-store';
 import { chatRefFromTabId, parseWorkspaceBucketKey, sameNode } from '@/lib/chat-ref';
 import { useStreamingStore } from '@/stores/streaming-store';
 import {
@@ -275,11 +275,8 @@ function ChatPanelContent({
     observer.observe(scroller);
     return () => observer.disconnect();
   }, []);
-  // A remote external agent: its conversation is here, its agent session on another machine.
-  const remoteExecution = useExternalAgentsStore((state) =>
-    tab?.chatId != null ? state.agents.get(externalAgentKey(tab.nodeId, `ext-${tab.chatId}`))?.remote : undefined);
   const sideChatProviderId = tab?.providerId ?? providerId;
-  const canOpenSideChat = useProviderSupportsSideChat(sideChatProviderId) && !remoteExecution;
+  const canOpenSideChat = useProviderSupportsSideChat(sideChatProviderId);
   const selectionActions = useMemo<SelectionAction[]>(() => {
     const actions: SelectionAction[] = [
       {
@@ -350,7 +347,7 @@ function ChatPanelContent({
   const modelManagement = useModelManagement(
     tab?.options?.modelId ?? recentOptionsState.options.modelId ?? '',
     providerId,
-    { ...recentOptionsState.options, preserveModel: tab?.isSubAgent === true, remoteNodeId: remoteExecution?.nodeId },
+    { ...recentOptionsState.options, preserveModel: tab?.isSubAgent === true },
   );
   const {
     model, setModel, availableModels, selectedModel,
@@ -549,7 +546,7 @@ function ChatPanelContent({
   // Not the case for a tab showing another machine's chat: its workspace is on
   // that machine, and so are the file browser, Review and terminal beside it.
   const remoteTab = chatNodeId != null;
-  const runsElsewhere = sshEnvironment ?? remoteExecution;
+  const runsElsewhere = sshEnvironment;
 
   // Reopening a conversation waits for its transcript (a WAN round trip on web
   // and iPad). Until it lands the panel is one loading state — no transcript,
@@ -1592,13 +1589,6 @@ function ChatPanelContent({
             <Server className="size-3.5 shrink-0" />
             <span className="truncate">{sshEnvironment.name}</span>
             <span className="shrink-0 text-muted-foreground/70">SSH</span>
-          </div>
-        )}
-        {!showDraftBar && remoteExecution && (
-          <div className="mb-1.5 flex min-w-0 items-center gap-1.5 px-3 text-xs text-muted-foreground" title={`${remoteExecution.machine} · ${remoteExecution.workspace}`}>
-            <Monitor className="size-3.5 shrink-0" />
-            <span className="shrink-0">{remoteExecution.machine}</span>
-            <span className="truncate text-muted-foreground/70">{remoteExecution.workspace}</span>
           </div>
         )}
         {readOnlyReason != null ? (

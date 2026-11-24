@@ -1,4 +1,4 @@
-import type { RemoteAgentParent, RemoteExecutionRef } from './delegations.js'
+import type { RemoteAgentLocation, RemoteAgentParent } from './delegations.js'
 
 export type ExternalAgentTurnStatus = 'queued' | 'running' | 'completed' | 'cancelled' | 'failed' | 'interrupted'
 export const SUPPORTED_EXTERNAL_AGENT_IDS = ['codex', 'claude-code', 'opencode', 'kimi', 'cursor', 'grok', 'copilot', 'antigravity', 'qoder'] as const
@@ -41,7 +41,7 @@ export interface ExternalAgentView extends ExternalAgentBinding {
    * Lives on another machine of the account: `childChatId` and `workspaceId`
    * are that machine's, and its conversation opens there.
    */
-  remote?: Pick<RemoteExecutionRef, 'nodeId' | 'machine' | 'workspace'>
+  remote?: RemoteAgentLocation
 }
 
 export type ExternalAgentFrame =

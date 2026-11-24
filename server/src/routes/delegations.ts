@@ -1,15 +1,11 @@
 import { Hono, type Context } from 'hono'
-import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
-import type { AgentInput } from '@operon/agent-runtime'
 import {
-  DELEGATION_ID, DELEGATION_NODE_ID, DELEGATION_PROVIDER_ID, decodeWire, encodeWire,
-  type DelegatedAgentEvent, type DelegatedAgentStarted, type DelegationControl, type DelegationTurnRequest,
+  DELEGATION_NODE_ID, DELEGATION_PROVIDER_ID, type DelegatedAgentEvent, type DelegatedAgentStarted,
 } from '@shared/delegations'
 import { DELEGATION_SOURCE_HEADER, DELEGATION_SOURCE_LABEL_HEADER, DELEGATION_TUNNEL_HEADER, REMOTE_TUNNEL_HEADER } from '@shared/e2ee/protocol'
-import type { DelegationHost } from '../services/delegation-host.js'
+import { delegationProviderIds, type DelegationHost } from '../services/delegation-host.js'
 import { DelegationHttpError, delegationRequest, listDelegationNodes } from '../services/delegation-transport.js'
-import { remoteProviderModels } from '../services/remote-agent-session.js'
 import {
   createExternalAgent, externalAgentView, getExternalAgentStatus, sendExternalAgent, stopExternalAgent,
 } from '../services/external-agent.js'
@@ -17,25 +13,9 @@ import { receiveAgentEvent } from '../services/remote-agents.js'
 import { trustedDelegationTunnel } from '../services/delegation-tunnel.js'
 import { getChatStorage } from '../services/ai/state.js'
 
-const sessionId = z.string().regex(DELEGATION_ID)
 const nodeId = z.string().regex(DELEGATION_NODE_ID)
 const providerId = z.string().regex(DELEGATION_PROVIDER_ID)
 const setting = z.string().trim().min(1).max(250)
-const sessionOptions = z.object({
-  model: setting.optional(), mode: setting.optional(), effort: setting.optional(),
-  serviceTier: z.literal('fast').optional(), resume: z.string().min(1).max(500).optional(),
-})
-const turnRequest = z.object({
-  providerId, workspaceId: z.number().int().positive(), options: sessionOptions, input: z.unknown(),
-})
-const control = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('respond'), approvalId: z.string().min(1).max(1000), decision: z.object({ type: z.enum(['allow', 'deny', 'allow-always']) }).passthrough() }),
-  z.object({ type: z.literal('abort') }),
-  z.object({ type: z.literal('close') }),
-  z.object({ type: z.literal('set'), patch: sessionOptions.omit({ resume: true, serviceTier: true })
-    .extend({ serviceTier: z.literal('fast').nullable().optional() }) }),
-  z.object({ type: z.enum(['steer', 'followup']), input: z.unknown(), id: z.string().max(200).optional() }),
-])
 const positiveId = z.number().int().positive()
 const agentCreate = z.object({
   parentChatId: positiveId, providerId, model: setting, effort: setting.optional(),
@@ -60,12 +40,6 @@ const launch = z.object({
   description: z.string().trim().min(1).max(300), prompt: z.string().trim().min(1).max(100_000),
   target: nodeId.optional(), workspaceId: z.number().int().positive().optional(),
 })
-
-/**
- * Features a remote agent's chat cannot use here: they read or write this
- * machine's copy of the session (goal, fork, checkpoints, context breakdown).
- */
-const LOCAL_ONLY_FEATURES = ['goal', 'sideChat', 'checkpoint', 'contextUsage'] as const
 
 export function delegationRoutes(host: DelegationHost) {
   const app = new Hono()
@@ -93,33 +67,15 @@ export function delegationRoutes(host: DelegationHost) {
     source(c)
     return c.json(await host.catalog(c.req.queries('provider'), c.req.query('query'), c.req.query('models')))
   })
-  app.get('/providers/:providerId/models', async (c) => {
-    source(c)
-    return c.json(await host.models(providerId.parse(c.req.param('providerId'))))
-  })
-  app.post('/sessions/:id/turn', async (c) => {
-    const from = source(c)
-    const id = sessionId.parse(c.req.param('id'))
-    const request = turnRequest.parse(decodeWire(await c.req.text())) as DelegationTurnRequest
-    const frames = host.turn(from.id, from.label, id, request, request.input as AgentInput, c.req.raw.signal)
-    // Fail before the stream opens when the session cannot start, so the origin gets an HTTP error.
-    const first = await frames.next()
-    return streamSSE(c, async (stream) => {
-      if (!first.done) await stream.writeSSE({ data: encodeWire(first.value) })
-      for await (const frame of frames) await stream.writeSSE({ data: encodeWire(frame) })
-    })
-  })
-  app.post('/sessions/:id/control', async (c) => {
-    const from = source(c)
-    const request = control.parse(decodeWire(await c.req.text())) as DelegationControl
-    return c.json(await host.control(from.id, sessionId.parse(c.req.param('id')), request))
-  })
-
   // External agents another machine's conversation starts here. The agent is an
   // ordinary one of this machine; its owner is (source machine, parent chat id).
   app.post('/agents', async (c) => {
     const from = source(c)
     const input = agentCreate.parse(await c.req.json())
+    const providers = delegationProviderIds()
+    if (!providers.includes(input.providerId)) {
+      throw new DelegationHttpError(400, `Available agents on this machine: ${providers.join(', ') || 'none'}`)
+    }
     const started = await createExternalAgent({
       parent: { remoteParent: { nodeId: from.id, ...(from.label ? { label: from.label } : {}), chatId: input.parentChatId }, workspaceId: input.workspaceId },
       providerId: input.providerId, model: input.model, effort: input.effort, description: input.description, prompt: input.prompt,
@@ -176,13 +132,6 @@ export function delegationRoutes(host: DelegationHost) {
   app.get('/local/machines/:nodeId/catalog', async (c) => {
     const target = nodeId.parse(c.req.param('nodeId'))
     return c.json(await delegationRequest(target, '/api/delegations/catalog?models=0'))
-  })
-  // What a remote agent's composer offers: the target machine's catalog for that provider.
-  app.get('/local/machines/:nodeId/providers/:providerId/models', async (c) => {
-    const models = await remoteProviderModels(nodeId.parse(c.req.param('nodeId')), providerId.parse(c.req.param('providerId')))
-    const features = { ...models.features }
-    for (const feature of LOCAL_ONLY_FEATURES) features[feature] = false
-    return c.json({ ...models, features })
   })
   // The Agents panel's "Run external agent": the same call the parent's agent makes.
   app.post('/local/chats/:chatId/agents', async (c) => {

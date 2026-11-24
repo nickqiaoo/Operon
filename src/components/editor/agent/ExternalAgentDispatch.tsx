@@ -9,7 +9,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { codingAgentName } from '@/components/assistant/CodingAgentCard'
 import { useChatApi, useChatNodeId } from '@/lib/chat-api-context'
 import { useDelegationCatalog, useDelegationMachines } from '@/lib/delegation-queries'
-import { useProviderModels, useProviders } from '@/lib/provider-queries'
+import { useQuery } from '@tanstack/react-query'
+import { providerModelsQuery, useProviders } from '@/lib/provider-queries'
 
 const THIS_MACHINE = 'this-machine'
 const DEFAULT_MODEL = 'default'
@@ -47,7 +48,8 @@ function DispatchForm({ chatId, close }: { chatId: number; close: () => void }) 
   const machines = useDelegationMachines()
   const providers = useProviders({ enabled: !remote })
   const catalog = useDelegationCatalog(remote)
-  const models = useProviderModels(providerId || undefined, remote)
+  // Another machine's models are read from that machine (through /api/remote).
+  const models = useQuery({ ...providerModelsQuery(providerId, remote), enabled: !!providerId })
 
   const agents = remote
     ? catalog.data?.agents.map(({ agentType }) => agentType) ?? []

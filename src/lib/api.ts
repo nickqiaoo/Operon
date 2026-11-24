@@ -419,9 +419,6 @@ export function createApi(transport: ApiTransport) {
       /** Another machine's agents and workspaces, for starting an external agent there. */
       delegationCatalog: (nodeId: string) => get<{ workspaces: DelegationWorkspace[]; agents: { agentType: string }[] }>(
         `/delegations/local/machines/${encodeURIComponent(nodeId)}/catalog`),
-      /** Same shape as `getProviderModels`, read from the machine the agent runs on. */
-      getRemoteProviderModels: (nodeId: string, providerId: string) =>
-        get<unknown>(`/delegations/local/machines/${encodeURIComponent(nodeId)}/providers/${encodeURIComponent(providerId)}/models`),
       runExternalAgent: (chatId: number, input: {
         providerId: string; model: string; effort?: string; description: string; prompt: string; target?: string; workspaceId?: number
       }) => post<{ agent_id: string; chat_id: number }>(`/delegations/local/chats/${chatId}/agents`, input),

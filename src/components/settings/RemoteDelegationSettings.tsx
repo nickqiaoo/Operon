@@ -5,7 +5,9 @@ import { api } from '@/lib/api'
 import { delegationKeys, useDelegationSettings } from '@/lib/delegation-queries'
 import type { IncomingDelegation } from '@shared/delegations'
 
-const STATUS_LABELS: Record<IncomingDelegation['status'], string> = { running: 'Running', idle: 'Idle', closed: 'Ended' }
+const STATUS_LABELS: Record<IncomingDelegation['status'], string> = {
+  queued: 'Queued', running: 'Running', completed: 'Done', cancelled: 'Stopped', failed: 'Failed', interrupted: 'Interrupted', idle: 'Idle',
+}
 
 /** Whether other machines of the account may run external agents here, and which recently did. */
 export function RemoteDelegationSettings() {
@@ -23,7 +25,7 @@ export function RemoteDelegationSettings() {
         <div className="min-w-0">
           <h3 className="text-sm font-medium">Run agents for other machines</h3>
           <p className="text-xs text-muted-foreground">
-            Your other machines can start external agents in this machine&apos;s workspaces. Their conversations stay on the machine that started them.
+            Your other machines can open this machine&apos;s workspaces — files, git, terminal and conversations — and start external agents here. Those agents&apos; conversations live on this machine.
           </p>
         </div>
         <Switch aria-label="Run agents for other machines" checked={settings.data?.enabled ?? false}
@@ -34,12 +36,15 @@ export function RemoteDelegationSettings() {
           <h4 className="text-xs font-medium text-muted-foreground">Recent</h4>
           <ul className="divide-y divide-border/40 rounded-lg border border-border/40 bg-background/40">
             {settings.data.recent.map((item) => (
-              <li key={`${item.sourceNodeId}:${item.sessionId}`} className="flex items-center justify-between gap-3 px-3 py-2">
+              <li key={item.childChatId} className="flex items-center justify-between gap-3 px-3 py-2">
                 <div className="min-w-0">
-                  <p className="truncate text-sm">{codingAgentName(item.providerId)}{item.workspace ? ` · ${item.workspace}` : ''}</p>
-                  <p className="truncate text-xs text-muted-foreground">From {item.sourceLabel || item.sourceNodeId}</p>
+                  <p className="truncate text-sm">{item.description}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {codingAgentName(item.providerId)}{item.workspace ? ` · ${item.workspace}` : ''} · From {item.sourceLabel || item.sourceNodeId}
+                  </p>
                 </div>
-                <span className={item.status === 'running' ? 'shrink-0 text-xs text-status-ok' : 'shrink-0 text-xs text-muted-foreground'}>
+                <span className={item.status === 'running' || item.status === 'queued' ? 'shrink-0 text-xs text-status-ok'
+                  : item.status === 'failed' ? 'shrink-0 text-xs text-status-error' : 'shrink-0 text-xs text-muted-foreground'}>
                   {STATUS_LABELS[item.status]}
                 </span>
               </li>

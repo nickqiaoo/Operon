@@ -52,8 +52,6 @@ export interface InitialModelOptions {
   preserveModel?: boolean;
   modeId?: string;
   serviceTier?: string;
-  /** The agent runs on this other machine: offer that machine's models and modes. */
-  remoteNodeId?: string;
 }
 
 /**
@@ -179,7 +177,7 @@ export function useModelManagement(
   // Served from the shared query cache: every tab on the same provider reads
   // one entry, a settings save refreshes them all (`invalidateProviderQueries`),
   // and the copilot warm-up poll lives in the query's `refetchInterval`.
-  const { data: modelsData, refetch: refetchModels } = useProviderModels(providerId, initialOptions?.remoteNodeId);
+  const { data: modelsData, refetch: refetchModels } = useProviderModels(providerId);
   // `refetch` ignores `enabled`: never fire it without a provider.
   const refetch = useCallback(() => { if (providerId) void refetchModels(); }, [providerId, refetchModels]);
 

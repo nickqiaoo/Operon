@@ -210,28 +210,6 @@ export async function delegationRequest<T>(target: string, apiPath: string, body
   return JSON.parse(text) as T
 }
 
-/** A request answered with an SSE stream; yields each event's data. */
-export async function* delegationStream(target: string, apiPath: string, body: string, signal: AbortSignal): AsyncGenerator<string> {
-  const { response, chunks } = await send(target, { method: 'POST', apiPath, body, contentType: 'application/json', signal })
-  const decoder = new TextDecoder()
-  if (!response.ok) {
-    let text = ''
-    for await (const chunk of chunks) text += decoder.decode(chunk, { stream: true })
-    throw errorFromBody(response.status, text)
-  }
-  let buffer = ''
-  for await (const chunk of chunks) {
-    buffer += decoder.decode(chunk, { stream: true })
-    for (let end = buffer.indexOf('\n\n'); end >= 0; end = buffer.indexOf('\n\n')) {
-      const block = buffer.slice(0, end)
-      buffer = buffer.slice(end + 2)
-      const data = block.split('\n').filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n')
-      if (data) yield data
-    }
-  }
-}
-
-
 /** Routes that take long before answering (a push, a commit hook, a generated message). */
 const RELAY_OPEN_TIMEOUT_MS = 5 * 60_000
 const RELAY_BODY_IDLE_MS = 5 * 60_000

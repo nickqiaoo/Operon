@@ -86,9 +86,6 @@ export async function startChat(
     throw new Error('SSH environments are available for Operon chats.')
   }
   const sshEnvironment = sshId === undefined ? undefined : getSshEnvironment(sshId)
-  // The agent runs on another machine: none of this machine's tools, plugins or
-  // file snapshots apply to it. The chat itself is local as usual.
-  const remoteExecution = existingChat?.metadata?.remoteExecution
   if (sshEnvironment && existingChat) payload = { ...payload, workspaceId: existingChat.workspaceId }
   const latestPayloadMessage = normalizedMessages[normalizedMessages.length - 1]
   const latestUserMessage = findLatestUserMessage(normalizedMessages)
@@ -173,9 +170,9 @@ export async function startChat(
   // canvases still have a chatId and must receive their own persistent kernel.
   const mcpContext = chatId > 0 ? { ...payload.agentContext, chatId, cwd } : payload.agentContext
   // Plugin MCP servers are merged in from the plugin store, which must be loaded first.
-  if (!sshEnvironment && !remoteExecution) await ensurePluginsLoaded().catch((error) => console.error('[plugins] load failed:', error))
-  // SSH chats, remote agents and workflow sub-agents use the provider's own tools.
-  const mcpServers = sshEnvironment || remoteExecution || workflowAgent ? undefined : resolveMcpServersForSession(providerId, mcpContext)
+  if (!sshEnvironment) await ensurePluginsLoaded().catch((error) => console.error('[plugins] load failed:', error))
+  // SSH chats and workflow sub-agents use the provider's own tools.
+  const mcpServers = sshEnvironment || workflowAgent ? undefined : resolveMcpServersForSession(providerId, mcpContext)
   // OperonSpec hint for a direct workspace chat (sourceChatId set): opt-in
   // guidance delivered as session
   // instructions layered once onto the provider's system prompt. It used to ride every user message
@@ -203,7 +200,6 @@ export async function startChat(
     mcpServers,
     instructions,
     ...(sshEnvironment ? { operon: { sshEnvironment } } : {}),
-    ...(remoteExecution ? { remoteExecution } : {}),
     ...(approvedMcpServers.length > 0 ? { codex: { approvedMcpServers } } : {}),
     ...(chatId > 0 ? { opencode: { callerTag: String(chatId) } } : {}),
     ...resolveForkSource(chatId),
@@ -229,7 +225,7 @@ export async function startChat(
     chatId,
     cwd,
     rawMessages,
-    skipSnapshot: payload.skipSnapshot || !!sshEnvironment || !!remoteExecution,
+    skipSnapshot: payload.skipSnapshot || !!sshEnvironment,
   })
 
   let resultMessage: UIMessage | undefined

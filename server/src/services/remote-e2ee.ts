@@ -414,7 +414,10 @@ export function createRemoteE2EEMiddleware(options: RemoteE2EEMiddlewareOptions 
       ]) {
         headers.delete(name)
       }
-      if (!c.req.path.startsWith('/api/delegations') && !c.req.path.startsWith('/api/e2ee/')) headers.delete(REMOTE_TUNNEL_HEADER)
+      // Kept where a route must tell remote callers apart: machine-to-machine calls,
+      // pairing, and the relay to other machines (which only this machine's own UI may use).
+      if (!c.req.path.startsWith('/api/delegations') && !c.req.path.startsWith('/api/e2ee/') &&
+          !c.req.path.startsWith('/api/remote/')) headers.delete(REMOTE_TUNNEL_HEADER)
       if (innerContentType) headers.set('content-type', innerContentType)
       else headers.delete('content-type')
       headers.delete('content-length')

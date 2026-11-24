@@ -45,10 +45,13 @@ to get that machine's agents, models and workspaces, ask for any choice the user
 has not made, then call `external_agent_run` with the same `target_node_id` and
 that machine's `workspace_id` (omit it only when the machine has one workspace).
 
-The agent works in the workspace as it exists on that machine; its files are not
-in this conversation's workspace. Everything else is the same as on this machine:
-its tab, follow-ups, status, stop and results. The target must allow it in its
-Remote settings, and both machines must be online for a turn to run.
+The agent's conversation lives on that machine, in that workspace; its files are
+not in this conversation's workspace, and you cannot read them from here. To
+review what it changed, ask it (with `external_agent_send`) to show the diff.
+Everything else is the same as on this machine: its tab, follow-ups, status, stop
+and results. The target must allow it in its Remote settings and be online for a
+turn to run; a result that finishes while this machine is offline arrives when it
+is back.
 
 ## Continue the same child
 

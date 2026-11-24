@@ -117,14 +117,11 @@ export function useProviders(options?: { enabled?: boolean }) {
  * on the machine a remote tab's chat lives on, through that machine's own API.
  * Both describe the same machine's catalog, so they share a cache slot.
  */
-export function providerModelsQuery(providerId: string, nodeId?: string, chatNodeId?: string) {
-  const machine = nodeId ?? chatNodeId
+/** `chatNodeId`: the machine the chat runs on (undefined: this one). */
+export function providerModelsQuery(providerId: string, chatNodeId?: string) {
   return queryOptions({
-    queryKey: providerKeys.models(providerId, machine),
-    queryFn: async () => (nodeId
-      // Asked through the chat's machine, whose delegation route reaches `nodeId`.
-      ? await apiOn(chatNodeId).getRemoteProviderModels(nodeId, providerId)
-      : await apiOn(chatNodeId).getProviderModels(providerId)) as ProviderModelsResponse,
+    queryKey: providerKeys.models(providerId, chatNodeId),
+    queryFn: async () => (await apiOn(chatNodeId).getProviderModels(providerId)) as ProviderModelsResponse,
     staleTime: THIRTY_SECONDS,
     refetchInterval: (query) => {
       const data = query.state.data
@@ -140,10 +137,10 @@ export function providerModelsQuery(providerId: string, nodeId?: string, chatNod
 }
 
 /** One provider's model / mode / capability catalog. Disabled until `providerId` is known. */
-export function useProviderModels(providerId: string | undefined, nodeId?: string) {
+export function useProviderModels(providerId: string | undefined) {
   const chatNodeId = useChatNodeId()
   return useQuery({
-    ...providerModelsQuery(providerId ?? '', nodeId, chatNodeId),
+    ...providerModelsQuery(providerId ?? '', chatNodeId),
     enabled: !!providerId,
   })
 }
@@ -158,7 +155,7 @@ const selectSideChat = (data: ProviderModelsResponse) => data.features?.sideChat
  */
 export function useProviderSupportsSideChat(providerId: string | undefined): boolean {
   const chatNodeId = useChatNodeId()
-  const { data } = useQuery({ ...providerModelsQuery(providerId ?? '', undefined, chatNodeId), enabled: false, select: selectSideChat })
+  const { data } = useQuery({ ...providerModelsQuery(providerId ?? '', chatNodeId), enabled: false, select: selectSideChat })
   return !!providerId && data === true
 }
 
