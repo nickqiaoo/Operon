@@ -552,20 +552,24 @@ function ChatPanelContent({
   // and iPad). Until it lands the panel is one loading state — no transcript,
   // no composer. A composer shown in the meantime looked ready but did nothing
   // useful, and the old thin bar at the top of the window was easy to miss.
-  // New chats (no DB id yet) have nothing to load and skip this. Off the phone
-  // it waits HISTORY_LOADING_DELAY_MS first: the desktop app loads from a local
-  // process in a few ms, and flashing the state there would only flicker.
+  // New chats (no DB id yet) have nothing to load and skip this. The composer
+  // and transcript stay hidden for the whole load; only the loading state
+  // itself waits HISTORY_LOADING_DELAY_MS on this machine's desktop chats,
+  // which load from a local process in a few ms, so it doesn't flicker there.
+  // The phone and another machine's chats (through Broker) show it at once:
+  // waiting first showed the composer, then swapped it for the loading state.
   const historyLoading = historyDbChatId !== undefined && !historyLoaded;
+  const loadingShownAtOnce = isMobile || remoteTab;
   const [historyLoadingDelayed, setHistoryLoadingDelayed] = useState(false);
   useEffect(() => {
-    if (!historyLoading || isMobile) {
+    if (!historyLoading || loadingShownAtOnce) {
       setHistoryLoadingDelayed(false);
       return;
     }
     const timer = window.setTimeout(() => setHistoryLoadingDelayed(true), HISTORY_LOADING_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [historyLoading, isMobile]);
-  const showHistoryLoading = historyLoading && (isMobile || historyLoadingDelayed);
+  }, [historyLoading, loadingShownAtOnce]);
+  const showHistoryLoading = historyLoading && (loadingShownAtOnce || historyLoadingDelayed);
 
   // Sits below useChatHistory because it needs that hook's loaded timestamp to
   // date a conversation reopened from history.
@@ -1398,7 +1402,7 @@ function ChatPanelContent({
             "group-data-[keyboard-open=true]/mobile-shell:fixed group-data-[keyboard-open=true]/mobile-shell:bottom-[var(--keyboard-height)] group-data-[keyboard-open=true]/mobile-shell:z-50 group-data-[keyboard-open=true]/mobile-shell:max-w-none group-data-[keyboard-open=true]/mobile-shell:px-4 group-data-[keyboard-open=true]/mobile-shell:pb-1 group-data-[keyboard-open=true]/mobile-shell:pt-2",
           // Hidden, not unmounted, while the transcript loads: the composer keeps
           // its draft and its measured height, and it can't be tapped or focused.
-          showHistoryLoading && "invisible"
+          historyLoading && "invisible"
         )}
       >
         {reconnecting ? (
@@ -1604,7 +1608,7 @@ function ChatPanelContent({
         ) : <ChatComposer
           // `invisible` above only hides the web composer: the packaged apps draw a native
           // one over its spacer, which keeps its box, so it has to be told to hide too.
-          visible={visible && !showHistoryLoading}
+          visible={visible && !historyLoading}
           promptSuggestion={promptSuggestion}
           isOperonProvider={isOperonProvider}
           dbChatId={tab?.chatId ?? dbChatIdRef.current}
