@@ -16,17 +16,20 @@ import {
  */
 export function SelectedTextTray({
   workspaceId,
+  nodeId,
   chatId,
 }: {
   workspaceId: number | null
+  /** Machine of that workspace; undefined for this one. */
+  nodeId?: string
   chatId: number | undefined
 }) {
   const intl = useIntl()
   const items = useSelectedTextStore((s) => s.items)
   const remove = useSelectedTextStore((s) => s.remove)
   const mine = useMemo(
-    () => selectedTextForChat(items, workspaceId, chatId),
-    [items, workspaceId, chatId]
+    () => selectedTextForChat(items, workspaceId, chatId, nodeId),
+    [items, workspaceId, chatId, nodeId]
   )
 
   if (mine.length === 0) return null

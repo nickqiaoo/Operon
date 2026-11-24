@@ -143,7 +143,10 @@ export function BrowserChrome({ instance, className }: BrowserChromeProps) {
           <NavButton
             ariaLabel={intl.formatMessage({ id: "browser.sendAnnotations", defaultMessage: "Send annotations to chat" })}
             className="w-auto px-1.5"
-            onClick={() => requestSend(useEditorStore.getState().currentWorkspaceId)}
+            onClick={() => {
+              const { currentWorkspaceId, currentNodeId } = useEditorStore.getState()
+              requestSend(currentWorkspaceId, currentNodeId)
+            }}
           >
             <span className="flex items-center gap-1">
               <Send className="h-3.5 w-3.5" />

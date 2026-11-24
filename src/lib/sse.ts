@@ -76,6 +76,8 @@ export interface SubscribeSseOptions<T> {
    */
   onOpen?: () => void
   maxRetryMs?: number
+  /** Auth headers per attempt. Default: this machine's server token. */
+  headers?: () => Record<string, string>
 }
 
 export function subscribeSse<T>({
@@ -85,6 +87,7 @@ export function subscribeSse<T>({
   onError,
   onOpen,
   maxRetryMs = DEFAULT_MAX_RETRY_MS,
+  headers = apiAuthHeaders,
 }: SubscribeSseOptions<T>): SseSubscription {
   let closed = false
   /** The current attempt's request, aborted when it is replaced or the subscription closes. */
@@ -152,7 +155,7 @@ export function subscribeSse<T>({
     try {
       // Auth headers resolve after `url()` — every producer of these URLs goes
       // through `getBaseUrl()`, which primes the token on its first await.
-      const response = await fetch(await url(), { signal, headers: apiAuthHeaders() })
+      const response = await fetch(await url(), { signal, headers: headers() })
       if (!response.ok || response.body == null) {
         throw new Error(`SSE request failed: ${response.status} ${response.statusText}`)
       }

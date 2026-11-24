@@ -1,9 +1,12 @@
 import { useNavigationStore } from '@/stores/navigation-store'
-import { useProjectStore, type Workspace } from '@/stores/project-store'
+import { projectsOn, useProjectStore, type Workspace } from '@/stores/project-store'
 
-/** The workspace and its project in the sidebar's tree, when the tree has it. */
-export function findWorkspace(workspaceId: number): { workspace: Workspace; projectId: number } | undefined {
-  for (const project of useProjectStore.getState().projects) {
+/**
+ * The workspace and its project in the sidebar's tree, when the tree has it.
+ * `nodeId`: in another machine's tree (absent: this machine's).
+ */
+export function findWorkspace(workspaceId: number, nodeId?: string): { workspace: Workspace; projectId: number } | undefined {
+  for (const project of projectsOn(useProjectStore.getState(), nodeId)) {
     const workspace = project.workspaces.find((w) => w.id === workspaceId)
     if (workspace) return { workspace, projectId: project.id }
   }
@@ -39,12 +42,20 @@ export async function ensureWorkspaceKnown(workspaceId: number, force = false): 
   }
 }
 
-/** Make `workspaceId` the current workspace, loading the tree first when it doesn't have it. False when there is no such workspace. */
-export async function activateWorkspace(workspaceId: number): Promise<boolean> {
-  await ensureWorkspaceKnown(workspaceId, true)
-  const found = findWorkspace(workspaceId)
+/**
+ * Make `workspaceId` the current workspace, loading the tree first when it
+ * doesn't have it. False when there is no such workspace. `nodeId`: a workspace
+ * of another machine — everything in the workbench then goes to that machine.
+ */
+export async function activateWorkspace(workspaceId: number, nodeId?: string): Promise<boolean> {
+  if (nodeId) {
+    if (!findWorkspace(workspaceId, nodeId)) await useProjectStore.getState().loadRemoteProjects(nodeId)
+  } else {
+    await ensureWorkspaceKnown(workspaceId, true)
+  }
+  const found = findWorkspace(workspaceId, nodeId)
   if (!found) return false
-  useProjectStore.getState().setActiveWorkspace(workspaceId, found.projectId)
+  useProjectStore.getState().setActiveWorkspace(workspaceId, found.projectId, nodeId)
   useNavigationStore.getState().showWorkbench()
   return true
 }

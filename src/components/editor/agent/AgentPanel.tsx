@@ -31,7 +31,7 @@ import { FormattedMessage, useIntl } from 'react-intl'
 import { cn } from '@/lib/utils'
 import { openExternalUrl } from '@/lib/open-external'
 import { openPluginsPage, openSettingsTab } from '@/lib/open-settings'
-import { api } from '@/lib/api'
+
 import { useGitStatus } from '@/lib/git-queries'
 import { useAgentSessionState, useTaskOutput, type SessionResource } from '@/lib/agent-session-queries'
 import { formatDuration } from '@/lib/format'
@@ -58,6 +58,7 @@ import type {
   OperonSkillDTO,
   OperonSubagentDTO,
 } from './agentControl'
+import { useChatApi, useChatRef } from '@/lib/chat-api-context'
 
 interface AgentPanelProps {
   open: boolean
@@ -213,11 +214,12 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
   })
 
   // Claude Code's task list arrives on the live-status stream, not from a poll.
-  const claudeTasks = useChatTasks(providerId === 'claude-code' ? chatId : undefined)
+  const chatRef = useChatRef(chatId)
+  const claudeTasks = useChatTasks(providerId === 'claude-code' ? chatRef : undefined)
   const claudeRunning = claudeTasks.filter((t) => t.status === 'running').length
   // The external agents this chat started: each a conversation of its own, so not in
   // any of this session's lists. (Its own subagents are, and have their cards below.)
-  const childAgents = useChatChildren(chatId)
+  const childAgents = useChatChildren(chatRef)
 
   const servers = mcp.data?.servers ?? []
   const skillList = skills.data?.skills ?? []
@@ -591,6 +593,8 @@ function McpSection({
   canReconnect: boolean
   canToggle: boolean
 }) {
+  // The session runs on the machine this tab's chat lives on.
+  const chat = useChatRef(chatId) ?? { chatId }
   const [expanded, setExpanded] = useState(true)
   const [busyServer, setBusyServer] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -638,8 +642,8 @@ function McpSection({
             busy={busyServer === s.name}
             canReconnect={canReconnect}
             canToggle={canToggle}
-            onReconnect={() => void runAction(s.name, () => agent.mcpReconnect(chatId, s.name))}
-            onToggle={(enabled) => void runAction(s.name, () => agent.mcpToggle(chatId, s.name, enabled))}
+            onReconnect={() => void runAction(s.name, () => agent.mcpReconnect(chat, s.name))}
+            onToggle={(enabled) => void runAction(s.name, () => agent.mcpToggle(chat, s.name, enabled))}
           />
         ))}
       </div>
@@ -686,6 +690,8 @@ const MCP_STATUS_LABEL: Record<McpServerDTO['status'], { id: string; defaultMess
  * feel heavy. Asked for once, then kept.
  */
 function useMcpTools(chatId: number, name: string, enabled: boolean) {
+  // The session runs on the machine this tab's chat lives on.
+  const chat = useChatRef(chatId) ?? { chatId }
   const [tools, setTools] = useState<McpToolDTO[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -693,7 +699,7 @@ function useMcpTools(chatId: number, name: string, enabled: boolean) {
     if (!enabled || tools != null) return
     let cancelled = false
     agent
-      .mcpTools(chatId, name)
+      .mcpTools(chat, name)
       .then((r) => !cancelled && setTools(r.tools))
       .catch((e: unknown) => !cancelled && setError(e instanceof Error ? e.message : String(e)))
     return () => {
@@ -903,6 +909,8 @@ const TASK_DOT: Record<OperonBackgroundTaskDTO['status'], string> = {
 }
 
 function TaskRow({ chatId, providerId, task, onChanged }: { chatId: number; providerId: string | undefined; task: OperonBackgroundTaskDTO; onChanged: () => void }) {
+  // The session runs on the machine this tab's chat lives on.
+  const chat = useChatRef(chatId) ?? { chatId }
   const intl = useIntl()
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -923,7 +931,7 @@ function TaskRow({ chatId, providerId, task, onChanged }: { chatId: number; prov
   const stop = async () => {
     setBusy(true)
     try {
-      await agent.tasksStop(chatId, task.taskId)
+      await agent.tasksStop(chat, task.taskId)
       onChanged()
     } finally {
       setBusy(false)
@@ -1023,6 +1031,8 @@ const byNewest = (a: BackgroundTaskSummary, b: BackgroundTaskSummary) =>
   (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt)
 
 function ClaudeTasksSection({ chatId, providerId, tasks }: { chatId: number; providerId: string; tasks: BackgroundTaskSummary[] }) {
+  // The session runs on the machine this tab's chat lives on.
+  const chat = useChatRef(chatId) ?? { chatId }
   const intl = useIntl()
   const [expanded, setExpanded] = useState(true)
   const [finishedOpen, setFinishedOpen] = useState(true)
@@ -1061,7 +1071,7 @@ function ClaudeTasksSection({ chatId, providerId, tasks }: { chatId: number; pro
               <FormattedMessage id="editor.session.tasksFinished" defaultMessage="Finished {count}" values={{ count: finished.length }} />
             </button>
             <IconButton
-              onClick={() => void agent.tasksClearFinished(chatId)}
+              onClick={() => void agent.tasksClearFinished(chat)}
               label={intl.formatMessage({ id: 'editor.session.clearFinished', defaultMessage: 'Clear finished tasks' })}
             >
               <Trash2 className="h-3 w-3" />
@@ -1089,6 +1099,8 @@ function ClaudeTasksSection({ chatId, providerId, tasks }: { chatId: number; pro
 }
 
 function ClaudeTaskRow({ chatId, providerId, task }: { chatId: number; providerId: string; task: BackgroundTaskSummary }) {
+  // The session runs on the machine this tab's chat lives on.
+  const chat = useChatRef(chatId) ?? { chatId }
   const intl = useIntl()
   const [open, setOpen] = useState(false)
   const [stopRequested, setStopRequested] = useState(false)
@@ -1114,7 +1126,7 @@ function ClaudeTaskRow({ chatId, providerId, task }: { chatId: number; providerI
   const stop = async () => {
     setStopRequested(true)
     try {
-      await agent.tasksStop(chatId, task.taskId)
+      await agent.tasksStop(chat, task.taskId)
     } catch {
       setStopRequested(false)
     }
@@ -1239,6 +1251,8 @@ function SubagentsSection({ res }: { res: Resource<{ subagents: OperonSubagentDT
 
 // ── Cron ─────────────────────────────────────────────────────────────────────
 function CronSection({ chatId, res }: { chatId: number; res: Resource<{ tasks: OperonCronTaskDTO[] }> }) {
+  // The session runs on the machine this tab's chat lives on.
+  const chat = useChatRef(chatId) ?? { chatId }
   const intl = useIntl()
   const [expanded, setExpanded] = useState(false)
   const tasks = res.data?.tasks ?? []
@@ -1251,7 +1265,7 @@ function CronSection({ chatId, res }: { chatId: number; res: Resource<{ tasks: O
     if (!cron.trim() || !prompt.trim()) return
     setBusy(true)
     try {
-      await agent.cronCreate(chatId, { cron: cron.trim(), prompt: prompt.trim() })
+      await agent.cronCreate(chat, { cron: cron.trim(), prompt: prompt.trim() })
       setCron('')
       setPrompt('')
       setAdding(false)
@@ -1262,7 +1276,7 @@ function CronSection({ chatId, res }: { chatId: number; res: Resource<{ tasks: O
   }
 
   const remove = async (id: string) => {
-    await agent.cronDelete(chatId, id)
+    await agent.cronDelete(chat, id)
     res.reload()
   }
 
@@ -1413,6 +1427,7 @@ function openMemberChat(member: PeerMemberDTO): void {
  * or type into it to steer.
  */
 function TeamSection({ res }: { res: Resource<PeersRosterDTO> }) {
+  const api = useChatApi()
   const intl = useIntl()
   const [expanded, setExpanded] = useState(true)
   /** Team awaiting a disband confirmation; `null` = no dialog. */

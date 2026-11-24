@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, type ReactNode } from "react"
 import type { SelectedLineRange } from "@pierre/diffs"
+import { useChatNodeId } from "@/lib/chat-api-context"
 import {
   useLineCommentsStore,
   lineCommentsForFile,
@@ -69,6 +70,8 @@ export function useLineComments({
   path,
   mode,
 }: UseLineCommentsArgs): UseLineCommentsResult {
+  // The workspace's machine: diffs and previews render under its provider.
+  const nodeId = useChatNodeId()
   const items = useLineCommentsStore((s) => s.items)
   const add = useLineCommentsStore((s) => s.add)
   const updateText = useLineCommentsStore((s) => s.updateText)
@@ -80,12 +83,12 @@ export function useLineComments({
   // annotations, and store actions keep untouched comments by reference.
   const savedRef = useRef<LineComment[]>([])
   const saved = useMemo(() => {
-    const next = lineCommentsForFile(items, workspaceId, path)
+    const next = lineCommentsForFile(items, workspaceId, path, nodeId)
     const prev = savedRef.current
     if (next.length === prev.length && next.every((c, i) => c === prev[i])) return prev
     savedRef.current = next
     return next
-  }, [items, workspaceId, path])
+  }, [items, workspaceId, path, nodeId])
 
   // Reads the comments at click time rather than closing over `saved`: this
   // goes into pierre's options, which are compared by reference, so a new
@@ -96,11 +99,12 @@ export function useLineComments({
       const start = Math.min(range.start, range.end)
       const end = Math.max(range.start, range.end)
       const startLine = start !== end ? start : undefined
-      const current = lineCommentsForFile(useLineCommentsStore.getState().items, workspaceId, path)
+      const current = lineCommentsForFile(useLineCommentsStore.getState().items, workspaceId, path, nodeId)
       if (current.some((c) => c.side === side && c.line === end)) return
       add({
         id: crypto.randomUUID(),
         workspaceId,
+        nodeId,
         path,
         side,
         line: end,
@@ -109,7 +113,7 @@ export function useLineComments({
         createdAt: Date.now(),
       })
     },
-    [add, mode, path, workspaceId]
+    [add, mode, path, workspaceId, nodeId]
   )
 
   const entries = useMemo<CommentEntry[]>(() => {

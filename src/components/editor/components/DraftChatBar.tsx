@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Switch } from '@/components/ui/switch';
-import { api } from '@/lib/api';
+import { useChatApi, useChatNodeId } from '@/lib/chat-api-context';
 import type { GitBranchEntry } from '@/lib/api-client';
 import { gitKeys, useGitBranches } from '@/lib/git-queries';
 import { moveDraftToWorkspace, rememberChatProvider } from '@/lib/new-chat';
@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils';
 import { mainWorkspaceOf } from '@/lib/workspace-actions';
 import { useDraftChatStore } from '@/stores/draft-chat-store';
 import { useEditorStore } from '@/stores/editor-store';
-import { useProjectStore, type Project, type Workspace } from '@/stores/project-store';
+import { projectsOn, useProjectStore, type Project, type Workspace } from '@/stores/project-store';
 import { sshEnvironmentsQuery } from '@/lib/ssh-environments';
 import { useNavigationStore } from '@/stores/navigation-store';
 import type { SshEnvironmentRef } from '@shared/ssh-environment';
@@ -50,7 +50,9 @@ interface DraftChatBarProps {
  * after which the tab icon and the header breadcrumb say the same, so the bar goes away.
  */
 export const DraftChatBar = memo(function DraftChatBar({ tabId, providerId, workspaceId, sshEnvironment, isMobile }: DraftChatBarProps) {
-  const projects = useProjectStore((s) => s.projects);
+  // The draft's machine: its projects are the ones it can run in.
+  const nodeId = useChatNodeId();
+  const projects = useProjectStore((s) => projectsOn(s, nodeId));
   const current = useMemo(() => {
     for (const project of projects) {
       const workspace = project.workspaces.find((w) => w.id === workspaceId);
@@ -175,7 +177,9 @@ function AgentPicker({ tabId, providerId }: { tabId: string; providerId: string 
 function ProjectPicker({ tabId, current }: { tabId: string; current: { project: Project; workspace: Workspace } | null }) {
   const intl = useIntl();
   const [open, setOpen] = useState(false);
-  const projects = useProjectStore((s) => s.projects);
+  // A draft stays on its machine: only that machine's projects are offered.
+  const nodeId = useChatNodeId();
+  const projects = useProjectStore((s) => projectsOn(s, nodeId));
   const creating = useDraftChatStore((s) => s.byTab[tabId]?.creating ?? false);
 
   // Pinned first, as in the sidebar; otherwise the store's order.
@@ -234,7 +238,7 @@ function ProjectPicker({ tabId, current }: { tabId: string; current: { project: 
               title={project.rootPath}
               disabled={!target}
               onSelect={() => {
-                if (target && target.id !== current?.workspace.id) moveDraftToWorkspace(tabId, target.id, project.id);
+                if (target && target.id !== current?.workspace.id) moveDraftToWorkspace(tabId, target.id, project.id, nodeId);
               }}
             >
               <Folder className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
@@ -255,6 +259,7 @@ function ProjectPicker({ tabId, current }: { tabId: string; current: { project: 
  * the chat runs in.
  */
 function MoreSettings({ tabId, workspace }: { tabId: string; workspace: Workspace }) {
+  const api = useChatApi();
   const intl = useIntl();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);

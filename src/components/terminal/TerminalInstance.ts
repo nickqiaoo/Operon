@@ -1,7 +1,7 @@
 import { Terminal as Xterm } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import "@xterm/xterm/css/xterm.css"
-import { api } from "@/lib/api"
+import type { Api } from "@/lib/api"
 import { useThemeStore } from "@/stores/theme-store"
 import { useTerminalThemeStore } from "@/stores/terminal-theme-store"
 import {
@@ -110,15 +110,21 @@ export class TerminalInstance {
    */
   private pendingResize: { cols: number; rows: number } | null = null
 
+  /** The machine the shell runs on: the workspace's (its terminal socket and API). */
+  private readonly api: Pick<Api, 'createTerminal' | 'writeTerminal' | 'resizeTerminal' | 'closeTerminal' | 'onTerminalData' | 'onTerminalExit'>
+
   constructor({
     instanceId,
     cwd,
     launch,
+    api,
   }: {
     instanceId: string
     cwd: string | undefined
     launch?: string
+    api: Pick<Api, 'createTerminal' | 'writeTerminal' | 'resizeTerminal' | 'closeTerminal' | 'onTerminalData' | 'onTerminalExit'>
   }) {
+    this.api = api
     this.instanceId = instanceId
     this.cwd = cwd
     this.launch = launch
@@ -240,7 +246,7 @@ export class TerminalInstance {
       this.mediaQuery.removeEventListener("change", this.mediaQueryHandler)
     }
     if (this.terminalId != null) {
-      void api.closeTerminal(this.terminalId)
+      void this.api.closeTerminal(this.terminalId)
     }
     try {
       this.xterm.dispose()
@@ -427,7 +433,7 @@ export class TerminalInstance {
     if (cols === this.lastSentCols && rows === this.lastSentRows) return
     this.lastSentCols = cols
     this.lastSentRows = rows
-    void api.resizeTerminal(id, cols, rows)
+    void this.api.resizeTerminal(id, cols, rows)
   }
 
   /**
@@ -475,11 +481,11 @@ export class TerminalInstance {
     this.lastSentCols = cols
     this.lastSentRows = rows
 
-    api
+    this.api
       .createTerminal({ cwd, cols, rows, launch: this.launch })
       .then(({ id, launchCommand }) => {
         if (this.disposed) {
-          void api.closeTerminal(id)
+          void this.api.closeTerminal(id)
           return
         }
         this.terminalId = id
@@ -491,11 +497,11 @@ export class TerminalInstance {
         if (pending != null && (pending.cols !== this.lastSentCols || pending.rows !== this.lastSentRows)) {
           this.lastSentCols = pending.cols
           this.lastSentRows = pending.rows
-          void api.resizeTerminal(id, pending.cols, pending.rows)
+          void this.api.resizeTerminal(id, pending.cols, pending.rows)
         }
         this.dataHandler = this.xterm.onData((data) => {
           if (this.terminalId === id) {
-            void api.writeTerminal(id, data)
+            void this.api.writeTerminal(id, data)
           }
         })
 
@@ -503,15 +509,15 @@ export class TerminalInstance {
         // the shell once it emits its first output — by then the prompt is
         // ready, so the command isn't swallowed by shell init.
         let launchSent = false
-        this.dataUnsub = api.onTerminalData((incomingId, data) => {
+        this.dataUnsub = this.api.onTerminalData((incomingId, data) => {
           if (incomingId !== id) return
           this.xterm.write(data)
           if (launchCommand && !launchSent) {
             launchSent = true
-            void api.writeTerminal(id, `${launchCommand}\n`)
+            void this.api.writeTerminal(id, `${launchCommand}\n`)
           }
         })
-        this.exitUnsub = api.onTerminalExit((incomingId, exit) => {
+        this.exitUnsub = this.api.onTerminalExit((incomingId, exit) => {
           if (incomingId !== id) return
           this.updateState({
             status: "exited",

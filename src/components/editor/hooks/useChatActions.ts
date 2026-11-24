@@ -1,4 +1,5 @@
-import { api } from "@/lib/api";
+import { useChatApi, useChatTransport } from "@/lib/chat-api-context";
+import { localTransport, type ApiTransport } from "@/lib/api-client";
 import { persistBlobUrl } from "@/lib/attachments";
 import { wrapContextBlock } from "@/lib/context-blocks";
 import type { FileUIPart } from 'ai';
@@ -28,9 +29,10 @@ type SendMessageInput = {
 const persistFileUrl = async (
   url: string,
   meta: { filename?: string; mediaType?: string },
+  transport: ApiTransport,
 ): Promise<string> => {
   if (!url.startsWith('blob:')) return url;
-  return (await persistBlobUrl(url, meta)) ?? url;
+  return (await persistBlobUrl(url, meta, transport)) ?? url;
 };
 
 type OutgoingFile = FileUIPart & { id?: string; content?: string; asText?: boolean }
@@ -43,6 +45,8 @@ type OutgoingFile = FileUIPart & { id?: string; content?: string; asText?: boole
 export async function prepareOutgoingMessage(
   text: string,
   files: OutgoingFile[],
+  /** The machine the chat lives on: its attachment store gets the uploads. */
+  transport: ApiTransport = localTransport,
 ): Promise<{ text: string; files: Array<FileUIPart & { content?: string }> }> {
   const textSnippets: string[] = [];
   const effectiveFiles: Array<FileUIPart & { content?: string }> = [];
@@ -62,7 +66,7 @@ export async function prepareOutgoingMessage(
       url: await persistFileUrl(file.url, {
         filename: file.filename,
         mediaType: file.mediaType,
-      }),
+      }, transport),
     }))
   );
 
@@ -77,6 +81,8 @@ export function useChatActions(
   openChatTab: (chatId: string, title?: string, options?: ChatTabOptions, providerId?: string) => void,
   defaultProviderId?: string
 ) {
+  const api = useChatApi();
+  const transport = useChatTransport();
   const handleSubmit = useCallback(async (
     message: { text: string; files: FileUIPart[] },
     attachmentsFiles: Array<FileUIPart & { id?: string; content?: string }>,
@@ -89,7 +95,7 @@ export function useChatActions(
     if (!message.text.trim() && allFiles.length === 0) return;
     setInput('');
 
-    const prepared = await prepareOutgoingMessage(message.text, allFiles);
+    const prepared = await prepareOutgoingMessage(message.text, allFiles, transport);
     void sendMessage(
       prepared.text.trim()
         ? { text: prepared.text, files: prepared.files }

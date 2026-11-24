@@ -41,6 +41,7 @@ import { useTaskNavigationHandler, type TaskNavigationRequest } from "@/lib/task
 import { observeIosKeyboard } from "@/lib/ios-keyboard"
 import { nativePlatform } from "@/lib/native"
 import type { SpecChatRef } from '@shared/spec'
+import { localChat, workspaceBucketKey } from "@/lib/chat-ref"
 
 /** Full-screen pages in the order they are rendered; which is on top comes from the stack, by z-index. */
 const FULL_PAGE_ORDER: readonly FullPageKind[] = ["settings", "plugins", "canvas", "schedule"]
@@ -153,11 +154,15 @@ export default function App() {
       // A chat already open lands on that tab, wherever it is. The workspace a notification
       // or card names is the one its turn ran in, which need not be the bucket the tab sits
       // in; switching there first and opening by id made a second tab for the same chat.
-      const existing = useEditorStore.getState().findChatTab(target.chatId)
+      // These targets (notifications, cards) are this machine's chats.
+      const existing = useEditorStore.getState().findChatTab(localChat(target.chatId))
       const workspaceId = existing ? existing.workspaceId : target.workspaceId ?? null
+      const editor = useEditorStore.getState()
       const switchWorkspace = existing
-        ? existing.workspaceId !== useEditorStore.getState().currentWorkspaceId
-        : workspaceId != null
+        ? existing.workspaceId !== editor.currentWorkspaceId || editor.currentNodeId != null
+        // Not open, and no workspace named: still leave another machine's workspace,
+        // whose tabs all show that machine's chats.
+        : workspaceId != null || editor.currentNodeId != null
       if (switchWorkspace) {
         const project = workspaceId == null
           ? undefined
@@ -233,7 +238,7 @@ export default function App() {
   // Keep Spec conversations mounted across workspace switches so the original
   // chat, draft and live stream remain the same surface through both entrances.
   const allChatTabs = useMemo(() => {
-    const currentKey = String(currentWorkspaceId ?? 'global')
+    const currentKey = workspaceBucketKey(currentWorkspaceId, useEditorStore.getState().currentNodeId)
     const backgroundStreamingIds = new Set(backgroundStreamingKey.split('\n'))
 
     const inactiveTabs: typeof tabs = []

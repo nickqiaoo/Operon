@@ -6,7 +6,7 @@ import { TouchSafeVirtualizer } from "@/components/diff/TouchSafeVirtualizer"
 import type { FileDiffOptions } from "@pierre/diffs"
 import { PIERRE_HIGHLIGHTER, PIERRE_THEME } from "@shared/tool-rendering/pierre-theme"
 import { cn } from "@/lib/utils"
-import { api } from "@/lib/api"
+import { onNode, useChatApi, useChatNodeId } from "@/lib/chat-api-context"
 import { gitKeys, resolveDefaultBase, useGitRepoInvalidation, usePrForBranch, usePrRepoStatus } from "@/lib/git-queries"
 import { turnDiffKeys, useLatestChangedTurnUid } from "@/lib/chat-queries"
 import { useAppShellStore } from "@/stores/app-shell-store"
@@ -46,6 +46,8 @@ interface ReviewTabProps {
 }
 
 export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspaceId }: ReviewTabProps) {
+  const nodeId = useChatNodeId()
+  const api = useChatApi()
   const intl = useIntl()
   const [scope, setScope] = useState<DiffScope>(initialScope)
   // Set by the chat panel's "Review" action: which chat's latest turn to show.
@@ -115,13 +117,13 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
   useEffect(() => {
     if (scope !== "branch" || baseBranch != null) return
     let cancelled = false
-    void resolveDefaultBase(rootPath).then((base) => {
+    void resolveDefaultBase(rootPath, api).then((base) => {
       if (!cancelled) setBaseBranch(base)
     })
     return () => {
       cancelled = true
     }
-  }, [scope, baseBranch, rootPath])
+  }, [scope, baseBranch, rootPath, api])
 
   // Default the commit scope to the latest commit on HEAD.
   useEffect(() => {
@@ -149,14 +151,14 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
     (scope === "lastTurn" && turnChatId != null)
 
   const reviewQuery = useQuery({
-    queryKey: gitKeys.review(rootPath, scope, variant),
+    queryKey: onNode(gitKeys.review(rootPath, scope, variant), nodeId),
     queryFn: () =>
       loadReview(rootPath, scope, {
         baseBranch,
         commitSha,
         turnChatId,
         turnMessageUid,
-      }),
+      }, api),
     enabled: queryEnabled,
     staleTime: 5_000,
   })

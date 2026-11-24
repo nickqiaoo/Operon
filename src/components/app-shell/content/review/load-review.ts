@@ -1,4 +1,4 @@
-import { api } from "@/lib/api"
+import { api as localApi, type Api } from "@/lib/api"
 import type { BranchInfo, DiffScope, FileChange, ReviewRefs } from "./types"
 import { buildUntrackedDiff, countDiffMetrics, isUntracked, joinPath, mapEntryPatches } from "./diff-utils"
 
@@ -6,6 +6,8 @@ export async function loadRangeFiles(
   rootPath: string,
   baseRef: string,
   headRef: string | null,
+  /** The machine the repo lives on; this one by default. */
+  api: Api = localApi,
 ): Promise<FileChange[]> {
   // One `git diff <base> [head]` returns every file's patch; split it locally
   // instead of a `git diff -- <path>` round-trip per file. `--name-status` /
@@ -64,6 +66,8 @@ export async function loadReview(
     turnChatId?: number | null
     turnMessageUid?: string | null
   } = {},
+  /** The machine the repo lives on; this one by default. */
+  api: Api = localApi,
 ): Promise<{ files: FileChange[]; branch: BranchInfo; refs: ReviewRefs }> {
   let status: Awaited<ReturnType<typeof api.gitStatus>>
   let diffStat: Awaited<ReturnType<typeof api.gitStatusWithDiffStat>>["diffStat"] | null = null
@@ -106,14 +110,14 @@ export async function loadReview(
     if (!opts.baseBranch) return { files: [], branch, refs: { scope } }
     const mergeBase = await api.gitMergeBase(rootPath, opts.baseBranch)
     if (!mergeBase) return { files: [], branch, refs: { scope } }
-    const files = await loadRangeFiles(rootPath, mergeBase, null)
+    const files = await loadRangeFiles(rootPath, mergeBase, null, api)
     return { files, branch, refs: { scope, oldRef: mergeBase, newRef: null } }
   }
 
   if (scope === "commit") {
     if (!opts.commitSha) return { files: [], branch, refs: { scope } }
     const parent = await api.gitCommitParent(rootPath, opts.commitSha)
-    const files = await loadRangeFiles(rootPath, parent, opts.commitSha)
+    const files = await loadRangeFiles(rootPath, parent, opts.commitSha, api)
     return {
       files,
       branch,

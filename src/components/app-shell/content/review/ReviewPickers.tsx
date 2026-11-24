@@ -3,7 +3,7 @@ import { useIntl, FormattedMessage } from "react-intl"
 import { useQuery } from "@tanstack/react-query"
 import { Check, ChevronDown, GitBranch, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { api } from "@/lib/api"
+import { onNode, useChatApi, useChatNodeId } from "@/lib/chat-api-context"
 import { useGitCommits } from "@/lib/git-queries"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { TOOLBAR_PILL, TOOLBAR_PILL_BUTTON } from "@/components/ui/toolbar-styles"
@@ -19,11 +19,13 @@ export function BranchPicker({
   base: string | null
   onBaseChange: (branch: string) => void
 }) {
+  const api = useChatApi()
+  const nodeId = useChatNodeId()
   const intl = useIntl()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const branchQuery = useQuery({
-    queryKey: ["git", rootPath, "branches"],
+    queryKey: onNode(["git", rootPath, "branches"], nodeId),
     queryFn: () => api.gitBranches(rootPath),
     enabled: open,
     staleTime: 30_000,

@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import type { FileUIPart } from "ai"
+import { sameNode } from "@/lib/chat-ref"
 
 /**
  * Codex-style inline "comment on a diff/file line". The user clicks a line in a
@@ -22,6 +23,11 @@ export interface LineComment {
   id: string
   /** Workspace active when the comment was made — the chat list filters on this. */
   workspaceId: number | null
+  /**
+   * Machine of that workspace; undefined for this one. Workspace ids are only
+   * unique per machine, so remote workspace 3 must not pick up local 3's items.
+   */
+  nodeId?: string
   /** File path as shown in the preview/diff header. */
   path: string
   /** `left` = deletions/old side, `right` = additions/new side (or a plain file). */
@@ -45,7 +51,7 @@ interface LineCommentsState {
   updateText: (id: string, text: string) => void
   remove: (id: string) => void
   /** Drop every comment for a workspace (after they've been sent). */
-  clearWorkspace: (workspaceId: number | null) => void
+  clearWorkspace: (workspaceId: number | null, nodeId?: string | null) => void
 }
 
 export const useLineCommentsStore = create<LineCommentsState>((set) => ({
@@ -67,26 +73,29 @@ export const useLineCommentsStore = create<LineCommentsState>((set) => ({
   // Every send calls this. With nothing to drop, keep the same array: a fresh
   // one re-renders every subscriber, and the file preview's `<File>` then
   // rebuilds the whole highlighted file inside the Enter keypress.
-  clearWorkspace: (workspaceId) =>
-    set((s) =>
-      s.items.some((i) => i.workspaceId === workspaceId)
-        ? { items: s.items.filter((i) => i.workspaceId !== workspaceId) }
-        : s),
+  clearWorkspace: (workspaceId, nodeId) =>
+    set((s) => {
+      const inWorkspace = (i: LineComment) => i.workspaceId === workspaceId && sameNode(i.nodeId, nodeId)
+      return s.items.some(inWorkspace) ? { items: s.items.filter((i) => !inWorkspace(i)) } : s
+    }),
 }))
 
 /** Comments for one workspace's chat list, oldest first. */
 export const lineCommentsForWorkspace = (
   items: LineComment[],
-  workspaceId: number | null
-): LineComment[] => items.filter((i) => i.workspaceId === workspaceId && i.text.trim().length > 0)
+  workspaceId: number | null,
+  nodeId?: string | null
+): LineComment[] =>
+  items.filter((i) => i.workspaceId === workspaceId && sameNode(i.nodeId, nodeId) && i.text.trim().length > 0)
 
 /** Comments anchored in one file within a workspace, oldest first. */
 export const lineCommentsForFile = (
   items: LineComment[],
   workspaceId: number | null,
-  path: string
+  path: string,
+  nodeId?: string | null
 ): LineComment[] =>
-  items.filter((i) => i.workspaceId === workspaceId && i.path === path)
+  items.filter((i) => i.workspaceId === workspaceId && sameNode(i.nodeId, nodeId) && i.path === path)
 
 /** `L12` / `R12` / `R12-R18` — the human line label, matching Codex's notation. */
 export const formatCommentLocation = (comment: LineComment): string => {

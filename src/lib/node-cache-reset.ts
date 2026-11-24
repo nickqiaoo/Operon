@@ -14,6 +14,6 @@ import { useExternalAgentsStore } from '@/stores/external-agents-store'
  */
 export function resetNodeScopedCaches(): void {
   useProjectStore.getState().resetProjects()
-  useExternalAgentsStore.getState().sync([])
+  useExternalAgentsStore.getState().reset()
   queryClient.clear()
 }

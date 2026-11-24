@@ -60,11 +60,11 @@ export const annotationToFiles = (a: Annotation): AnnotationFile[] => {
  * shared store, which re-syncs the on-page pins. They're sent
  * to the agent (and cleared) when the message is sent — see `ChatPanel`.
  */
-export function AnnotationTray({ workspaceId }: { workspaceId: number | null }) {
+export function AnnotationTray({ workspaceId, nodeId }: { workspaceId: number | null; nodeId?: string }) {
   const intl = useIntl()
   const items = useAnnotationsStore((s) => s.items)
   const remove = useAnnotationsStore((s) => s.remove)
-  const mine = useMemo(() => annotationsForWorkspace(items, workspaceId), [items, workspaceId])
+  const mine = useMemo(() => annotationsForWorkspace(items, workspaceId, nodeId), [items, workspaceId, nodeId])
 
   if (mine.length === 0) return null
 

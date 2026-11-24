@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { codingAgentName } from '@/components/assistant/CodingAgentCard'
-import { api } from '@/lib/api'
+import { useChatApi, useChatNodeId } from '@/lib/chat-api-context'
 import { useDelegationCatalog, useDelegationMachines } from '@/lib/delegation-queries'
 import { useProviderModels, useProviders } from '@/lib/provider-queries'
 
@@ -30,6 +30,10 @@ export function ExternalAgentDispatch({ chatId }: { chatId: number }) {
 const labelClass = 'grid min-w-0 gap-1.5 text-xs font-medium text-muted-foreground'
 
 function DispatchForm({ chatId, close }: { chatId: number; close: () => void }) {
+  // Everything here is asked of the chat's machine: it dispatches from its own
+  // conversation, and "this machine" in the list is that one.
+  const api = useChatApi()
+  const chatOnRemote = useChatNodeId() != null
   const [machine, setMachine] = useState(THIS_MACHINE)
   const [workspaceId, setWorkspaceId] = useState<number>()
   const [providerId, setProviderId] = useState('')
@@ -89,7 +93,11 @@ function DispatchForm({ chatId, close }: { chatId: number; close: () => void }) 
             }}>
               <SelectTrigger size="sm" className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value={THIS_MACHINE}>This machine</SelectItem>
+                <SelectItem value={THIS_MACHINE}>
+                  {chatOnRemote
+                    ? machines.data?.machines.find((item) => item.current)?.label ?? "This chat's machine"
+                    : 'This machine'}
+                </SelectItem>
                 {machines.data?.machines.filter((item) => !item.current).map((item) => (
                   <SelectItem key={item.nodeId} value={item.nodeId} disabled={!item.online}>
                     {item.label || item.nodeId}{item.online ? '' : ' · Offline'}

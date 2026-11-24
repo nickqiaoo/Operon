@@ -1,14 +1,17 @@
 import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { useChatApi, useChatNodeKey } from '@/lib/chat-api-context';
+import { aiUsageKeys } from '@/lib/chat-queries';
 import type { CodexRateLimits } from '../utils/chatMetadata';
 
 const USAGE_POLL_MS = 120_000;
 
 /** Account-scoped quota, shared by the top bar and empty or existing chats. */
 export function useCodexUsagePolling(enabled = true, isGenerating = false) {
+  const api = useChatApi();
+  const node = useChatNodeKey();
   const query = useQuery({
-    queryKey: ['ai', 'codex-usage'],
+    queryKey: aiUsageKeys.codex(node),
     queryFn: async (): Promise<CodexRateLimits | null> => {
       const result = await api.aiGetCodexUsage();
       // A failed read throws instead of resolving to null: React Query then

@@ -3,6 +3,7 @@
 import { InputGroup } from "@/components/ui/input-group";
 import { cn } from "@/lib/utils";
 import { persistBlobUrl, preuploadBlobUrl } from "@/lib/attachments";
+import { useChatTransport } from "@/lib/chat-api-context";
 import type { FileUIPart, SourceDocumentUIPart } from "ai";
 import { nanoid } from "nanoid";
 import {
@@ -91,6 +92,8 @@ export const PromptInput = ({
   ...props
 }: PromptInputProps) => {
   const controller = useOptionalPromptInputController();
+  // Attachments go to the machine the chat lives on.
+  const transport = useChatTransport();
   const controllerRef = useRef(controller);
   controllerRef.current = controller;
   const usingProvider = !!controller;
@@ -274,10 +277,10 @@ export const PromptInput = ({
   useEffect(() => {
     for (const file of files) {
       if (file.url?.startsWith("blob:")) {
-        preuploadBlobUrl(file.url, { filename: file.filename, mediaType: file.mediaType });
+        preuploadBlobUrl(file.url, { filename: file.filename, mediaType: file.mediaType }, transport);
       }
     }
-  }, [files]);
+  }, [files, transport]);
 
   useEffect(() => {
     if (syncHiddenInput && inputRef.current && files.length === 0) {
@@ -386,7 +389,7 @@ export const PromptInput = ({
           const persisted = await persistBlobUrl(item.url, {
             filename: item.filename,
             mediaType: item.mediaType,
-          });
+          }, transport);
           return { ...item, url: persisted ?? item.url };
         }
         return item;

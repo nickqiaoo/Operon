@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react"
 import { useIntl } from "react-intl"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { api } from "@/lib/api"
+import { useChatApi } from "@/lib/chat-api-context"
 import { gitKeys } from "@/lib/git-queries"
 import { openExternalUrl } from "@/lib/open-external"
 
@@ -36,6 +36,7 @@ export interface StartPrInput {
  * Stop affordance) the way Codex does.
  */
 export function usePrCreation(rootPath: string) {
+  const api = useChatApi()
   const intl = useIntl()
   const queryClient = useQueryClient()
   const [phase, setPhase] = useState<PrPhase | null>(null)

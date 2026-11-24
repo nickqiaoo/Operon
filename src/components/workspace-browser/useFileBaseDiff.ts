@@ -2,7 +2,7 @@ import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { parseDiffFromFile, type FileDiffMetadata } from "@pierre/diffs"
 import type { GitStatusEntry } from "@pierre/trees"
-import { api } from "@/lib/api"
+import { onNode, useChatApi, useChatNodeId } from "@/lib/chat-api-context"
 import { gitKeys, resolveDefaultBase } from "@/lib/git-queries"
 import { PIERRE_GIT_STATUS } from "@/components/app-shell/content/review/constants"
 import { isUntracked } from "@/components/app-shell/content/review/diff-utils"
@@ -27,11 +27,13 @@ export interface DiffBase {
  * show the same changes.
  */
 export function useDiffBase(rootPath: string | null | undefined, enabled: boolean): DiffBase {
+  const api = useChatApi()
+  const nodeId = useChatNodeId()
   const root = rootPath ?? ""
   const remembered = useFilePreviewDiffStore((s) => (rootPath ? s.baseByRoot[rootPath] : undefined))
   // Same key as `mergeQuery` below once it settles on this base, so no extra request.
   const rememberedQuery = useQuery({
-    queryKey: gitKeys.mergeBase(root, remembered ?? ""),
+    queryKey: onNode(gitKeys.mergeBase(root, remembered ?? ""), nodeId),
     queryFn: () => api.gitMergeBase(root, remembered ?? ""),
     enabled: enabled && root !== "" && remembered != null,
     staleTime: 5_000,
@@ -43,14 +45,14 @@ export function useDiffBase(rootPath: string | null | undefined, enabled: boolea
     rememberedQuery.isError || (rememberedQuery.isSuccess && rememberedQuery.data == null)
   const chosen = rememberedStale ? undefined : remembered
   const defaultQuery = useQuery({
-    queryKey: gitKeys.defaultBase(root),
-    queryFn: () => resolveDefaultBase(root),
+    queryKey: onNode(gitKeys.defaultBase(root), nodeId),
+    queryFn: () => resolveDefaultBase(root, api),
     enabled: enabled && root !== "" && chosen == null,
     staleTime: 60_000,
   })
   const base = chosen ?? (defaultQuery.isSuccess ? defaultQuery.data : defaultQuery.isError ? "HEAD" : null)
   const mergeQuery = useQuery({
-    queryKey: gitKeys.mergeBase(root, base ?? ""),
+    queryKey: onNode(gitKeys.mergeBase(root, base ?? ""), nodeId),
     queryFn: () => api.gitMergeBase(root, base ?? ""),
     enabled: enabled && root !== "" && base != null,
     staleTime: 5_000,
@@ -77,11 +79,13 @@ export function useChangedFiles(
   rootPath: string | null | undefined,
   enabled: boolean
 ): GitStatusEntry[] | null {
+  const api = useChatApi()
+  const nodeId = useChatNodeId()
   const root = rootPath ?? ""
   const active = enabled && root !== ""
   const { mergeBase } = useDiffBase(rootPath, active)
   const rangeQuery = useQuery({
-    queryKey: gitKeys.changedFiles(root, mergeBase ?? ""),
+    queryKey: onNode(gitKeys.changedFiles(root, mergeBase ?? ""), nodeId),
     queryFn: () => api.gitDiffRange(root, mergeBase ?? "", null),
     enabled: active && mergeBase != null,
     staleTime: 5_000,
@@ -89,7 +93,7 @@ export function useChangedFiles(
   // Same key as `useGitStatus`, so it shares that cache; gated so previews
   // without git badges (mobile, assistant) never run `git status`.
   const statusQuery = useQuery({
-    queryKey: gitKeys.status(root),
+    queryKey: onNode(gitKeys.status(root), nodeId),
     queryFn: () => api.gitStatus(root),
     enabled: active,
     staleTime: 5_000,
@@ -146,6 +150,8 @@ export function useFileBaseDiff({
   contents: string | null
   enabled: boolean
 }): { base: DiffBase; diff: FileBaseDiff } {
+  const api = useChatApi()
+  const nodeId = useChatNodeId()
   const root = rootPath ?? ""
   const changedFiles = useChangedFiles(rootPath, enabled && relativePath != null)
   const changed =
@@ -154,7 +160,7 @@ export function useFileBaseDiff({
   const base = useDiffBase(rootPath, active)
   const mergeBase = base.mergeBase
   const blobQuery = useQuery({
-    queryKey: gitKeys.blob(root, mergeBase ?? "", relativePath ?? ""),
+    queryKey: onNode(gitKeys.blob(root, mergeBase ?? "", relativePath ?? ""), nodeId),
     // `./` makes the path relative to the root rather than the repo top level,
     // which differ when the workspace is a subfolder. Empty = not at that commit.
     queryFn: () => api.gitShow(root, mergeBase ?? "", `./${relativePath}`),

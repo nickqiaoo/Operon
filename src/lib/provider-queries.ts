@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { queryOptions, useQuery } from '@tanstack/react-query'
 import { api } from './api'
+import { apiOn, useChatNodeId } from './chat-api-context'
 import { queryClient } from './query-client'
 
 /**
@@ -67,7 +68,8 @@ export interface ProviderModelsResponse {
 
 export const providerKeys = {
   all: ['providers'] as const,
-  list: () => ['providers', 'list'] as const,
+  /** `nodeId`: the registry of the machine a remote tab's chat lives on. */
+  list: (nodeId?: string) => nodeId ? ['providers', 'list', nodeId] as const : ['providers', 'list'] as const,
   models: (providerId: string, nodeId?: string) =>
     nodeId ? ['providers', 'models', providerId, nodeId] as const : ['providers', 'models', providerId] as const,
   decisionModels: () => ['providers', 'decision-models'] as const,
@@ -89,18 +91,39 @@ export const providersQuery = queryOptions({
   staleTime: THIRTY_SECONDS,
 })
 
-/** Every registered provider, available or not. Filter at the call site. */
-export function useProviders(options?: { enabled?: boolean }) {
-  return useQuery({ ...providersQuery, enabled: options?.enabled })
+function providersQueryFor(chatNodeId: string | undefined) {
+  if (!chatNodeId) return providersQuery
+  return queryOptions({
+    queryKey: providerKeys.list(chatNodeId),
+    queryFn: () => apiOn(chatNodeId).getProviders(),
+    staleTime: THIRTY_SECONDS,
+  })
 }
 
-/** `nodeId`: the catalog on another machine, where a remote external agent runs. */
-export function providerModelsQuery(providerId: string, nodeId?: string) {
+/**
+ * Every registered provider, available or not. Filter at the call site. Inside a
+ * tab showing another machine's chat: that machine's providers (the agents the
+ * chat can switch to run there).
+ */
+export function useProviders(options?: { enabled?: boolean }) {
+  const chatNodeId = useChatNodeId()
+  return useQuery({ ...providersQueryFor(chatNodeId), enabled: options?.enabled })
+}
+
+/**
+ * One provider's catalog. `nodeId`: on another machine, read through the old
+ * delegation route (a remote external agent whose chat is here). `chatNodeId`:
+ * on the machine a remote tab's chat lives on, through that machine's own API.
+ * Both describe the same machine's catalog, so they share a cache slot.
+ */
+export function providerModelsQuery(providerId: string, nodeId?: string, chatNodeId?: string) {
+  const machine = nodeId ?? chatNodeId
   return queryOptions({
-    queryKey: providerKeys.models(providerId, nodeId),
+    queryKey: providerKeys.models(providerId, machine),
     queryFn: async () => (nodeId
-      ? await api.getRemoteProviderModels(nodeId, providerId)
-      : await api.getProviderModels(providerId)) as ProviderModelsResponse,
+      // Asked through the chat's machine, whose delegation route reaches `nodeId`.
+      ? await apiOn(chatNodeId).getRemoteProviderModels(nodeId, providerId)
+      : await apiOn(chatNodeId).getProviderModels(providerId)) as ProviderModelsResponse,
     staleTime: THIRTY_SECONDS,
     refetchInterval: (query) => {
       const data = query.state.data
@@ -117,8 +140,9 @@ export function providerModelsQuery(providerId: string, nodeId?: string) {
 
 /** One provider's model / mode / capability catalog. Disabled until `providerId` is known. */
 export function useProviderModels(providerId: string | undefined, nodeId?: string) {
+  const chatNodeId = useChatNodeId()
   return useQuery({
-    ...providerModelsQuery(providerId ?? '', nodeId),
+    ...providerModelsQuery(providerId ?? '', nodeId, chatNodeId),
     enabled: !!providerId,
   })
 }
@@ -132,14 +156,15 @@ const selectSideChat = (data: ProviderModelsResponse) => data.features?.sideChat
  * provider's catalog.
  */
 export function useProviderSupportsSideChat(providerId: string | undefined): boolean {
-  const { data } = useQuery({ ...providerModelsQuery(providerId ?? ''), enabled: false, select: selectSideChat })
+  const chatNodeId = useChatNodeId()
+  const { data } = useQuery({ ...providerModelsQuery(providerId ?? '', undefined, chatNodeId), enabled: false, select: selectSideChat })
   return !!providerId && data === true
 }
 
 /** Non-reactive read of the same, for event handlers and store code. */
-export function providerSupportsSideChat(providerId: string | undefined): boolean {
+export function providerSupportsSideChat(providerId: string | undefined, chatNodeId?: string): boolean {
   if (providerId == null) return false
-  return queryClient.getQueryData<ProviderModelsResponse>(providerKeys.models(providerId))?.features?.sideChat === true
+  return queryClient.getQueryData<ProviderModelsResponse>(providerKeys.models(providerId, chatNodeId))?.features?.sideChat === true
 }
 
 export interface ProviderModelOption {

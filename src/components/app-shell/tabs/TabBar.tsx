@@ -5,6 +5,7 @@ import { useTabsStore } from "@/stores/tabs-store"
 import { useVisiblePanelTabs } from "./use-visible-tabs"
 import { useState } from "react"
 import { discardSideChat, sideChatHasMessages } from "@/lib/side-chat"
+import type { ChatRef } from "@/lib/chat-ref"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { CloseSideChatDialog } from "./CloseSideChatDialog"
 import type { PanelId, Tab } from "./types"
@@ -45,7 +46,7 @@ export function TabBar({ panelId, accessory, dragRegion, titlebarInset, classNam
 
   const skipCloseConfirm = useAppShellStore((s) => s.skipSideChatCloseConfirm)
   const setSkipCloseConfirm = useAppShellStore((s) => s.setSkipSideChatCloseConfirm)
-  const [pendingClose, setPendingClose] = useState<{ tabId: string; chatId: number } | null>(
+  const [pendingClose, setPendingClose] = useState<{ tabId: string; chat: ChatRef } | null>(
     null
   )
 
@@ -56,9 +57,9 @@ export function TabBar({ panelId, accessory, dragRegion, titlebarInset, classNam
 
   const tabIds = tabs.map((t) => t.tabId)
 
-  const discard = (tabId: string, chatId: number) => {
+  const discard = (tabId: string, chat: ChatRef) => {
     closeTab(panelId, tabId)
-    discardSideChat(chatId)
+    discardSideChat(chat)
   }
 
   // A side chat is temporary: closing its tab throws the conversation away
@@ -70,17 +71,18 @@ export function TabBar({ panelId, accessory, dragRegion, titlebarInset, classNam
       closeTab(panelId, tab.tabId)
       return
     }
-    const { chatId } = tab.payload
+    const { chatId, nodeId } = tab.payload
+    const chat: ChatRef = nodeId ? { nodeId, chatId } : { chatId }
     if (skipCloseConfirm) {
-      discard(tab.tabId, chatId)
+      discard(tab.tabId, chat)
       return
     }
-    void sideChatHasMessages(chatId).then((used) => {
+    void sideChatHasMessages(chat).then((used) => {
       if (!used) {
-        discard(tab.tabId, chatId)
+        discard(tab.tabId, chat)
         return
       }
-      setPendingClose({ tabId: tab.tabId, chatId })
+      setPendingClose({ tabId: tab.tabId, chat })
     })
   }
 
@@ -126,7 +128,7 @@ export function TabBar({ panelId, accessory, dragRegion, titlebarInset, classNam
         onCancel={() => setPendingClose(null)}
         onConfirm={(skipNextTime) => {
           if (skipNextTime) setSkipCloseConfirm(true)
-          if (pendingClose) discard(pendingClose.tabId, pendingClose.chatId)
+          if (pendingClose) discard(pendingClose.tabId, pendingClose.chat)
           setPendingClose(null)
         }}
       />

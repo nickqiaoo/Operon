@@ -19,7 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
-import { api } from "@/lib/api"
+import { useChatApi } from "@/lib/chat-api-context"
 import { useGitStatus } from "@/lib/git-queries"
 import { useGitWorkflow } from "./use-git-workflow"
 
@@ -52,6 +52,7 @@ export function CommitDialog({
   additions,
   deletions,
 }: CommitDialogProps) {
+  const api = useChatApi()
   const intl = useIntl()
   const { run, running } = useGitWorkflow(rootPath)
   const [nextStep, setNextStep] = useState<NextStep>("commit")

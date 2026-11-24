@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { FormattedMessage } from "react-intl"
 import { terminalManager } from "@/components/terminal/TerminalManager"
 import type { TerminalState } from "@/components/terminal/TerminalInstance"
+import { useChatApi } from "@/lib/chat-api-context"
 
 interface TerminalTabProps {
   terminalId: string
@@ -23,8 +24,10 @@ interface TerminalTabProps {
  */
 export function TerminalTab({ terminalId, cwd, isActive, launch }: TerminalTabProps) {
   const placeholderRef = useRef<HTMLDivElement | null>(null)
+  // The workspace's machine: a terminal in another machine's workspace is a shell there.
+  const api = useChatApi()
   const instance = useMemo(
-    () => terminalManager.ensure(terminalId, cwd.length > 0 ? cwd : undefined, launch),
+    () => terminalManager.ensure(terminalId, cwd.length > 0 ? cwd : undefined, launch, api),
     // cwd/launch only matter at create time; ignore later changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [terminalId]

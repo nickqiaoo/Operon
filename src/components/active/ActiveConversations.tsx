@@ -24,13 +24,14 @@ import {
 import { cn } from "@/lib/utils"
 import { useChatPendingInputStore } from "@/stores/chat-pending-input-store"
 import { useChatPresenceStore } from "@/stores/chat-presence-store"
+import { LOCAL_NODE, chatKey, localChat, nodeChatIds, nodeEntries, parseWorkspaceBucketKey, workspaceBucketKey } from "@/lib/chat-ref"
 import { useEditorStore } from "@/stores/editor-store"
 import { useInboxStore } from "@/stores/inbox-store"
 import { useNavigationStore } from "@/stores/navigation-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useStreamingStore } from "@/stores/streaming-store"
 import { isAssistantNotification, type Notification } from "@/types/notification"
-import { useExternalAgentsStore } from "@/stores/external-agents-store"
+import { isOnNode, useExternalAgentsStore } from "@/stores/external-agents-store"
 import type { EditorTab } from "@/types/editor"
 
 const messages = defineMessages({
@@ -49,14 +50,17 @@ const messages = defineMessages({
  * inbox event. `includeInfo` adds unread notices that ask nothing (see `ActiveInput`).
  */
 export function useActiveConversations({ includeInfo = false }: { includeInfo?: boolean } = {}): ActiveEntry[] {
-  const { tabs, currentWorkspaceId, workspaceStates } = useEditorStore(useShallow((s) => ({
+  const { tabs, currentWorkspaceId, currentNodeId, workspaceStates } = useEditorStore(useShallow((s) => ({
     tabs: s.tabs,
+    currentNodeId: s.currentNodeId,
     currentWorkspaceId: s.currentWorkspaceId,
     workspaceStates: s.workspaceStates,
   })))
   const projects = useProjectStore((s) => s.projects)
   const pendingByChat = useChatPendingInputStore((s) => s.pendingByChat)
-  const runningChatIds = useChatPresenceStore((s) => s.runningChatIds)
+  const runningChats = useChatPresenceStore((s) => s.runningChats)
+  // The sidebar lists this machine's conversations.
+  const runningChatIds = useMemo(() => nodeChatIds(runningChats, LOCAL_NODE), [runningChats])
   const { streamingTabIds, unseenTabIds } = useStreamingStore(useShallow((s) => ({
     streamingTabIds: s.streamingTabIds,
     unseenTabIds: s.unseenTabIds,
@@ -67,6 +71,8 @@ export function useActiveConversations({ includeInfo = false }: { includeInfo?: 
   const parentOfChat = useMemo(() => {
     const parents = new Map<number, number>()
     for (const agent of externalAgents.values()) {
+      // These lists are this machine's conversations.
+      if (!isOnNode(agent, undefined)) continue
       // The assistant's agents have parentChatId 0: no lead row to fold them into.
       if (agent.parentChatId > 0 && !agent.assistantActivityId) parents.set(agent.childChatId, agent.parentChatId)
     }
@@ -87,12 +93,14 @@ export function useActiveConversations({ includeInfo = false }: { includeInfo?: 
   }, [queryClient, runningKey])
 
   return useMemo(() => {
-    const currentKey = String(currentWorkspaceId ?? "global")
+    const currentKey = workspaceBucketKey(currentWorkspaceId, currentNodeId)
     const buckets = [
       { workspaceId: currentWorkspaceId, tabs },
       ...Object.entries(workspaceStates)
         .filter(([key]) => key !== currentKey)
-        .map(([key, bucket]) => ({ workspaceId: key === "global" ? null : Number(key), tabs: bucket.tabs })),
+        .map(([key, bucket]) => ({ ...parseWorkspaceBucketKey(key), tabs: bucket.tabs }))
+        // These lists are this machine's conversations.
+        .filter((bucket) => bucket.nodeId == null),
     ]
     const projectByWorkspace = new Map<number, number>()
     for (const project of projects) for (const workspace of project.workspaces) projectByWorkspace.set(workspace.id, project.id)
@@ -100,7 +108,7 @@ export function useActiveConversations({ includeInfo = false }: { includeInfo?: 
       buckets,
       recentChats: recentChats ?? [],
       unread: unread ?? [],
-      pendingChatIds: new Set(pendingByChat.keys()),
+      pendingChatIds: new Set(nodeEntries(pendingByChat, LOCAL_NODE).keys()),
       runningChatIds,
       streamingTabIds,
       unseenTabIds,
@@ -108,7 +116,7 @@ export function useActiveConversations({ includeInfo = false }: { includeInfo?: 
       includeInfo,
       parentOfChat,
     })
-  }, [tabs, currentWorkspaceId, workspaceStates, projects, pendingByChat, runningChatIds, streamingTabIds, unseenTabIds, unread, recentChats, includeInfo, parentOfChat])
+  }, [tabs, currentWorkspaceId, currentNodeId, workspaceStates, projects, pendingByChat, runningChatIds, streamingTabIds, unseenTabIds, unread, recentChats, includeInfo, parentOfChat])
 }
 
 /** The Focus view's priority rows: everything that wants the user, a running turn, an unread notice. */
@@ -322,8 +330,8 @@ export function useChatAttention(chatId: number): ActiveGroup | null {
     }
     return null
   })
-  const pending = useChatPendingInputStore((s) => s.pendingByChat.has(chatId))
-  const present = useChatPresenceStore((s) => s.runningChatIds.has(chatId))
+  const pending = useChatPendingInputStore((s) => s.pendingByChat.has(chatKey(localChat(chatId))))
+  const present = useChatPresenceStore((s) => s.runningChats.has(chatKey(localChat(chatId))))
   const streaming = useStreamingStore((s) => tabId != null && s.streamingTabIds.has(tabId))
   const unseen = useStreamingStore((s) => tabId != null && s.unseenTabIds.has(tabId))
   const { data: unread } = useInboxUnread()

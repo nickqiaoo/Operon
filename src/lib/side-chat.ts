@@ -1,5 +1,6 @@
 import type { Tab } from "@/components/app-shell/tabs/types"
-import { api } from "@/lib/api"
+import { apiFor } from "@/lib/api"
+import { chatTabId, type ChatRef } from "@/lib/chat-ref"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { useEditorStore } from "@/stores/editor-store"
 import { useTabsStore } from "@/stores/tabs-store"
@@ -17,9 +18,12 @@ import { useTabsStore } from "@/stores/tabs-store"
  * turn, so a side chat the user opens and abandons never costs one.
  */
 export async function openSideChat(
-  parentChatId: number,
+  parent: ChatRef,
   options: { providerId?: string } = {}
 ): Promise<number | null> {
+  // The fork is made on the machine the parent lives on, and lives there.
+  const { nodeId, chatId: parentChatId } = parent
+  const api = apiFor(nodeId)
   const panelTabs = useTabsStore.getState()
   const title = nextSideChatTitle(panelTabs.right.tabs)
 
@@ -31,13 +35,14 @@ export async function openSideChat(
 
   // ChatPanel reads a conversation's state out of the editor store, so the side
   // chat needs a record there even though it never appears in the tab strip.
-  useEditorStore.getState().openSideChatTab(chatId, title, options.providerId)
+  const ref: ChatRef = nodeId ? { nodeId, chatId } : { chatId }
+  useEditorStore.getState().openSideChatTab(ref, title, options.providerId)
 
   const tab: Tab = {
-    tabId: sideChatTabId(chatId),
+    tabId: sideChatTabId(ref),
     title,
     isClosable: true,
-    payload: { type: "side-chat", chatId, parentChatId },
+    payload: { type: "side-chat", chatId, parentChatId, ...(nodeId ? { nodeId } : {}) },
   }
   panelTabs.openTab("right", tab)
   useAppShellStore.getState().setRightPanelOpen(true)
@@ -50,9 +55,11 @@ export async function openSideChat(
  * ephemeral — so closing the tab deletes the row rather than leaving an
  * unreachable conversation behind (nothing lists side chats).
  */
-export function discardSideChat(chatId: number): void {
+export function discardSideChat(chat: ChatRef): void {
+  const { chatId } = chat
+  const api = apiFor(chat.nodeId)
   // The editor-store record `openSideChatTab` created lives under `chat:<id>`.
-  useEditorStore.getState().closeTab(`chat:${chatId}`)
+  useEditorStore.getState().closeTab(chatTabId(chat))
   // Tear the forked provider session down too — the row is going away, so
   // nothing would ever reach that session again and it would sit on a live
   // codex thread until the app exits.
@@ -70,9 +77,10 @@ export function discardSideChat(chatId: number): void {
  * Whether this side chat has been used. Closing an untouched one throws nothing
  * away, so it skips the confirmation.
  */
-export async function sideChatHasMessages(chatId: number): Promise<boolean> {
+export async function sideChatHasMessages(chat: ChatRef): Promise<boolean> {
+  const { chatId } = chat
   try {
-    const page = await api.chatHistoryGet(chatId, { limit: 1 })
+    const page = await apiFor(chat.nodeId).chatHistoryGet(chatId, { limit: 1 })
     return (page.total ?? page.messages.length) > 0
   } catch (error) {
     // Can't tell — confirm rather than silently discard.
@@ -83,7 +91,8 @@ export async function sideChatHasMessages(chatId: number): Promise<boolean> {
 
 export const SIDE_CHAT_TAB_PREFIX = "sidechat:"
 
-export const sideChatTabId = (chatId: number): string => `${SIDE_CHAT_TAB_PREFIX}${chatId}`
+export const sideChatTabId = (chat: ChatRef): string =>
+  `${SIDE_CHAT_TAB_PREFIX}${chat.nodeId ? `${chat.nodeId}:` : ""}${chat.chatId}`
 
 /** "Side chat", then "Side chat 2" — counted over the tabs already in the panel. */
 function nextSideChatTitle(tabs: Tab[]): string {

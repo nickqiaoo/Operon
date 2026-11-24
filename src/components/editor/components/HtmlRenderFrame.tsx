@@ -19,7 +19,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { ImageViewer } from '@/components/ai-elements/image-viewer'
-import { getBaseUrl } from '@/lib/api-client'
+import type { ApiTransport } from '@/lib/api-client'
+import { useChatTransport } from '@/lib/chat-api-context'
 import { resolveAttachmentUrl } from '@/lib/attachments'
 import { openExternalUrl } from '@/lib/open-external'
 import { useHtmlRenderTheme } from '@/hooks/useHtmlRenderTheme'
@@ -59,35 +60,38 @@ export function isHtmlRenderResult(toolPart: ToolPartLike): boolean {
 const pages = new Map<string, Promise<string>>()
 const measuredHeights = new Map<string, number>()
 
-async function loadPage(url: string): Promise<string> {
-  let page = pages.get(url)
+async function loadPage(url: string, transport: ApiTransport): Promise<string> {
+  // Paths are per machine: the same hash on another machine is another cache entry.
+  const cacheKey = `${transport.nodeId ?? ''}|${url}`
+  let page = pages.get(cacheKey)
   if (!page) {
     page = (async () => {
-      await getBaseUrl()
-      const resolved = resolveAttachmentUrl(url)
+      await transport.baseUrl()
+      const resolved = resolveAttachmentUrl(url, transport)
       if (!resolved) throw new Error('Server address unknown')
       const res = await fetch(resolved)
       if (!res.ok) throw new Error(`${res.status}`)
       return res.text()
     })()
-    pages.set(url, page)
-    page.catch(() => pages.delete(url))
+    pages.set(cacheKey, page)
+    page.catch(() => pages.delete(cacheKey))
   }
   return page
 }
 
 function usePage(url: string): { page: string | null; failed: boolean } {
+  const transport = useChatTransport()
   const [state, setState] = useState<{ url: string; page: string | null; failed: boolean }>({ url, page: null, failed: false })
   useEffect(() => {
     let alive = true
-    loadPage(url).then(
+    loadPage(url, transport).then(
       (page) => alive && setState({ url, page, failed: false }),
       () => alive && setState({ url, page: null, failed: true }),
     )
     return () => {
       alive = false
     }
-  }, [url])
+  }, [url, transport])
   return state.url === url ? state : { page: null, failed: false }
 }
 

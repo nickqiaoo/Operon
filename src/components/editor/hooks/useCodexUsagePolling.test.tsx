@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/lib/api';
 import { useCodexUsagePolling } from './useCodexUsagePolling';
+import { aiUsageKeys } from '@/lib/chat-queries';
 import type { CodexRateLimits } from '../utils/chatMetadata';
 
 vi.mock('@/lib/api', () => ({ api: { aiGetCodexUsage: vi.fn() } }));
@@ -50,7 +51,7 @@ describe('Codex account usage', () => {
     setup();
     await render();
     await act(async () => {
-      await vi.waitFor(() => expect(client.getQueryData(['ai', 'codex-usage'])).toEqual(rateLimits));
+      await vi.waitFor(() => expect(client.getQueryData(aiUsageKeys.codex())).toEqual(rateLimits));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(container.textContent).toBe('12');
@@ -59,7 +60,7 @@ describe('Codex account usage', () => {
 
   it('reuses the top bar account cache on a new chat', async () => {
     setup();
-    client.setQueryData(['ai', 'codex-usage'], rateLimits);
+    client.setQueryData(aiUsageKeys.codex(), rateLimits);
     await render();
     expect(container.textContent).toBe('12');
     expect(api.aiGetCodexUsage).not.toHaveBeenCalled();
@@ -67,7 +68,7 @@ describe('Codex account usage', () => {
 
   it('refreshes when a turn finishes', async () => {
     setup();
-    client.setQueryData(['ai', 'codex-usage'], rateLimits);
+    client.setQueryData(aiUsageKeys.codex(), rateLimits);
     await render(true);
     await render(false);
     expect(api.aiGetCodexUsage).toHaveBeenCalledTimes(1);

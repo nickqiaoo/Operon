@@ -28,7 +28,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
-  useChatBackgroundTaskStore.getState().sync([]);
+  useChatBackgroundTaskStore.getState().sync('local', []);
 });
 
 const render = (node: ReactNode, providerId = 'claude-code') => act(() => {
@@ -84,7 +84,7 @@ describe('Monitor tool row', () => {
   };
 
   it('names the watch and shows it running while the task runs', () => {
-    useChatBackgroundTaskStore.getState().set(7, [
+    useChatBackgroundTaskStore.getState().set({ chatId: 7 }, [
       { taskId: 't1', toolUseId: 'toolu_1', taskType: 'monitor', backgrounded: true, description: 'errors in app.log', status: 'running', startedAt: 0 },
     ]);
     render(<CompactToolCall toolPart={part} messageId="m" partIndex={0} onPermissionDecide={async () => true} />);
@@ -96,7 +96,7 @@ describe('Monitor tool row', () => {
   });
 
   it('says how the watch ended', () => {
-    useChatBackgroundTaskStore.getState().set(7, [
+    useChatBackgroundTaskStore.getState().set({ chatId: 7 }, [
       { taskId: 't1', toolUseId: 'toolu_1', taskType: 'monitor', backgrounded: true, description: 'errors in app.log', status: 'failed', startedAt: 0, endedAt: 1 },
     ]);
     render(<CompactToolCall toolPart={part} messageId="m" partIndex={0} onPermissionDecide={async () => true} />);

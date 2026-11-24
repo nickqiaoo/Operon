@@ -1,5 +1,6 @@
 import { api } from "@/lib/api"
-import { useProjectStore, type Project, type Workspace } from "@/stores/project-store"
+import { apiOn } from "@/lib/chat-api-context"
+import { projectsOn, useProjectStore, type Project, type Workspace } from "@/stores/project-store"
 
 const trimSlash = (p: string) => p.replace(/[\\/]+$/, "")
 
@@ -41,10 +42,21 @@ export function findSyncedWorkspace(workspaces: Workspace[], workspace: Workspac
 /**
  * A worktree on a fresh branch the server names from `hint` (a chat's first
  * message), cut from `base` (the default branch when unset). Returns the synced
- * workspace so a tab can move into it right away.
+ * workspace so a tab can move into it right away. `nodeId`: the project is on
+ * another machine; its tree is re-read from there.
  */
-export async function createAutoWorkspace(project: Project, input: { base?: string; hint?: string }): Promise<Workspace> {
-  const { workspace } = await api.workspaceCreateAuto(project.id, input)
+export async function createAutoWorkspace(
+  project: Project,
+  input: { base?: string; hint?: string },
+  nodeId?: string,
+): Promise<Workspace> {
+  const { workspace } = await apiOn(nodeId).workspaceCreateAuto(project.id, input)
+  if (nodeId) {
+    // Settles either way; on failure the tree keeps its last copy.
+    await useProjectStore.getState().loadRemoteProjects(nodeId)
+    const synced = projectsOn(useProjectStore.getState(), nodeId).find((p) => p.id === project.id)?.workspaces ?? []
+    return findSyncedWorkspace(synced, workspace)
+  }
   try {
     return findSyncedWorkspace(await syncProjectWorkspaces(project), workspace)
   } catch (error) {

@@ -26,6 +26,8 @@ export interface ChatChild {
   key: string
   agentId: string
   childChatId: number
+  /** The machine the child chat lives on (its parent's); absent for this machine. */
+  nodeId?: string
   /** Runs on another machine of the account. */
   remote?: ExternalAgentView['remote']
   providerId: string

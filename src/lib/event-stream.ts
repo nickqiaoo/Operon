@@ -15,7 +15,9 @@
  * of its own.
  */
 
-import { api } from './api'
+import { api, apiFor } from './api'
+import { transportFor } from './api-client'
+import { nodeKeyOf, type NodeKey } from './chat-ref'
 import { subscribeSse, type SseSubscription } from './sse'
 
 export type EventChannel = 'live-status' | 'workflow' | 'external-agents' | 'tasks' | 'inbox' | 'projects'
@@ -30,80 +32,109 @@ interface Frame {
   data: unknown
 }
 
-const listeners = new Map<EventChannel, Set<Listener>>()
-/** Channels the open connection was asked for. */
-let connected = new Set<EventChannel>()
-let subscription: SseSubscription | null = null
-let syncTimer: ReturnType<typeof setTimeout> | null = null
-
-function wanted(): EventChannel[] {
-  return [...listeners.keys()].sort()
+/**
+ * One machine's connection. This machine has one; another machine of the
+ * account gets its own while something (a tab showing one of its chats) listens
+ * to it, through the local server's relay.
+ */
+interface Hub {
+  nodeId: string | undefined
+  listeners: Map<EventChannel, Set<Listener>>
+  /** Channels the open connection was asked for. */
+  connected: Set<EventChannel>
+  subscription: SseSubscription | null
+  syncTimer: ReturnType<typeof setTimeout> | null
 }
 
-function sync(): void {
-  syncTimer = null
-  const channels = wanted()
+const hubs = new Map<NodeKey, Hub>()
+
+function hubFor(nodeId: string | undefined): Hub {
+  const key = nodeKeyOf(nodeId)
+  let hub = hubs.get(key)
+  if (!hub) {
+    hub = { nodeId, listeners: new Map(), connected: new Set(), subscription: null, syncTimer: null }
+    hubs.set(key, hub)
+  }
+  return hub
+}
+
+function wanted(hub: Hub): EventChannel[] {
+  return [...hub.listeners.keys()].sort()
+}
+
+function sync(hub: Hub): void {
+  hub.syncTimer = null
+  const channels = wanted(hub)
   if (channels.length === 0) {
-    subscription?.close()
-    subscription = null
-    connected = new Set()
+    hub.subscription?.close()
+    hub.subscription = null
+    hub.connected = new Set()
+    // A remote machine nobody listens to any more is forgotten; this one is kept.
+    if (hub.nodeId) hubs.delete(nodeKeyOf(hub.nodeId))
     return
   }
-  if (subscription && channels.every((channel) => connected.has(channel))) return
-  subscription?.close()
-  connected = new Set(channels)
-  subscription = subscribeSse<Frame>({
-    url: () => api.eventStreamUrl(channels),
+  if (hub.subscription && channels.every((channel) => hub.connected.has(channel))) return
+  hub.subscription?.close()
+  hub.connected = new Set(channels)
+  const { nodeId } = hub
+  hub.subscription = subscribeSse<Frame>({
+    // `api` is read here rather than through `apiFor` so the local path stays
+    // exactly what it was (and what tests mock).
+    url: () => (nodeId ? apiFor(nodeId) : api).eventStreamUrl(channels),
+    ...(nodeId ? { headers: () => transportFor(nodeId).authHeaders() } : {}),
     onEvent: (frame) => {
-      for (const listener of listeners.get(frame.ch) ?? []) listener.onEvent(frame.data)
+      for (const listener of hub.listeners.get(frame.ch) ?? []) listener.onEvent(frame.data)
     },
     onError: (error) => {
-      for (const set of listeners.values()) for (const listener of set) listener.onError?.(error)
+      for (const set of hub.listeners.values()) for (const listener of set) listener.onError?.(error)
     },
   })
 }
 
 /** Batch the subscribes and unsubscribes of one render into one (re)connect. */
-function scheduleSync(): void {
-  if (syncTimer == null) syncTimer = setTimeout(sync, 0)
+function scheduleSync(hub: Hub): void {
+  if (hub.syncTimer == null) hub.syncTimer = setTimeout(() => sync(hub), 0)
 }
 
 /**
- * Receive one channel's frames. `onError` fires when the shared connection fails
- * or drops; it reconnects by itself, like `subscribeSse`.
+ * Receive one channel's frames from one machine (`nodeId` undefined: this
+ * one). `onError` fires when the shared connection fails or drops; it
+ * reconnects by itself, like `subscribeSse`.
  */
 export function subscribeEvents<T>(
   channel: EventChannel,
   handlers: { onEvent: (data: T) => void; onError?: (error: unknown) => void },
+  nodeId?: string,
 ): SseSubscription {
+  const hub = hubFor(nodeId)
   // The server sends each channel's own frames, so the payload is that channel's type.
   const listener: Listener = { onEvent: (data) => handlers.onEvent(data as T), onError: handlers.onError }
-  let set = listeners.get(channel)
+  let set = hub.listeners.get(channel)
   if (!set) {
     set = new Set()
-    listeners.set(channel, set)
+    hub.listeners.set(channel, set)
   }
   set.add(listener)
-  scheduleSync()
+  scheduleSync(hub)
   let closed = false
   return {
     close() {
       if (closed) return
       closed = true
-      const current = listeners.get(channel)
+      const current = hub.listeners.get(channel)
       current?.delete(listener)
-      if (current?.size === 0) listeners.delete(channel)
-      if (listeners.size === 0) scheduleSync()
+      if (current?.size === 0) hub.listeners.delete(channel)
+      if (hub.listeners.size === 0) scheduleSync(hub)
     },
   }
 }
 
-/** Test seam: drop every listener and the connection. */
+/** Test seam: drop every listener and connection. */
 export function resetEventStreamForTests(): void {
-  listeners.clear()
-  if (syncTimer != null) clearTimeout(syncTimer)
-  syncTimer = null
-  subscription?.close()
-  subscription = null
-  connected = new Set()
+  for (const hub of hubs.values()) {
+    hub.listeners.clear()
+    if (hub.syncTimer != null) clearTimeout(hub.syncTimer)
+    hub.subscription?.close()
+  }
+  hubs.clear()
 }

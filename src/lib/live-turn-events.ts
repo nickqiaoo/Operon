@@ -5,6 +5,7 @@ import { useChatPendingInputStore } from '@/stores/chat-pending-input-store'
 import { useChatPresenceStore } from '@/stores/chat-presence-store'
 import { useChatPromptSuggestionStore } from '@/stores/chat-prompt-suggestion-store'
 import { subscribeEvents } from './event-stream'
+import { nodeKeyOf, type ChatRef, type NodeKey } from './chat-ref'
 import type { SseSubscription } from './sse.js'
 
 /**
@@ -20,6 +21,10 @@ import type { SseSubscription } from './sse.js'
  * The per-chat contract is preserved exactly, so callers did not have to change:
  * subscribing yields a status for that chat immediately, then one per turn
  * start/end.
+ *
+ * Per machine: this machine's stream is always the one the app shell watches;
+ * another machine's opens while a tab shows one of its chats. Each keeps its own
+ * subscribers and snapshot, and writes only its own chats into the stores.
  */
 
 export interface LiveTurnStatus {
@@ -53,19 +58,31 @@ interface Subscriber {
   onError?: () => void
 }
 
-const subscribers = new Map<number, Set<Subscriber>>()
+interface NodeState {
+  nodeId: string | undefined
+  subscribers: Map<number, Set<Subscriber>>
+  /**
+   * Chats the server last reported as running a turn. Absence means idle, so a
+   * chat subscribed later can be answered from here without asking the server —
+   * that is what replaces the old per-connection snapshot.
+   */
+  activeByChat: Map<number, LiveTurnStatus>
+  subscription: SseSubscription | null
+  /** App-level watchers of pending input; they hold the stream open like chat subscribers do. */
+  pendingInputWatchers: number
+}
 
-/**
- * Chats the server last reported as running a turn. Absence means idle, so a
- * chat subscribed later can be answered from here without asking the server —
- * that is what replaces the old per-connection snapshot.
- */
-let activeByChat = new Map<number, LiveTurnStatus>()
+const nodes = new Map<NodeKey, NodeState>()
 
-let subscription: SseSubscription | null = null
-
-/** App-level watchers of pending input; they hold the stream open like chat subscribers do. */
-let pendingInputWatchers = 0
+function nodeState(nodeId: string | undefined): NodeState {
+  const key = nodeKeyOf(nodeId)
+  let state = nodes.get(key)
+  if (!state) {
+    state = { nodeId, subscribers: new Map(), activeByChat: new Map(), subscription: null, pendingInputWatchers: 0 }
+    nodes.set(key, state)
+  }
+  return state
+}
 
 const idleStatus = (chatId: number): LiveTurnStatus => ({
   chatId,
@@ -74,90 +91,97 @@ const idleStatus = (chatId: number): LiveTurnStatus => ({
   startedAt: null,
 })
 
-function statusFor(chatId: number): LiveTurnStatus {
-  return activeByChat.get(chatId) ?? idleStatus(chatId)
+function statusFor(node: NodeState, chatId: number): LiveTurnStatus {
+  return node.activeByChat.get(chatId) ?? idleStatus(chatId)
 }
 
-function deliver(status: LiveTurnStatus): void {
-  const targets = subscribers.get(status.chatId)
+function deliver(node: NodeState, status: LiveTurnStatus): void {
+  const targets = node.subscribers.get(status.chatId)
   if (!targets) return
   for (const subscriber of targets) subscriber.onStatus(status)
 }
 
-function ensureStream(): void {
-  if (subscription != null) return
-  subscription = subscribeEvents<Frame>('live-status', {
+function ensureStream(node: NodeState): void {
+  if (node.subscription != null) return
+  const key = nodeKeyOf(node.nodeId)
+  const { nodeId } = node
+  const ref = (chatId: number): ChatRef => (nodeId ? { nodeId, chatId } : { chatId })
+  node.subscription = subscribeEvents<Frame>('live-status', {
     onEvent: (frame) => {
       if (frame.type === 'sync') {
-        useChatPendingInputStore.getState().sync(frame.pendingInput ?? [])
-        useChatBackgroundTaskStore.getState().sync(frame.backgroundTasks ?? [])
-        useChatPromptSuggestionStore.getState().sync(frame.promptSuggestions ?? [])
+        useChatPendingInputStore.getState().sync(key, frame.pendingInput ?? [])
+        useChatBackgroundTaskStore.getState().sync(key, frame.backgroundTasks ?? [])
+        useChatPromptSuggestionStore.getState().sync(key, frame.promptSuggestions ?? [])
         const next = new Map<number, LiveTurnStatus>()
         for (const status of frame.statuses) next.set(status.chatId, status)
-        const previous = activeByChat
-        activeByChat = next
-        useChatPresenceStore.getState().sync(next.keys())
+        const previous = node.activeByChat
+        node.activeByChat = next
+        useChatPresenceStore.getState().sync(key, next.keys())
         // A reconnect's sync is also the recovery path: tell every subscriber
         // where its chat stands now, including the ones whose turn ended while
         // the stream was down (present before, absent now → idle).
-        const touched = new Set<number>([...previous.keys(), ...next.keys(), ...subscribers.keys()])
-        for (const chatId of touched) deliver(statusFor(chatId))
+        const touched = new Set<number>([...previous.keys(), ...next.keys(), ...node.subscribers.keys()])
+        for (const chatId of touched) deliver(node, statusFor(node, chatId))
         return
       }
       if (frame.type === 'pending-input') {
-        useChatPendingInputStore.getState().set(frame.chatId, frame.pending)
+        useChatPendingInputStore.getState().set(ref(frame.chatId), frame.pending)
         return
       }
       if (frame.type === 'background-tasks') {
-        useChatBackgroundTaskStore.getState().set(frame.chatId, frame.tasks)
+        useChatBackgroundTaskStore.getState().set(ref(frame.chatId), frame.tasks)
         return
       }
       if (frame.type === 'prompt-suggestion') {
-        useChatPromptSuggestionStore.getState().set(frame.chatId, frame.text)
+        useChatPromptSuggestionStore.getState().set(ref(frame.chatId), frame.text)
         return
       }
       if (frame.type !== 'presence') return
       const { status } = frame
-      if (status.active) activeByChat.set(status.chatId, status)
-      else activeByChat.delete(status.chatId)
-      useChatPresenceStore.getState().set(status.chatId, status.active)
-      deliver(status)
+      if (status.active) node.activeByChat.set(status.chatId, status)
+      else node.activeByChat.delete(status.chatId)
+      useChatPresenceStore.getState().set(ref(status.chatId), status.active)
+      deliver(node, status)
     },
     onError: () => {
-      for (const targets of subscribers.values()) {
+      for (const targets of node.subscribers.values()) {
         for (const subscriber of targets) subscriber.onError?.()
       }
     },
-  })
+  }, nodeId)
 }
 
-function releaseStream(): void {
-  if (subscribers.size > 0 || pendingInputWatchers > 0) return
-  subscription?.close()
-  subscription = null
+function releaseStream(node: NodeState): void {
+  if (node.subscribers.size > 0 || node.pendingInputWatchers > 0) return
+  node.subscription?.close()
+  node.subscription = null
   // Nothing is listening, so this view is about to go stale; the next connect
   // sends a fresh sync anyway.
-  activeByChat = new Map()
-  useChatPresenceStore.getState().sync([])
-  useChatPendingInputStore.getState().sync([])
-  useChatBackgroundTaskStore.getState().sync([])
-  useChatPromptSuggestionStore.getState().sync([])
+  node.activeByChat = new Map()
+  const key = nodeKeyOf(node.nodeId)
+  useChatPresenceStore.getState().sync(key, [])
+  useChatPendingInputStore.getState().sync(key, [])
+  useChatBackgroundTaskStore.getState().sync(key, [])
+  useChatPromptSuggestionStore.getState().sync(key, [])
+  if (node.nodeId) nodes.delete(key)
 }
 
 /**
  * Keep `useChatPendingInputStore` and `useChatPresenceStore` current for every
- * chat — tab markers, external-agent cards and the sidebar's Active list read
- * them, including for chats no panel is showing. Returns a release.
+ * chat of one machine (`nodeId` undefined: this one) — tab markers,
+ * external-agent cards and the sidebar's Active list read them, including for
+ * chats no panel is showing. Returns a release.
  */
-export function watchPendingInput(): () => void {
-  pendingInputWatchers += 1
-  ensureStream()
+export function watchPendingInput(nodeId?: string): () => void {
+  const node = nodeState(nodeId)
+  node.pendingInputWatchers += 1
+  ensureStream(node)
   let released = false
   return () => {
     if (released) return
     released = true
-    pendingInputWatchers -= 1
-    releaseStream()
+    node.pendingInputWatchers -= 1
+    releaseStream(node)
   }
 }
 
@@ -167,21 +191,23 @@ export function watchPendingInput(): () => void {
  * `onStatus` fires once synchronously with the current state — matching the
  * snapshot the old per-chat stream sent on connect — and then on every change.
  */
-export function subscribeChatPresence(chatId: number, subscriber: Subscriber): () => void {
-  let targets = subscribers.get(chatId)
+export function subscribeChatPresence(chat: ChatRef, subscriber: Subscriber): () => void {
+  const node = nodeState(chat.nodeId)
+  const { chatId } = chat
+  let targets = node.subscribers.get(chatId)
   if (!targets) {
     targets = new Set()
-    subscribers.set(chatId, targets)
+    node.subscribers.set(chatId, targets)
   }
   targets.add(subscriber)
-  ensureStream()
-  subscriber.onStatus(statusFor(chatId))
+  ensureStream(node)
+  subscriber.onStatus(statusFor(node, chatId))
 
   return () => {
-    const current = subscribers.get(chatId)
+    const current = node.subscribers.get(chatId)
     if (!current) return
     current.delete(subscriber)
-    if (current.size === 0) subscribers.delete(chatId)
-    releaseStream()
+    if (current.size === 0) node.subscribers.delete(chatId)
+    releaseStream(node)
   }
 }

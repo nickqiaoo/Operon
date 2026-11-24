@@ -3,7 +3,9 @@ import { FormattedMessage, useIntl } from 'react-intl'
 import { Trace, TraceDescription, TraceIcon, TraceLine, TraceTitle } from '@/components/ui/trace'
 import { useChatPendingInputStore } from '@/stores/chat-pending-input-store'
 import { useEditorStore } from '@/stores/editor-store'
-import { useExternalAgentsStore } from '@/stores/external-agents-store'
+import { externalAgentKey, isOnNode, useExternalAgentsStore } from '@/stores/external-agents-store'
+import { chatKey, chatTabId } from '@/lib/chat-ref'
+import { useChatNodeId } from '@/lib/chat-api-context'
 import { matchExternalAgentRun, parseExternalAgentRun } from '@/hooks/useExternalAgent'
 import { useChatDbId } from './chat-db-id-context'
 import { openChildChat, useOtherWorkspaceName } from '@/hooks/useChatChildren'
@@ -143,18 +145,22 @@ export function ExternalAgentToolRenderer({
   const args = (rawArgs.arguments as Record<string, unknown>) ?? rawArgs
   const parsed = parseExternalAgentRun({ ...toolPart, type: 'dynamic-tool', toolName: 'external_agent_run' } as UIMessage['parts'][number])
   const parentChatId = useChatDbId()
+  // Agents, their chats and pending input are all reported by the machine this
+  // chat lives on, under that machine's ids.
+  const nodeId = useChatNodeId()
   const ownId = parsed?.agentId ?? (typeof args.agent_id === 'string' ? args.agent_id : undefined)
   // A call nested in a Code Mode program has an empty output; find its agent by what it asked for.
   const matchedId = useExternalAgentsStore((s) =>
-    ownId ? undefined : matchExternalAgentRun(s.agents.values(), parentChatId, { agentType: args.agent_type, description: args.description }))
+    ownId ? undefined : matchExternalAgentRun([...s.agents.values()].filter((agent) => isOnNode(agent, nodeId)), parentChatId, { agentType: args.agent_type, description: args.description }))
   const agentId = ownId ?? matchedId
-  const live = useExternalAgentsStore((s) => agentId ? s.agents.get(agentId) : undefined)
+  const live = useExternalAgentsStore((s) => agentId ? s.agents.get(externalAgentKey(nodeId, agentId)) : undefined)
   const agentType = live?.providerId ?? parsed?.agentType ?? (args.agent_type as string) ?? 'agent'
   const description = live?.description ?? parsed?.description ?? (args.description as string) ?? ''
 
   const childId = live?.childChatId ?? parsed?.childChatId
-  const pending = useChatPendingInputStore((s) => (childId != null ? s.pendingByChat.get(childId) : undefined))
-  const targetTabId = childId ? `chat:${childId}` : notificationInfo?.childChatId
+  const childKey = childId != null ? chatKey({ nodeId, chatId: childId }) : undefined
+  const pending = useChatPendingInputStore((s) => (childKey != null ? s.pendingByChat.get(childKey) : undefined))
+  const targetTabId = childId ? chatTabId({ nodeId, chatId: childId }) : notificationInfo?.childChatId
   const tabExists = targetTabId ? tabs.some((t) => t.id === targetTabId) : false
   const canClick = !!targetTabId
 
@@ -162,7 +168,7 @@ export function ExternalAgentToolRenderer({
     // The usual case now that children don't open a tab when they start: open it
     // with the child's own model and mode.
     if (live) {
-      void openChildChat({ childChatId: live.childChatId, title: description, providerId: live.providerId, modelId: live.modelId, modeId: live.modeId, workspaceId: live.workspaceId })
+      void openChildChat({ childChatId: live.childChatId, nodeId, title: description, providerId: live.providerId, modelId: live.modelId, modeId: live.modeId, workspaceId: live.workspaceId })
       return
     }
     if (!targetTabId) return

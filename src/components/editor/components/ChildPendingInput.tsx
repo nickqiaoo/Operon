@@ -4,7 +4,7 @@ import { FormattedMessage } from 'react-intl'
 import { needsConversationToAnswer, type PendingInputSummary } from '@shared/pending-input'
 import { Button } from '@/components/ui/button'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item'
-import { api } from '@/lib/api'
+import { useChatApi, useChatRef } from '@/lib/chat-api-context'
 import { useChatPendingInputStore } from '@/stores/chat-pending-input-store'
 
 /**
@@ -27,6 +27,9 @@ export function ChildPendingInput({
   pending: PendingInputSummary[]
   onOpen: () => void
 }) {
+  const api = useChatApi()
+  // The child lives on the same machine as the chat showing it.
+  const childChat = useChatRef(childChatId)
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const decide = async (approvalId: string, outcome: 'allow' | 'deny') => {
@@ -36,7 +39,7 @@ export function ChildPendingInput({
       if (!res.success) {
         // Stale (answered elsewhere, or timed out): take the server's word for what is left.
         const fresh = await api.aiPendingApprovals(childChatId)
-        useChatPendingInputStore.getState().set(childChatId, (fresh.approvals ?? []).map((a) => ({ userFacing: true, ...a })))
+        if (childChat) useChatPendingInputStore.getState().set(childChat, (fresh.approvals ?? []).map((a) => ({ userFacing: true, ...a })))
       }
     } catch (error) {
       console.warn('[external-agent] permission response failed', error)

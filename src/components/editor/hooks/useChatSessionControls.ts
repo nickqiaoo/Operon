@@ -1,6 +1,6 @@
 import { useCallback, type MutableRefObject } from 'react'
 import { toast } from 'sonner'
-import { api } from '@/lib/api'
+import { useChatApi } from '@/lib/chat-api-context'
 
 type PermissionDecision = 'allow' | 'deny' | 'allowAlways'
 
@@ -33,6 +33,7 @@ export function useChatSessionControls({
   canDynamicSwitch: boolean
   modeOptions: ModeOption[]
 }) {
+  const api = useChatApi()
   const handlePermissionDecide = useCallback(async (
     id: string,
     outcome: PermissionDecision,

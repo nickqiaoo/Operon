@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses, type UIMessage } from 'ai'
 import { useChat } from '@ai-sdk/react'
-import { apiAuthHeaders, getBaseUrl } from '@/lib/api-client'
-import { api } from '@/lib/api'
+import { useChatApi, useChatTransport } from '@/lib/chat-api-context'
 import { subscribeChatPresence } from '@/lib/live-turn-events'
 import { useEditorStore } from '@/stores/editor-store'
 import { normalizeOutboundMessagePaths } from '../utils/chatMetadata'
@@ -79,6 +78,10 @@ export function useChatRuntime({
   autoRun?: boolean
   setTabChatId: (tabId: string, chatId: number) => void
 }) {
+  const api = useChatApi()
+  // The machine this tab's chat lives on: stream, reconnect and cancel go there too.
+  const backend = useChatTransport()
+  const nodeId = backend.nodeId
   const [historyDbChatId, setHistoryDbChatId] = useState(dbChatId)
   const dbChatIdRef = useRef<number | undefined>(dbChatId)
   const chatBodyRef = useRef<Record<string, unknown>>({})
@@ -156,7 +159,7 @@ export function useChatRuntime({
       // startup token; on web these headers are empty (the tunnel agent stamps
       // the token on the desktop side).
       const headers = new Headers(init?.headers)
-      for (const [key, value] of Object.entries(apiAuthHeaders())) headers.set(key, value)
+      for (const [key, value] of Object.entries(backend.authHeaders())) headers.set(key, value)
       const response = await fetch(input, { ...init, headers })
       const chatIdHeader = response.headers.get('X-Chat-Id')
       if (chatIdHeader && dbChatIdRef.current === undefined) {
@@ -182,12 +185,12 @@ export function useChatRuntime({
     // desktop (or the phone) kicked off. On web this resolves through the broker
     // tunnel to the same node endpoint.
     prepareReconnectToStreamRequest: async () => {
-      const baseUrl = await getBaseUrl()
+      const baseUrl = await backend.baseUrl()
       return { api: `${baseUrl}/ai/chat/live/${dbChatIdRef.current}` }
     },
     prepareSendMessagesRequest: async ({ messages, body }) => {
       const sshEnvironmentId = dbChatIdRef.current === undefined ? draftSshEnvironmentIdRef.current : undefined
-      const baseUrl = await getBaseUrl()
+      const baseUrl = await backend.baseUrl()
       // Send only the current turn (from the last user message onward), not the
       // whole history. The server is the source of truth: it persists each turn and
       // reconstructs context itself — stateful providers (claude/codex/cursor/
@@ -224,7 +227,7 @@ export function useChatRuntime({
         },
       }
     },
-  }), [chatId, setTabChatId])
+  }), [chatId, setTabChatId, backend])
 
   // Web stream-resume bookkeeping (all dead-code-eliminated on desktop).
   const pendingResumeRef = useRef(false) // a turn was cut off by a network drop
@@ -336,7 +339,7 @@ export function useChatRuntime({
       if (IS_WEB) {
         // Also drop the broker's resume buffer for this turn, so a stale replay
         // can't resurrect a stream the user just stopped.
-        void getBaseUrl().then((baseUrl) => {
+        void backend.baseUrl().then((baseUrl) => {
           fetch(`${baseUrl}/ai/chat/cancel/${id}`, { method: 'POST', keepalive: true }).catch(() => {})
         })
       }
@@ -366,7 +369,7 @@ export function useChatRuntime({
     if (id === undefined) return
     try {
       const result = await api.chatHistoryGet(id, { limit: TAIL_SYNC_SIZE })
-      const normalized = await normalizeHistoryMessages(result?.messages ?? [])
+      const normalized = await normalizeHistoryMessages(result?.messages ?? [], api)
       // Merged rather than assigned: this runs on every reconnect, and reconnects
       // are routine on mobile (backgrounding, screen lock, network switches).
       // Assigning the page dropped whatever older messages the user had scrolled
@@ -557,7 +560,7 @@ export function useChatRuntime({
     // Presence for every chat arrives on ONE shared stream — this used to open an
     // SSE connection per conversation, and those are what exhausted the
     // renderer's 6-socket-per-origin budget. See `lib/live-turn-events.ts`.
-    const unsubscribe = subscribeChatPresence(id, {
+    const unsubscribe = subscribeChatPresence(nodeId ? { nodeId, chatId: id } : { chatId: id }, {
       onStatus: (event) => {
         // The node's own view of this chat, snapshot on connect and updated on
         // every turn start/end. Recorded before the attach logic below bails out,

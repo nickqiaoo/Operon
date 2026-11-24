@@ -1,4 +1,5 @@
-import { useEffect } from "react"
+import { useEffect, useMemo } from "react"
+import { chatTabId, type ChatRef } from "@/lib/chat-ref"
 import { ChatPanel } from "@/components/editor/ChatPanel"
 import { useEditorStore } from "@/stores/editor-store"
 
@@ -7,6 +8,8 @@ interface SideChatTabProps {
   chatId: number
   /** Conversation it branched off. */
   parentChatId: number
+  /** The machine both live on; absent for this one. */
+  nodeId?: string
   isActive: boolean
 }
 
@@ -20,9 +23,10 @@ interface SideChatTabProps {
  * that when opening the tab; doing it again here covers the tab surviving a
  * reload, where the panel tab is restored but the editor store starts empty.
  */
-export function SideChatTab({ chatId, isActive }: SideChatTabProps) {
+export function SideChatTab({ chatId, nodeId, isActive }: SideChatTabProps) {
   const openSideChatTab = useEditorStore((s) => s.openSideChatTab)
-  const editorTabId = `chat:${chatId}`
+  const chat = useMemo<ChatRef>(() => (nodeId ? { nodeId, chatId } : { chatId }), [nodeId, chatId])
+  const editorTabId = chatTabId(chat)
   // `providerId` has to come from the store rather than be passed once: ChatPanel
   // drives its model list off this prop, and useChatHistory corrects the tab's
   // provider after loading the row. Reading it live is what closes that loop —
@@ -32,8 +36,8 @@ export function SideChatTab({ chatId, isActive }: SideChatTabProps) {
   )
 
   useEffect(() => {
-    openSideChatTab(chatId, "Side chat")
-  }, [chatId, openSideChatTab])
+    openSideChatTab(chat, "Side chat")
+  }, [chat, openSideChatTab])
 
   return (
     <div className="flex h-full min-h-0 flex-col">

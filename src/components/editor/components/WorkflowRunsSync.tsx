@@ -3,6 +3,7 @@ import { subscribeEvents } from '@/lib/event-stream';
 import type { WorkflowFeedFrame } from '@/lib/api';
 import { useWorkflowRunsStore } from '@/stores/workflow-runs-store';
 import { useWorkflowStream } from '../hooks/useWorkflowStream';
+import { nodeKeyOf } from '@/lib/chat-ref';
 
 /**
  * Keeps the app's view of workflow runs in sync with the node. Renders nothing.
@@ -46,6 +47,29 @@ export function WorkflowRunsSync() {
       ))}
     </>
   );
+}
+
+/**
+ * Another machine's run list, for the approval bar of tabs showing its chats
+ * (see `RemoteNodeFeeds`). No sub-agent streams and no start signals: those feed
+ * the workflow panel, which shows this machine's runs.
+ */
+export function RemoteWorkflowRunsSync({ nodeId }: { nodeId: string }) {
+  useEffect(() => {
+    const node = nodeKeyOf(nodeId);
+    const store = useWorkflowRunsStore.getState();
+    const subscription = subscribeEvents<WorkflowFeedFrame>('workflow', {
+      onEvent: (frame) => {
+        if (frame.t === 'sync' && Array.isArray(frame.runs)) store.setRemoteRuns(node, frame.runs);
+        else if (frame.t === 'run') store.upsertRemoteRun(node, frame.run);
+      },
+    }, nodeId);
+    return () => {
+      subscription.close();
+      store.setRemoteRuns(node, []);
+    };
+  }, [nodeId]);
+  return null;
 }
 
 /** Holds one running run's feed open and lifts its sub-agent output into the store. */

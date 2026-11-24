@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useFileMentionDir, useFileMentionSearch } from '@/lib/file-mention-queries';
-import { useProjectStore } from '@/stores/project-store';
+import { projectsOn, useProjectStore } from '@/stores/project-store';
+import { sameNode } from '@/lib/chat-ref';
+import { useChatNodeId } from '@/lib/chat-api-context';
 
 export interface FileEntry {
   name: string;
@@ -30,17 +32,22 @@ export function useMentionSuggestions(input: string, cursorPos: number, enabled:
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   // Subscribe reactively to project store so we get the path after persistence loads
+  // The tab's machine: its project tree is that machine's.
+  const nodeId = useChatNodeId();
   const workspacePath = useProjectStore((state) => {
     if (!enabled) return null;
+    // The active workspace is another machine's: nothing of it applies here.
+    if (!sameNode(state.activeNodeId, nodeId)) return null;
+    const projects = projectsOn(state, nodeId);
     const wsId = state.activeWorkspaceId;
     if (wsId) {
-      for (const project of state.projects) {
+      for (const project of projects) {
         const ws = project.workspaces.find((w) => w.id === wsId);
         if (ws) return ws.worktreePath;
       }
     }
     // Fallback to active project rootPath
-    const proj = state.projects.find((p) => p.id === state.activeProjectId);
+    const proj = projects.find((p) => p.id === state.activeProjectId);
     return proj?.rootPath ?? null;
   });
 
@@ -88,6 +95,7 @@ export function useMentionSuggestions(input: string, cursorPos: number, enabled:
   // listing once the query names a folder.
   const trimmedQuery = mentionState.query.trim();
   const query = useDebouncedValue(trimmedQuery, trimmedQuery.length > 0 ? MENTION_SEARCH_DEBOUNCE_MS : 0);
+  // Files come from the tab's machine (`useFileMention*` read `useChatApi()`).
   const active = mentionState.isOpen && !!workspacePath;
   const useGlobalSearch = query.length > 0 && !query.includes('/');
   const { dirPath, filter } = resolveDirectoryQuery(workspacePath ?? '', query);

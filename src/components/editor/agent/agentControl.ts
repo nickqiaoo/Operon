@@ -1,4 +1,5 @@
-import { api } from '@/lib/api'
+import { apiOn } from '@/lib/chat-api-context'
+import type { ChatRef } from '@/lib/chat-ref'
 import type { PeersRosterDTO } from '@/types/peers'
 import type { OperonPluginDTO } from '@/types/plugin'
 
@@ -105,61 +106,61 @@ export interface OperonSessionExtensionDTO {
 }
 
 // ── dispatch helper ─────────────────────────────────────────────────────────
-async function call<T>(chatId: number, method: string, params?: unknown): Promise<T> {
-  const res = await api.aiAgentControl<T>({ chatId, method, params })
+// `chat` names the machine too: the session runs where the chat lives.
+async function call<T>(chat: ChatRef, method: string, params?: unknown): Promise<T> {
+  const res = await apiOn(chat.nodeId).aiAgentControl<T>({ chatId: chat.chatId, method, params })
   if (!res.success) throw new Error(res.error || `agent control '${method}' failed`)
   return res.data as T
 }
 
 // ── MCP ──
-export const mcpList = (chatId: number) =>
-  call<{ servers: McpServerDTO[] }>(chatId, 'mcp.list')
-export const mcpTools = (chatId: number, name: string) =>
-  call<{ tools: McpToolDTO[] }>(chatId, 'mcp.tools', { name })
-export const mcpReconnect = (chatId: number, name: string) =>
-  call<{ ok: true }>(chatId, 'mcp.reconnect', { name })
-export const mcpToggle = (chatId: number, name: string, enabled: boolean) =>
-  call<{ ok: true }>(chatId, 'mcp.toggle', { name, enabled })
+export const mcpList = (chat: ChatRef) =>
+  call<{ servers: McpServerDTO[] }>(chat, 'mcp.list')
+export const mcpTools = (chat: ChatRef, name: string) =>
+  call<{ tools: McpToolDTO[] }>(chat, 'mcp.tools', { name })
+export const mcpReconnect = (chat: ChatRef, name: string) =>
+  call<{ ok: true }>(chat, 'mcp.reconnect', { name })
+export const mcpToggle = (chat: ChatRef, name: string, enabled: boolean) =>
+  call<{ ok: true }>(chat, 'mcp.toggle', { name, enabled })
 
 // ── Cron ──
-export const cronList = (chatId: number) =>
-  call<{ tasks: OperonCronTaskDTO[] }>(chatId, 'cron.list')
-export const cronCreate = (
-  chatId: number,
+export const cronList = (chat: ChatRef) =>
+  call<{ tasks: OperonCronTaskDTO[] }>(chat, 'cron.list')
+export const cronCreate = (chat: ChatRef,
   input: { cron: string; prompt: string; recurring?: boolean },
-) => call<{ task: OperonCronTaskDTO }>(chatId, 'cron.create', input)
-export const cronDelete = (chatId: number, id: string) =>
-  call<{ deleted: boolean }>(chatId, 'cron.delete', { id })
+) => call<{ task: OperonCronTaskDTO }>(chat, 'cron.create', input)
+export const cronDelete = (chat: ChatRef, id: string) =>
+  call<{ deleted: boolean }>(chat, 'cron.delete', { id })
 
 // ── Background tasks ──
-export const tasksList = (chatId: number) =>
-  call<{ tasks: OperonBackgroundTaskDTO[] }>(chatId, 'tasks.list')
+export const tasksList = (chat: ChatRef) =>
+  call<{ tasks: OperonBackgroundTaskDTO[] }>(chat, 'tasks.list')
 /** Operon's own tasks answer with a string; Claude Code's with `null` when there is nothing to read yet. */
-export const tasksOutput = (chatId: number, taskId: string) =>
-  call<{ output: string | null }>(chatId, 'tasks.output', { taskId })
-export const tasksStop = (chatId: number, taskId: string, reason?: string) =>
-  call<{ task?: OperonBackgroundTaskDTO | null }>(chatId, 'tasks.stop', { taskId, reason })
+export const tasksOutput = (chat: ChatRef, taskId: string) =>
+  call<{ output: string | null }>(chat, 'tasks.output', { taskId })
+export const tasksStop = (chat: ChatRef, taskId: string, reason?: string) =>
+  call<{ task?: OperonBackgroundTaskDTO | null }>(chat, 'tasks.stop', { taskId, reason })
 /** Claude Code: drop the finished entries from the session's task list. */
-export const tasksClearFinished = (chatId: number) => call<{ ok: true }>(chatId, 'tasks.clearFinished')
+export const tasksClearFinished = (chat: ChatRef) => call<{ ok: true }>(chat, 'tasks.clearFinished')
 
 // ── Subagents ──
-export const subagentsList = (chatId: number) =>
-  call<{ subagents: OperonSubagentDTO[] }>(chatId, 'subagents.list')
+export const subagentsList = (chat: ChatRef) =>
+  call<{ subagents: OperonSubagentDTO[] }>(chat, 'subagents.list')
 
 // ── Skills ──
-export const skillsList = (chatId: number) =>
-  call<{ skills: OperonSkillDTO[] }>(chatId, 'skills.list')
+export const skillsList = (chat: ChatRef) =>
+  call<{ skills: OperonSkillDTO[] }>(chat, 'skills.list')
 
 // ── Plugins ──
-export const pluginsList = (chatId: number) =>
-  call<{ plugins: OperonPluginDTO[] }>(chatId, 'plugins.list')
-export const pluginsSetEnabled = (chatId: number, id: string, enabled: boolean) =>
-  call<{ ok: true }>(chatId, 'plugins.setEnabled', { id, enabled })
+export const pluginsList = (chat: ChatRef) =>
+  call<{ plugins: OperonPluginDTO[] }>(chat, 'plugins.list')
+export const pluginsSetEnabled = (chat: ChatRef, id: string, enabled: boolean) =>
+  call<{ ok: true }>(chat, 'plugins.setEnabled', { id, enabled })
 
 // ── Extensions (per-session view) ──
-export const extensionsList = (chatId: number) =>
-  call<{ extensions: OperonSessionExtensionDTO[] }>(chatId, 'extensions.list')
+export const extensionsList = (chat: ChatRef) =>
+  call<{ extensions: OperonSessionExtensionDTO[] }>(chat, 'extensions.list')
 
 // ── Peers / teams ──
-export const peersList = (chatId: number) =>
-  call<PeersRosterDTO>(chatId, 'peers.list')
+export const peersList = (chat: ChatRef) =>
+  call<PeersRosterDTO>(chat, 'peers.list')

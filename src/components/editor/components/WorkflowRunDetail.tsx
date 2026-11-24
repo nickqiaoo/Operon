@@ -27,7 +27,8 @@ import {
   CodeBlockHighlightedContent,
   CodeBlockTitle,
 } from '@/components/ui/code-block';
-import { api, type WorkflowRunView, type WorkflowAgentView } from '@/lib/api';
+import { type WorkflowRunView, type WorkflowAgentView } from '@/lib/api';
+import { useChatApi } from '@/lib/chat-api-context';
 import { useProviders } from '@/lib/provider-queries';
 import { invalidateWorkflowAgentChunks, useWorkflowAgentChunks, useWorkflowRunScript } from '@/lib/workflow-run-queries';
 import {
@@ -422,6 +423,7 @@ function AgentSteerBox({
   current: string | undefined;
   onSent: () => void;
 }) {
+  const api = useChatApi();
   const intl = useIntl();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -533,6 +535,7 @@ export function WorkflowRunDetail({
   agentStreams: Map<number, AgentStreamState>;
   defaultOpen?: boolean;
 }) {
+  const api = useChatApi();
   const intl = useIntl();
   const [open, setOpen] = useState(defaultOpen);
   const [result, setResult] = useState<{ text: string } | { value: unknown } | null>(null);

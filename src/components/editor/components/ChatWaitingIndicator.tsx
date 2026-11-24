@@ -6,11 +6,15 @@ import { MessageCircleQuestionIcon } from 'lucide-react';
 import { useChatPendingInputStore } from '@/stores/chat-pending-input-store';
 import type { StreamMessageMetadata } from '@operon/agent-runtime';
 import { formatElapsed } from './turn-duration';
+import { useChatRef } from '@/lib/chat-api-context';
+import { chatKey } from '@/lib/chat-ref';
 
 
 export function ChatWaitingIndicator({ active, chatId, retry }: { active: boolean; chatId?: number; retry?: StreamMessageMetadata['retry'] }) {
+  const chat = useChatRef(chatId);
+  const key = chat ? chatKey(chat) : undefined;
   const needsInput = useChatPendingInputStore((s) =>
-    chatId != null && s.pendingByChat.get(chatId)?.some((request) => !request.origin) === true);
+    key != null && s.pendingByChat.get(key)?.some((request) => !request.origin) === true);
   const working = active && !needsInput;
   const startRef = useRef<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);

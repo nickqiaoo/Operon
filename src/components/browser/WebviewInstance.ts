@@ -768,6 +768,7 @@ export class WebviewInstance {
       id,
       instanceId: this.instanceId,
       workspaceId: useEditorStore.getState().currentWorkspaceId,
+      nodeId: useEditorStore.getState().currentNodeId ?? undefined,
       anchor,
       comment: text,
       design,

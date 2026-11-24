@@ -2,7 +2,8 @@ import { useState } from "react"
 import { Loader2, ShieldQuestion } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { toast } from "sonner"
-import { api, type PermissionOutcome } from "@/lib/api"
+import { type PermissionOutcome } from "@/lib/api"
+import { useChatApi } from "@/lib/chat-api-context"
 import { Button } from "@/components/ui/button"
 import { AskUserQuestionRenderer, type ToolInvocationPart } from "@/components/editor/components/AskUserQuestionRenderer"
 import { PlanRenderer } from "@/components/editor/components/PlanRenderer"
@@ -23,6 +24,7 @@ const isPlan = (p: CodingPendingInput) => p.toolName === "ExitPlanMode" || p.app
  * card goes back to running.
  */
 export function CodingPendingInputs({ chatId, pending }: { chatId: number; pending: CodingPendingInput[] }) {
+  const api = useChatApi()
   const intl = useIntl()
   const [busy, setBusy] = useState<string | null>(null)
 

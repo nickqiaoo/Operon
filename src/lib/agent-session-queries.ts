@@ -2,6 +2,8 @@ import { useRef, useState } from 'react'
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import * as agent from '@/components/editor/agent/agentControl'
 import { useInstalledPlugins } from './plugin-queries'
+import { useChatRef } from './chat-api-context'
+import { chatKey, type ChatRef } from './chat-ref'
 
 /**
  * TanStack Query layer for the Session panel (AgentPanel): the live state of one
@@ -9,16 +11,23 @@ import { useInstalledPlugins } from './plugin-queries'
  * extensions and the peers roster.
  *
  * Keys carry the provider as well as the chat: the same chat id under another
- * provider is another session, and must not show the previous one's lists.
+ * provider is another session, and must not show the previous one's lists. The
+ * chat is a `ChatKey` (machine + id): a remote tab's session runs on its machine.
+ *
+ * The hooks take a bare chat id and resolve it on the machine of the tab they
+ * run in (`useChatRef`), so call sites inside a chat tab need no machine.
  */
 export const agentSessionKeys = {
   all: ['agent-session'] as const,
-  session: (providerId: string | undefined, chatId: number) => ['agent-session', providerId ?? 'none', chatId] as const,
-  section: (providerId: string | undefined, chatId: number, section: AgentSessionSection) =>
-    ['agent-session', providerId ?? 'none', chatId, section] as const,
-  taskOutput: (providerId: string | undefined, chatId: number, taskId: string) =>
-    ['agent-session', providerId ?? 'none', chatId, 'task-output', taskId] as const,
+  session: (providerId: string | undefined, chat: ChatRef) => ['agent-session', providerId ?? 'none', chatKey(chat)] as const,
+  section: (providerId: string | undefined, chat: ChatRef, section: AgentSessionSection) =>
+    ['agent-session', providerId ?? 'none', chatKey(chat), section] as const,
+  taskOutput: (providerId: string | undefined, chat: ChatRef, taskId: string) =>
+    ['agent-session', providerId ?? 'none', chatKey(chat), 'task-output', taskId] as const,
 }
+
+/** A placeholder for disabled queries (no chat yet): never fetched. */
+const NO_CHAT: ChatRef = { chatId: -1 }
 
 /** How often an open, still-running task's output is re-read. */
 const TASK_OUTPUT_POLL_MS = 1500
@@ -33,9 +42,10 @@ export function useTaskOutput(
   taskId: string,
   { enabled, live }: { enabled: boolean; live: boolean },
 ) {
+  const chat = useChatRef(chatId) ?? NO_CHAT
   return useQuery({
-    queryKey: agentSessionKeys.taskOutput(providerId, chatId, taskId),
-    queryFn: async () => (await agent.tasksOutput(chatId, taskId)).output,
+    queryKey: agentSessionKeys.taskOutput(providerId, chat, taskId),
+    queryFn: async () => (await agent.tasksOutput(chat, taskId)).output,
     enabled,
     refetchInterval: live ? TASK_OUTPUT_POLL_MS : false,
     refetchIntervalInBackground: false,
@@ -64,9 +74,10 @@ export function useOperonTask(
   const enabled = providerId === 'custom' && chatId != null && !!toolCallId
   const find = (data: { tasks: agent.OperonBackgroundTaskDTO[] } | undefined) =>
     data?.tasks.find((task) => task.toolCallId === toolCallId)
+  const chat = useChatRef(chatId) ?? NO_CHAT
   const query = useQuery({
-    queryKey: agentSessionKeys.section(providerId, chatId ?? -1, 'tasks'),
-    queryFn: () => agent.tasksList(chatId ?? -1),
+    queryKey: agentSessionKeys.section(providerId, chat, 'tasks'),
+    queryFn: () => agent.tasksList(chat),
     enabled,
     select: find,
     refetchInterval: (q) => {
@@ -154,14 +165,14 @@ interface SectionOptions {
 
 function useSessionSection<T>(
   providerId: string | undefined,
-  chatId: number,
+  chat: ChatRef,
   section: AgentSessionSection,
-  fetcher: (chatId: number) => Promise<T>,
+  fetcher: (chat: ChatRef) => Promise<T>,
   { enabled, intervalMs }: SectionOptions,
 ): SessionResource<T> {
   const query = useQuery({
-    queryKey: agentSessionKeys.section(providerId, chatId, section),
-    queryFn: () => fetcher(chatId),
+    queryKey: agentSessionKeys.section(providerId, chat, section),
+    queryFn: () => fetcher(chat),
     enabled,
     refetchInterval: intervalMs > 0 ? intervalMs : false,
     // A hidden window doesn't burn requests.
@@ -201,7 +212,7 @@ export function useAgentSessionState({
   pollMs: number
 }): AgentSessionState {
   const live = open && chatId != null
-  const id = chatId ?? -1
+  const id = useChatRef(chatId) ?? NO_CHAT
   const full = live && fullInspector
   const pluginsQuery = useInstalledPlugins({ enabled: open && fullInspector })
   return {

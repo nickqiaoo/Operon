@@ -1,5 +1,6 @@
 import { useTabsStore, getAllPanels } from "@/stores/tabs-store"
 import { useEditorStore } from "@/stores/editor-store"
+import type { Api } from "@/lib/api"
 import {
   TerminalInstance,
   type TerminalBounds,
@@ -27,10 +28,11 @@ class TerminalManagerImpl {
     useTabsStore.subscribe(this.reapOrphans)
   }
 
-  ensure(instanceId: string, cwd: string | undefined, launch?: string): TerminalInstance {
+  /** `api`: the machine to spawn on (the workspace's); used once, at create time. */
+  ensure(instanceId: string, cwd: string | undefined, launch: string | undefined, api: Api): TerminalInstance {
     let instance = this.instances.get(instanceId)
     if (instance != null) return instance
-    instance = new TerminalInstance({ instanceId, cwd, launch })
+    instance = new TerminalInstance({ instanceId, cwd, launch, api })
     this.instances.set(instanceId, instance)
     return instance
   }

@@ -24,9 +24,10 @@ import {
   usePromptInputActions,
 } from '@/components/ai-elements/prompt-input';
 import type { PromptInputFile } from '@/components/ai-elements/prompt-input-context';
-import { api } from '@/lib/api';
+import { ChatApiProvider, useChatApi, useChatNodeId, useChatRef, useChatTransport } from '@/lib/chat-api-context';
 import { useEditorStore } from '@/stores/editor-store';
-import { useExternalAgentsStore } from '@/stores/external-agents-store';
+import { externalAgentKey, isOnNode, useExternalAgentsStore } from '@/stores/external-agents-store';
+import { chatRefFromTabId, parseWorkspaceBucketKey, sameNode } from '@/lib/chat-ref';
 import { useStreamingStore } from '@/stores/streaming-store';
 import {
   Context,
@@ -90,7 +91,7 @@ import {
 } from './components/steer-message';
 import { GoalBanner } from './components/GoalBanner';
 import { useGoal } from './hooks/useGoal';
-import { useProjectStore } from '@/stores/project-store';
+import { findWorkspaceOn, projectsOn, useProjectStore } from '@/stores/project-store';
 import { useTabsStore } from '@/stores/tabs-store';
 import { useReviewTurnStore } from '@/stores/review-turn-store';
 import { useAppShellStore } from '@/stores/app-shell-store';
@@ -131,6 +132,19 @@ const MobileTurnDiffReview = lazy(() =>
 /** Off the phone, how long a transcript load runs before its loading state shows. */
 const HISTORY_LOADING_DELAY_MS = 300;
 
+type EditorState = ReturnType<typeof useEditorStore.getState>;
+
+/** A tab by id in the current bucket or any parked one. */
+function findTab(state: EditorState, tabId: string) {
+  const current = state.tabs.find((t) => t.id === tabId);
+  if (current) return current;
+  for (const bucket of Object.values(state.workspaceStates)) {
+    const parked = bucket.tabs.find((t) => t.id === tabId);
+    if (parked) return parked;
+  }
+  return undefined;
+}
+
 interface ChatPanelProps {
   chatId: string;
   providerId?: string;
@@ -140,10 +154,17 @@ interface ChatPanelProps {
 
 export const ChatPanel = memo(function ChatPanel(props: ChatPanelProps) {
   const pageVisible = usePageVisible();
+  // The machine the chat lives on; every request the panel makes goes there. A
+  // persisted chat's tab id names it (`chat:<nodeId>:<id>`); a draft opened in
+  // another machine's workspace carries it on the tab. Neither: this machine.
+  const tabNodeId = useEditorStore((state) => findTab(state, props.chatId)?.nodeId);
+  const nodeId = chatRefFromTabId(props.chatId)?.nodeId ?? tabNodeId;
   return (
-    <ChatInputProvider chatId={props.chatId}>
-      <ChatPanelContent {...props} visible={props.visible !== false && pageVisible} />
-    </ChatInputProvider>
+    <ChatApiProvider nodeId={nodeId}>
+      <ChatInputProvider chatId={props.chatId}>
+        <ChatPanelContent {...props} visible={props.visible !== false && pageVisible} />
+      </ChatInputProvider>
+    </ChatApiProvider>
   );
 });
 
@@ -153,6 +174,8 @@ function ChatPanelContent({
   mobileKeyboardOpen = false,
   visible = true,
 }: ChatPanelProps) {
+  const api = useChatApi();
+  const chatTransport = useChatTransport();
   const intl = useIntl();
   const { setInput, getInput, attachments } = usePromptInputActions();
   // The keyed prompt provider remounts this content when chatId changes.
@@ -191,18 +214,20 @@ function ChatPanelContent({
       root.style.removeProperty("--composer-height");
     };
   }, [isMobile]);
+  const chatNodeId = useChatNodeId();
+  // Of the bucket holding this tab — on the chat's machine, like the tab itself.
   const currentWorkspaceId = useEditorStore((state) => {
     if (state.tabs.some((tab) => tab.id === chatId)) return state.currentWorkspaceId;
-    for (const [workspaceId, workspace] of Object.entries(state.workspaceStates)) {
-      if (workspace.tabs.some((tab) => tab.id === chatId)) return workspaceId === 'global' ? null : Number(workspaceId);
+    for (const [key, workspace] of Object.entries(state.workspaceStates)) {
+      if (workspace.tabs.some((tab) => tab.id === chatId)) return parseWorkspaceBucketKey(key).workspaceId;
     }
     return null;
   });
   const pendingAnnotationCount = useAnnotationsStore(
-    (state) => annotationsForWorkspace(state.items, currentWorkspaceId).length,
+    (state) => annotationsForWorkspace(state.items, currentWorkspaceId, chatNodeId).length,
   );
   const pendingLineCommentCount = useLineCommentsStore(
-    (state) => lineCommentsForWorkspace(state.items, currentWorkspaceId).length,
+    (state) => lineCommentsForWorkspace(state.items, currentWorkspaceId, chatNodeId).length,
   );
   const updateTabTitle = useEditorStore((state) => state.updateTabTitle);
   const updateTabProvider = useEditorStore((state) => state.updateTabProvider);
@@ -222,8 +247,10 @@ function ChatPanelContent({
     return undefined;
   });
   const dbChatId = tab?.chatId;
+  /** This chat on its machine — what chat-keyed stores are indexed by. */
+  const chatRef = useChatRef(dbChatId);
   // Claude Code's guess at what the user types next, pushed after each turn.
-  const promptSuggestion = useChatPromptSuggestion(dbChatId);
+  const promptSuggestion = useChatPromptSuggestion(chatRef);
   const readOnlyReason = useChatReadOnlyReason(dbChatId);
 
   // Selection toolbar over the transcript. The container is the whole panel and
@@ -250,7 +277,7 @@ function ChatPanelContent({
   }, []);
   // A remote external agent: its conversation is here, its agent session on another machine.
   const remoteExecution = useExternalAgentsStore((state) =>
-    tab?.chatId != null ? state.agents.get(`ext-${tab.chatId}`)?.remote : undefined);
+    tab?.chatId != null ? state.agents.get(externalAgentKey(tab.nodeId, `ext-${tab.chatId}`))?.remote : undefined);
   const sideChatProviderId = tab?.providerId ?? providerId;
   const canOpenSideChat = useProviderSupportsSideChat(sideChatProviderId) && !remoteExecution;
   const selectionActions = useMemo<SelectionAction[]>(() => {
@@ -264,6 +291,7 @@ function ChatPanelContent({
           useSelectedTextStore.getState().add({
             id: crypto.randomUUID(),
             workspaceId: currentWorkspaceId,
+            nodeId: chatNodeId,
             chatId: dbChatId,
             text,
             createdAt: Date.now(),
@@ -278,7 +306,7 @@ function ChatPanelContent({
         key: 'ask-in-side-chat',
         label: <FormattedMessage id="selection.askInSideChat" defaultMessage="Ask in side chat" />,
         onSelect: ({ text }) => {
-          void openSideChat(dbChatId, { providerId: sideChatProviderId })
+          void openSideChat(chatRef ?? { chatId: dbChatId }, { providerId: sideChatProviderId })
             .then((sideChatId) => {
               if (sideChatId == null) return;
               // Bound to the new side chat, so it rides along there rather than
@@ -286,6 +314,7 @@ function ChatPanelContent({
               useSelectedTextStore.getState().add({
                 id: crypto.randomUUID(),
                 workspaceId: currentWorkspaceId,
+                nodeId: chatNodeId,
                 chatId: sideChatId,
                 text,
                 createdAt: Date.now(),
@@ -298,7 +327,7 @@ function ChatPanelContent({
       });
     }
     return actions;
-  }, [canOpenSideChat, currentWorkspaceId, dbChatId, sideChatProviderId, tab?.isSideChat]);
+  }, [canOpenSideChat, chatRef, currentWorkspaceId, dbChatId, sideChatProviderId, tab?.isSideChat]);
   useVisibleChatInboxRead(dbChatId, visible);
   const [recentOptionsState] = useState(() => {
     const remember =
@@ -517,6 +546,9 @@ function ChatPanelContent({
   const { historyLoaded, loadedModel, loadedProviderId, loadedThinkingLevel, loadedModeId, loadedUpdatedAt, loadedSshEnvironment, hasMore: chatHasMore, loadingMore: chatLoadingMore, loadMore: chatLoadMore } = useChatHistory(historyDbChatId, setMessages, tab?.options?.timestamp);
   const sshEnvironment = loadedSshEnvironment ?? tab?.sshEnvironment;
   // The agent works on files of another host: nothing here can open, annotate or review them.
+  // Not the case for a tab showing another machine's chat: its workspace is on
+  // that machine, and so are the file browser, Review and terminal beside it.
+  const remoteTab = chatNodeId != null;
   const runsElsewhere = sshEnvironment ?? remoteExecution;
 
   // Reopening a conversation waits for its transcript (a WAN round trip on web
@@ -719,7 +751,8 @@ function ChatPanelContent({
 
   // Per-turn file diffs, rendered as a card at the end of each turn that changed
   // files. Refetched once the turn settles so the new turn's card appears.
-  const reviewCwd = useProjectStore((s) => runsElsewhere ? null : s.projects.flatMap((project) => project.workspaces).find((workspace) => workspace.id === currentWorkspaceId)?.worktreePath ?? null);
+  // The workspace on this chat's machine (its tree, when it is another machine's).
+  const reviewCwd = useProjectStore((s) => runsElsewhere ? null : findWorkspaceOn(s, chatNodeId, currentWorkspaceId)?.worktreePath ?? null);
   // Phone: there is no side file viewer, so a file the chat cites opens in a sheet over it.
   const inheritedOpenFile = useFileOpenHandler();
   const [mobilePreview, setMobilePreview] = useState<MobileFilePreview | null>(null);
@@ -854,16 +887,16 @@ function ChatPanelContent({
     // (context markdown + screenshot), then clear them — sending consumes them,
     // which also drops their on-page pins via the store subscription.
     const annStore = useAnnotationsStore.getState();
-    const annotations = runsElsewhere ? [] : annotationsForWorkspace(annStore.items, currentWorkspaceId);
+    const annotations = runsElsewhere ? [] : annotationsForWorkspace(annStore.items, currentWorkspaceId, chatNodeId);
     const annFiles = annotations.flatMap(annotationToFiles);
     // Fold this workspace's queued inline line comments (diff / file preview) in
     // as text context, then clear them — same one-shot consume as annotations.
     const lineStore = useLineCommentsStore.getState();
-    const lineComments = runsElsewhere ? [] : lineCommentsForWorkspace(lineStore.items, currentWorkspaceId);
+    const lineComments = runsElsewhere ? [] : lineCommentsForWorkspace(lineStore.items, currentWorkspaceId, chatNodeId);
     const lineCommentFiles = lineComments.map(lineCommentToFile);
     // Same one-shot consume for text picked out of a file preview.
     const selectedStore = useSelectedTextStore.getState();
-    const selectedSnippets = runsElsewhere ? [] : selectedTextForChat(selectedStore.items, currentWorkspaceId, dbChatId);
+    const selectedSnippets = runsElsewhere ? [] : selectedTextForChat(selectedStore.items, currentWorkspaceId, dbChatId, chatNodeId);
     const selectedFiles = selectedSnippets.map(selectedTextToFile);
     const extraFiles = [...annFiles, ...lineCommentFiles, ...selectedFiles];
     const merged = extraFiles.length > 0
@@ -872,15 +905,15 @@ function ChatPanelContent({
     submitMessage(merged, attachments.files, setInput);
     if (!runsElsewhere) {
       for (const a of annotations) annStore.remove(a.id);
-      lineStore.clearWorkspace(currentWorkspaceId);
-      selectedStore.clearWorkspace(currentWorkspaceId);
+      lineStore.clearWorkspace(currentWorkspaceId, chatNodeId);
+      selectedStore.clearWorkspace(currentWorkspaceId, chatNodeId);
     }
     trackEvent('message_sent', {
       provider_id: currentProviderId,
       model: model || undefined,
       has_attachments: attachments.files.length > 0 || extraFiles.length > 0,
     });
-  }, [attachments.files, currentWorkspaceId, dbChatId, model, providerId, selectedModel?.providerId, setInput, submitMessage, handleCompact, runsElsewhere]);
+  }, [attachments.files, currentWorkspaceId, chatNodeId, dbChatId, model, providerId, selectedModel?.providerId, setInput, submitMessage, handleCompact, runsElsewhere]);
 
   // --- Goal (codex) ---
   const sendGoalMessage = useCallback((objective: string) => {
@@ -911,9 +944,9 @@ function ChatPanelContent({
     const text = message.text.trim();
     if (goalArmed && supportsGoal && text) {
       const hasContext = message.files.length > 0 || attachments.files.length > 0
-        || annotationsForWorkspace(useAnnotationsStore.getState().items, currentWorkspaceId).length > 0
-        || lineCommentsForWorkspace(useLineCommentsStore.getState().items, currentWorkspaceId).length > 0
-        || selectedTextForChat(useSelectedTextStore.getState().items, currentWorkspaceId, dbChatId).length > 0;
+        || annotationsForWorkspace(useAnnotationsStore.getState().items, currentWorkspaceId, chatNodeId).length > 0
+        || lineCommentsForWorkspace(useLineCommentsStore.getState().items, currentWorkspaceId, chatNodeId).length > 0
+        || selectedTextForChat(useSelectedTextStore.getState().items, currentWorkspaceId, dbChatId, chatNodeId).length > 0;
       if (hasContext) {
         toast.error('Goals currently support text only. Send attachments and context in a regular message first.');
         return;
@@ -924,7 +957,7 @@ function ChatPanelContent({
       return;
     }
     handleSubmit(message);
-  }, [goalArmed, supportsGoal, startGoal, handleSubmit, setInput, attachments.files.length, currentWorkspaceId, dbChatId]);
+  }, [goalArmed, supportsGoal, startGoal, handleSubmit, setInput, attachments.files.length, currentWorkspaceId, chatNodeId, dbChatId]);
 
   // A draft that asked for a new worktree gets it on its first send: cut the
   // worktree, move this tab into it, then send there once the panel sees the new
@@ -934,18 +967,19 @@ function ChatPanelContent({
   const handleComposerSubmit = useCallback((message: { text: string; files: FileUIPart[] }): void | Promise<void> => {
     const intent = draftWorktreeIntent(chatId);
     if (isMobile || runsElsewhere || !showDraftBar || !intent.newWorktree || intent.creating || !message.text.trim()) return handleSubmitOrGoal(message);
-    const project = useProjectStore.getState().projects.find((p) => p.workspaces.some((w) => w.id === currentWorkspaceId));
+    // The worktree is cut on the draft's machine, from that machine's tree.
+    const project = projectsOn(useProjectStore.getState(), chatNodeId).find((p) => p.workspaces.some((w) => w.id === currentWorkspaceId));
     const workspace = project?.workspaces.find((w) => w.id === currentWorkspaceId);
     if (!project || !workspace) return handleSubmitOrGoal(message);
     const draft = useDraftChatStore.getState();
     draft.setCreating(chatId, true);
     return (async () => {
       const base = intent.baseBranch
-        ?? (await queryClient.fetchQuery(gitBranchesQuery(workspace.worktreePath))).find((b) => b.current && !b.remote)?.name;
-      const created = await createAutoWorkspace(project, { base, hint: message.text });
+        ?? (await queryClient.fetchQuery(gitBranchesQuery(workspace.worktreePath, chatNodeId))).find((b) => b.current && !b.remote)?.name;
+      const created = await createAutoWorkspace(project, { base, hint: message.text }, chatNodeId);
       pendingWorktreeSendRef.current = { workspaceId: created.id, message };
       draft.clear(chatId);
-      moveDraftToWorkspace(chatId, created.id, project.id);
+      moveDraftToWorkspace(chatId, created.id, project.id, chatNodeId);
     })().catch((error: unknown) => {
       draft.setCreating(chatId, false);
       toast.error(intl.formatMessage({ id: 'draftChat.worktreeFailed', defaultMessage: 'Could not create the worktree' }), {
@@ -953,7 +987,7 @@ function ChatPanelContent({
       });
       throw error;
     });
-  }, [chatId, isMobile, runsElsewhere, showDraftBar, currentWorkspaceId, handleSubmitOrGoal, intl]);
+  }, [chatId, isMobile, runsElsewhere, chatNodeId, showDraftBar, currentWorkspaceId, handleSubmitOrGoal, intl]);
   useEffect(() => {
     const pending = pendingWorktreeSendRef.current;
     if (!pending || pending.workspaceId !== currentWorkspaceId) return;
@@ -979,15 +1013,15 @@ function ChatPanelContent({
   const sendNonce = useAnnotationSendStore((s) => s.nonce);
   useEffect(() => {
     if (sendNonce === 0 || !visible || runsElsewhere) return;
-    const { workspaceId: reqWs, consume } = useAnnotationSendStore.getState();
+    const { workspaceId: reqWs, nodeId: reqNode, consume } = useAnnotationSendStore.getState();
     // Browser-send leaves the browser panel focused. The visible conversation
     // in the matching workspace consumes the request once.
-    if (reqWs !== currentWorkspaceId) return;
-    const anns = annotationsForWorkspace(useAnnotationsStore.getState().items, currentWorkspaceId);
+    if (reqWs !== currentWorkspaceId || !sameNode(reqNode, chatNodeId)) return;
+    const anns = annotationsForWorkspace(useAnnotationsStore.getState().items, currentWorkspaceId, chatNodeId);
     if (anns.length === 0) { consume(); return; }
     consume();
     handleSubmitRef.current({ text: getInput().trim(), files: [] });
-  }, [sendNonce, currentWorkspaceId, getInput, visible, runsElsewhere]);
+  }, [sendNonce, currentWorkspaceId, chatNodeId, getInput, visible, runsElsewhere]);
 
   const submitSteerItem = useCallback(async (item: LiveSteerItem) => {
     const currentChatId = tab?.chatId ?? dbChatIdRef.current;
@@ -1055,7 +1089,7 @@ function ChatPanelContent({
     // them until then: clearing it revokes their blob URLs.
     let prepared: LiveSteerItem;
     try {
-      const outgoing = await prepareOutgoingMessage(item.text, files);
+      const outgoing = await prepareOutgoingMessage(item.text, files, chatTransport);
       prepared = { ...item, text: outgoing.text.trim(), files: outgoing.files };
     } catch (error) {
       console.error('[ChatPanel] Steer attachments failed:', error);
@@ -1173,7 +1207,7 @@ function ChatPanelContent({
   // Server-delivered child results do not appear in this tab's local steer tray.
   // Subscribe only to the derived flag, then reconcile history when its turn ends.
   const hasExternalChildren = useExternalAgentsStore((state) =>
-    [...state.agents.values()].some((agent) => agent.parentChatId === (tab?.chatId ?? dbChatId)),
+    [...state.agents.values()].some((agent) => isOnNode(agent, tab?.nodeId) && agent.parentChatId === (tab?.chatId ?? dbChatId)),
   );
   const sentSteerCount = liveSteers.reduce(
     (count, item) => count + (item.status === 'sent' && item.messageId ? 1 : 0),
@@ -1197,7 +1231,7 @@ function ChatPanelContent({
       .chatHistoryGet(currentChatId, { limit: TAIL_SYNC_SIZE })
       .then(async (result) => {
         if (!active) return;
-        const tail = await normalizeHistoryMessages(result?.messages ?? []);
+        const tail = await normalizeHistoryMessages(result?.messages ?? [], api);
         if (!active) return;
         // A steer that was just sent lands at the end of the transcript, so the
         // tail page is enough to decide which ones the server has persisted —
@@ -1527,13 +1561,14 @@ function ChatPanelContent({
         ) : null}
         {!runsElsewhere && (
           <>
-            <AnnotationTray workspaceId={currentWorkspaceId} />
-            <SelectedTextTray workspaceId={currentWorkspaceId} chatId={dbChatId} />
-            <LineCommentTray workspaceId={currentWorkspaceId} />
+            <AnnotationTray workspaceId={currentWorkspaceId} nodeId={chatNodeId} />
+            <SelectedTextTray workspaceId={currentWorkspaceId} nodeId={chatNodeId} chatId={dbChatId} />
+            <LineCommentTray workspaceId={currentWorkspaceId} nodeId={chatNodeId} />
           </>
         )}
         <WorkflowApprovalsBar chatId={tab?.chatId ?? dbChatIdRef.current} />
-        <SpecChatBar chatId={tab?.chatId ?? dbChatIdRef.current} />
+        {/* Specs are board work, and the board is this machine's. */}
+        {!remoteTab && <SpecChatBar chatId={tab?.chatId ?? dbChatIdRef.current} />}
         {goal && (
           <GoalBanner
             goal={goal}

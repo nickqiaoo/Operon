@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import type { FileUIPart } from "ai"
+import { sameNode } from "@/lib/chat-ref"
 
 /**
  * Text a user picked out of a file preview and sent to the chat.
@@ -18,6 +19,11 @@ export interface SelectedTextSnippet {
   id: string
   /** Workspace active when the text was picked — the chat filters on this. */
   workspaceId: number | null
+  /**
+   * Machine of that workspace; undefined for this one. Workspace ids are only
+   * unique per machine, so remote workspace 3 must not pick up local 3's items.
+   */
+  nodeId?: string
   /**
    * Chat this snippet is bound to. Set when the selection was made with a
    * specific conversation in mind (in a transcript, or on the way into a side
@@ -38,7 +44,7 @@ interface SelectedTextState {
   add: (snippet: SelectedTextSnippet) => void
   remove: (id: string) => void
   /** Drop every snippet for a workspace (after they've been sent). */
-  clearWorkspace: (workspaceId: number | null) => void
+  clearWorkspace: (workspaceId: number | null, nodeId?: string | null) => void
 }
 
 export const useSelectedTextStore = create<SelectedTextState>((set) => ({
@@ -48,11 +54,11 @@ export const useSelectedTextStore = create<SelectedTextState>((set) => ({
   // Every send calls this. With nothing to drop, keep the same array: a fresh
   // one re-renders every subscriber, and the file preview's `<File>` then
   // rebuilds the whole highlighted file inside the Enter keypress.
-  clearWorkspace: (workspaceId) =>
-    set((s) =>
-      s.items.some((i) => i.workspaceId === workspaceId)
-        ? { items: s.items.filter((i) => i.workspaceId !== workspaceId) }
-        : s),
+  clearWorkspace: (workspaceId, nodeId) =>
+    set((s) => {
+      const inWorkspace = (i: SelectedTextSnippet) => i.workspaceId === workspaceId && sameNode(i.nodeId, nodeId)
+      return s.items.some(inWorkspace) ? { items: s.items.filter((i) => !inWorkspace(i)) } : s
+    }),
 }))
 
 /**
@@ -63,10 +69,14 @@ export const useSelectedTextStore = create<SelectedTextState>((set) => ({
 export const selectedTextForChat = (
   items: SelectedTextSnippet[],
   workspaceId: number | null,
-  chatId: number | undefined
+  chatId: number | undefined,
+  nodeId?: string | null
 ): SelectedTextSnippet[] =>
   items.filter(
-    (i) => i.workspaceId === workspaceId && (i.chatId == null || i.chatId === chatId)
+    (i) =>
+      i.workspaceId === workspaceId &&
+      sameNode(i.nodeId, nodeId) &&
+      (i.chatId == null || i.chatId === chatId)
   )
 
 /** Composer file mirroring `LineCommentFile`: an `asText` snippet merged into

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { useChatApi, useChatNodeKey } from '@/lib/chat-api-context';
+import { aiUsageKeys } from '@/lib/chat-queries';
 import type { DetailedContextUsage } from '@/types/context-usage';
 import type { ClaudeRateLimits } from '../utils/chatMetadata';
 
@@ -13,9 +14,6 @@ const CONTEXT_USAGE_POLL_MS = 5_000;
  * relative to a turn, so it runs at a fraction of the old 30s.
  */
 const CLAUDE_USAGE_POLL_MS = 120_000;
-
-const claudeUsageQueryKey = ['ai', 'claude-usage'] as const;
-const contextUsageQueryKey = (chatId: number) => ['ai', 'context-usage', chatId] as const;
 
 interface ClaudeUsagePollingOptions {
   chatId?: number;
@@ -53,6 +51,9 @@ export function useClaudeUsagePolling({
   detailedContextUsage: DetailedContextUsage | null;
   claudeRateLimits: ClaudeRateLimits | null;
 } {
+  const api = useChatApi();
+  const node = useChatNodeKey();
+  const claudeUsageQueryKey = aiUsageKeys.claude(node);
   const hasContextSession = supportsContextUsage && chatId !== undefined;
   const shouldPollContext = hasContextSession && isActive;
 
@@ -60,7 +61,7 @@ export function useClaudeUsagePolling({
     data: detailedContextUsage = null,
     refetch: refetchContextUsage,
   } = useQuery({
-    queryKey: contextUsageQueryKey(chatId ?? 0),
+    queryKey: aiUsageKeys.context(chatId ?? 0, node),
     queryFn: async (): Promise<DetailedContextUsage | null> => {
       if (chatId === undefined) return null;
       const result = await api.aiGetContextUsage(chatId);

@@ -1,4 +1,5 @@
-import { api } from "@/lib/api";
+import { useChatApi } from '@/lib/chat-api-context';
+import type { Api } from '@/lib/api';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UIMessage } from 'ai';
 import type { SshEnvironmentRef } from '@shared/ssh-environment';
@@ -24,11 +25,14 @@ const findDuplicateIds = (messages: UIMessage[]): string[] => {
   return [...dups];
 };
 
-const normalizeFileUrlToDataUrl = async (url: string): Promise<string> => {
+/** `file://` attachments are read from the machine the chat lives on. */
+type HistoryFileReader = Pick<Api, 'readFile'>;
+
+const normalizeFileUrlToDataUrl = async (url: string, chatApi: HistoryFileReader): Promise<string> => {
   if (url.startsWith('file://')) {
     try {
       const filePath = decodeURIComponent(url.replace(/^file:\/\//, ''));
-      const fileContent = await api.readFile(filePath);
+      const fileContent = await chatApi.readFile(filePath);
       return `data:text/plain;charset=utf-8,${encodeURIComponent(fileContent)}`;
     } catch {
       return url;
@@ -37,12 +41,12 @@ const normalizeFileUrlToDataUrl = async (url: string): Promise<string> => {
   return url;
 };
 
-export const normalizeMessageAttachments = async (message: UIMessage): Promise<UIMessage> => {
+export const normalizeMessageAttachments = async (message: UIMessage, chatApi: HistoryFileReader): Promise<UIMessage> => {
   if (!message.parts.length) return message;
   const nextParts = await Promise.all(
     message.parts.map(async (part) => {
       if (part.type !== 'file') return part;
-      const nextUrl = await normalizeFileUrlToDataUrl(part.url);
+      const nextUrl = await normalizeFileUrlToDataUrl(part.url, chatApi);
       if (nextUrl === part.url) return part;
       return { ...part, url: nextUrl };
     })
@@ -50,14 +54,15 @@ export const normalizeMessageAttachments = async (message: UIMessage): Promise<U
   return { ...message, parts: nextParts };
 };
 
-export const normalizeHistoryMessages = async (messages: UIMessage[]): Promise<UIMessage[]> =>
-  Promise.all(messages.map((message) => normalizeMessageAttachments(message)));
+export const normalizeHistoryMessages = async (messages: UIMessage[], chatApi: HistoryFileReader): Promise<UIMessage[]> =>
+  Promise.all(messages.map((message) => normalizeMessageAttachments(message, chatApi)));
 
 export function useChatHistory(
   dbChatId: number | undefined,
   setMessages: (messages: UIMessage[] | ((current: UIMessage[]) => UIMessage[])) => void,
   timestamp?: number
 ) {
+  const api = useChatApi();
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [loadedModel, setLoadedModel] = useState<string | null>(null);
   const [loadedProviderId, setLoadedProviderId] = useState<string | null>(null);
@@ -104,7 +109,7 @@ export function useChatHistory(
       .then(async (result) => {
         if (!active) return;
         const rawMessages: UIMessage[] = result?.messages ?? [];
-        const normalized = await normalizeHistoryMessages(rawMessages);
+        const normalized = await normalizeHistoryMessages(rawMessages, api);
         if (!active) return;
         const initialDups = findDuplicateIds(normalized);
         if (initialDups.length) {
@@ -151,7 +156,7 @@ export function useChatHistory(
       const cursor = nextCursorRef.current;
       const result = await api.chatHistoryGet(chatId, { before: cursor, limit: CHAT_PAGE_SIZE });
       const rawMessages: UIMessage[] = result?.messages ?? [];
-      const normalized = await normalizeHistoryMessages(rawMessages);
+      const normalized = await normalizeHistoryMessages(rawMessages, api);
       // Switched to another conversation while the page was in flight.
       if (dbChatIdRef.current !== chatId) return;
       setHasMore(result?.hasMore ?? false);

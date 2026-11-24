@@ -12,7 +12,8 @@ import {
 } from "@pierre/diffs"
 import { ChevronDown, Minus, Plus, Undo2 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { api } from "@/lib/api"
+import { api as localApi, type Api } from "@/lib/api"
+import { onNode, useChatApi, useChatNodeId } from "@/lib/chat-api-context"
 import { gitKeys } from "@/lib/git-queries"
 import { useEditorStore } from "@/stores/editor-store"
 import { useLineComments, type CommentMeta } from "@/components/editor/comments/useLineComments"
@@ -321,6 +322,8 @@ export async function loadFullFileMeta(
   file: FileChange,
   rootPath: string,
   refs: ReviewRefs,
+  /** The machine the repo lives on; this one by default. */
+  api: Api = localApi,
 ): Promise<FileDiffMetadata> {
   const isUntracked = file.status === "?"
   const isDeleted = file.status === "D"
@@ -365,11 +368,13 @@ export function useFullFileDiff(
 ): FileDiffMetadata | null {
   // The range refs are part of the key so switching base/commit refetches.
   const variant = `${refs.oldRef ?? ""}:${refs.newRef ?? ""}`
+  const api = useChatApi()
+  const nodeId = useChatNodeId()
   const query = useQuery({
     // `file.status` is part of the key: added/deleted/staged pick different
     // old/new refs, so a status change must produce a fresh blob diff.
-    queryKey: [...gitKeys.fullFile(rootPath, refs.scope, file.path, variant), file.status],
-    queryFn: () => loadFullFileMeta(file, rootPath, refs),
+    queryKey: onNode([...gitKeys.fullFile(rootPath, refs.scope, file.path, variant), file.status], nodeId),
+    queryFn: () => loadFullFileMeta(file, rootPath, refs, api),
     enabled,
     staleTime: 5_000,
   })

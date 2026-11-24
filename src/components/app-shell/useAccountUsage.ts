@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { aiUsageKeys } from '@/lib/chat-queries';
 import { useCodexUsagePolling } from '@/components/editor/hooks/useCodexUsagePolling';
 import type { ClaudeRateLimits, CodexRateLimits, RateLimitSnapshot } from '@/components/editor/utils/chatMetadata';
 
@@ -16,7 +17,6 @@ import type { ClaudeRateLimits, CodexRateLimits, RateLimitSnapshot } from '@/com
  */
 const USAGE_POLL_MS = 120_000;
 
-const claudeUsageQueryKey = ['ai', 'claude-usage'] as const;
 
 /** One provider's two headline windows, already normalized to 0-100. */
 export interface ProviderUsage {
@@ -112,7 +112,7 @@ export function useAccountUsage(): {
   providers: ProviderUsage[];
 } {
   const claude = useQuery({
-    queryKey: claudeUsageQueryKey,
+    queryKey: aiUsageKeys.claude(),
     queryFn: async (): Promise<ClaudeRateLimits | null> => {
       const result = await api.aiGetClaudeUsage();
       // A failed read throws instead of resolving to null: React Query then

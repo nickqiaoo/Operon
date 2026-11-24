@@ -29,7 +29,7 @@ import { AgentIcon, FocusConversations, RecentConversations, useActiveAttentionC
 import { chatIdOfTab, type ActiveGroup, type OpenChat } from "@/lib/active-conversations"
 import { childCounts, type ChatChild, type ChildState } from "@/lib/chat-children"
 import { openChildChat, useChatChildren, useTaskChildChatIds } from "@/hooks/useChatChildren"
-import { useExternalAgentsStore } from "@/stores/external-agents-store"
+import { isOnNode, useExternalAgentsStore } from "@/stores/external-agents-store"
 import { useWorkspaceLatestChats, type ChatHistoryListItem } from "@/lib/chat-queries"
 import { formatRelativeTime } from "@/lib/format"
 import type { Notification } from "@/types/notification"
@@ -39,6 +39,8 @@ import { startNewChat, startNewChatInWorkspace } from "@/lib/new-chat"
 import { useRailFlyout } from "./use-rail-flyout"
 import { ChannelList } from "@/components/channel/ChannelList"
 import { projectSidebarEntries } from "./workspace-groups"
+import { localChat } from "@/lib/chat-ref"
+import { MachineHeader, RemoteMachineTrees, useOtherMachines, useThisMachineLabel } from "./RemoteMachineTrees"
 
 type GitWorktreeEntry = {
   path: string
@@ -455,7 +457,8 @@ const ChatRow = memo(function ChatRow({ chat, workspaceId, onOpen }: {
 function useHasChatChildren(chatId: number) {
   const hasAgents = useExternalAgentsStore((s) => {
     for (const agent of s.agents.values()) {
-      if (agent.parentChatId === chatId && !agent.assistantActivityId) return true
+      // The tree lists this machine's conversations.
+      if (isOnNode(agent, undefined) && agent.parentChatId === chatId && !agent.assistantActivityId) return true
     }
     return false
   })
@@ -486,7 +489,8 @@ function ChatWithAgents({ chatId, workspaceId, current, children: row }: {
   children: ReactNode
 }) {
   const intl = useIntl()
-  const agents = useChatChildren(chatId)
+  // The tree is this machine's conversations.
+  const agents = useChatChildren(localChat(chatId))
   const counts = childCounts(agents)
   const currentChatId = useCurrentChatId()
   const [override, setOverride] = useState<boolean | null>(null)
@@ -809,6 +813,11 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
   const projects = useProjectStore((s) => s.projects)
   const projectsLoaded = useProjectStore((s) => s.projectsLoaded)
   const activeWorkspaceId = useProjectStore((s) => s.activeWorkspaceId)
+  // The current workspace's machine: this tree's ids mean nothing on another one.
+  const activeNodeId = useProjectStore((s) => s.activeNodeId)
+  const otherMachines = useOtherMachines()
+  const thisMachineLabel = useThisMachineLabel()
+  const [localTreeOpen, setLocalTreeOpen] = useState(true)
   const addProject = useProjectStore((s) => s.addProject)
   const setActiveWorkspace = useProjectStore((s) => s.setActiveWorkspace)
   const setProjectWorkspaces = useProjectStore((s) => s.setProjectWorkspaces)
@@ -907,6 +916,13 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
     showWorkbench()
     closeAfterNavigate()
   }, [clearUnseen, setActiveWorkspace, showWorkbench, closeAfterNavigate])
+
+  // Another machine's workspace: that machine becomes the workbench's.
+  const handleSelectRemoteWorkspace = useCallback((nodeId: string, workspaceId: number, projectId: number) => {
+    setActiveWorkspace(workspaceId, projectId, nodeId)
+    showWorkbench()
+    closeAfterNavigate()
+  }, [setActiveWorkspace, showWorkbench, closeAfterNavigate])
 
   const handleNewChatInWorkspace = useCallback((workspaceId: number, projectId: number) => {
     void startNewChatInWorkspace(workspaceId, projectId)
@@ -1144,9 +1160,17 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
           </div>
           <ScrollArea className="flex-1 min-h-0 [&>[data-slot=scroll-area-viewport]>div]:!block [&>[data-slot=scroll-area-viewport]>div]:!min-w-0" viewportClassName="scroll-fade-y [--scroll-fade-gutter:0px]">
             <div className="space-y-0.5 pb-3 pt-0">
+              {/* With other machines on the account, each machine heads its own tree. */}
+              {!sidebarFocus && otherMachines.length > 0 && (
+                <MachineHeader
+                  label={thisMachineLabel ?? intl.formatMessage({ id: "sidebar.machine.this", defaultMessage: "This machine" })}
+                  open={localTreeOpen}
+                  onToggle={() => setLocalTreeOpen(!localTreeOpen)}
+                />
+              )}
               {sidebarFocus ? (
                 <FocusConversations onOpenNotification={onOpenNotification ?? noop} onOpenChat={onOpenChat ?? noop} onNavigate={closeAfterNavigate} />
-              ) : projects.length === 0 && !projectsLoaded ? (
+              ) : otherMachines.length > 0 && !localTreeOpen ? null : projects.length === 0 && !projectsLoaded ? (
                 // First load with nothing cached. Without this the empty state
                 // shows while the fetch is still out — a lie on web, where it can
                 // take a second.
@@ -1168,7 +1192,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
                       onNewChatInWorkspace={handleNewChatInWorkspace}
                       onOpenChat={handleOpenChat}
                       // Only one place is "current": while the Assistant is showing, no workspace is.
-                      activeWorkspaceId={assistantActive || boardActive || channelsActive || activeSpecId != null ? null : activeWorkspaceId}
+                      activeWorkspaceId={assistantActive || boardActive || channelsActive || activeSpecId != null || activeNodeId != null ? null : activeWorkspaceId}
                       onAddWorkspace={handleOpenAddWorkspace}
                       onTogglePin={handleTogglePin}
                       error={projectErrors[String(project.id)] ?? null}
@@ -1178,6 +1202,14 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
                     />
                   </Fragment>
                 ))
+              )}
+              {!sidebarFocus && otherMachines.length > 0 && (
+                <RemoteMachineTrees
+                  machines={otherMachines}
+                  activeNodeId={activeNodeId}
+                  activeWorkspaceId={assistantActive || boardActive || channelsActive || activeSpecId != null ? null : activeWorkspaceId}
+                  onSelectWorkspace={handleSelectRemoteWorkspace}
+                />
               )}
               {/* Below the tree, every conversation in play across projects. */}
               {!sidebarFocus && <RecentConversations onOpenNotification={onOpenNotification ?? noop} onOpenChat={onOpenChat ?? noop} onNavigate={closeAfterNavigate} />}

@@ -50,6 +50,7 @@ export function TabContent({ panelId, tab, isActive }: TabContentProps) {
         <SideChatTab
           chatId={tab.payload.chatId}
           parentChatId={tab.payload.parentChatId}
+          nodeId={tab.payload.nodeId}
           isActive={isActive}
         />
       )

@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
-import { api, type RewindSkippedFile } from '@/lib/api'
+import { type RewindSkippedFile } from '@/lib/api'
+import { useChatApi } from '@/lib/chat-api-context'
 import { useProjectStore } from '@/stores/project-store'
 import { trackEvent } from '@/lib/analytics'
 
@@ -35,6 +36,7 @@ export function useRewindController({
 }: {
   dbChatId?: number
 }) {
+  const api = useChatApi()
   const [rewindDialogOpen, setRewindDialogOpen] = useState(false)
   const [rewindTargetMessageId, setRewindTargetMessageId] = useState<string | null>(null)
   const [rewindMode, setRewindMode] = useState<RewindMode>('rewind')

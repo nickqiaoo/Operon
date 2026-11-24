@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { queryOptions, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
+import { apiOn, onNode, useChatNodeId, useChatTransport } from './chat-api-context'
 import {
   subscribe,
   watchRepo,
@@ -50,9 +51,13 @@ export const gitKeys = {
  * remote, a fork's unrelated upstream — or there is no remote at all; then
  * `HEAD`, i.e. the uncommitted changes.
  */
-export async function resolveDefaultBase(root: string): Promise<string> {
-  const candidate = await api.gitDefaultBaseBranch(root)
-  if (candidate != null && (await api.gitMergeBase(root, candidate)) != null) return candidate
+export async function resolveDefaultBase(
+  root: string,
+  /** The machine the repo lives on; this one by default. */
+  client: Pick<typeof api, 'gitDefaultBaseBranch' | 'gitMergeBase'> = api,
+): Promise<string> {
+  const candidate = await client.gitDefaultBaseBranch(root)
+  if (candidate != null && (await client.gitMergeBase(root, candidate)) != null) return candidate
   return 'HEAD'
 }
 
@@ -60,33 +65,45 @@ export type GitStatus = Awaited<ReturnType<typeof api.gitStatus>>
 
 /** Working-tree status summary (branch + staged/unstaged/untracked entries). */
 export function useGitStatus(root: string, options?: { enabled?: boolean; refetchInterval?: number }) {
+  // Inside a remote tab (the Session panel's git line) `root` is a path on that machine.
+  const nodeId = useChatNodeId()
   return useQuery({
-    queryKey: gitKeys.status(root),
-    queryFn: () => api.gitStatus(root),
+    queryKey: onNode(gitKeys.status(root), nodeId),
+    queryFn: () => apiOn(nodeId).gitStatus(root),
     staleTime: FIVE_SECONDS,
     enabled: options?.enabled,
     refetchInterval: options?.refetchInterval,
   })
 }
 
-/** Branches of the repo at `root` (local and remote); `current` marks what is checked out there. */
-export function gitBranchesQuery(root: string) {
+/**
+ * Branches of the repo at `root` (local and remote); `current` marks what is
+ * checked out there. `nodeId`: the repo is on another machine.
+ */
+export function gitBranchesQuery(root: string, nodeId?: string) {
   return queryOptions({
-    queryKey: gitKeys.branches(root),
-    queryFn: () => api.gitBranches(root),
+    queryKey: onNode(gitKeys.branches(root), nodeId),
+    queryFn: () => apiOn(nodeId).gitBranches(root),
     staleTime: FIVE_SECONDS,
   })
 }
 
 export function useGitBranches(root: string, options?: { enabled?: boolean }) {
-  return useQuery({ ...gitBranchesQuery(root), enabled: options?.enabled })
+  const nodeId = useChatNodeId()
+  return useQuery({
+    queryKey: onNode(gitKeys.branches(root), nodeId),
+    queryFn: () => apiOn(nodeId).gitBranches(root),
+    staleTime: FIVE_SECONDS,
+    enabled: options?.enabled,
+  })
 }
 
 /** Recent commits on HEAD, newest first. */
 export function useGitCommits(root: string, options?: { enabled?: boolean }) {
+  const nodeId = useChatNodeId()
   return useQuery({
-    queryKey: gitKeys.commits(root),
-    queryFn: () => api.gitCommits(root, 100),
+    queryKey: onNode(gitKeys.commits(root), nodeId),
+    queryFn: () => apiOn(nodeId).gitCommits(root, 100),
     enabled: options?.enabled,
     staleTime: 30_000,
   })
@@ -100,9 +117,10 @@ export type PrRepoStatus = Awaited<ReturnType<typeof api.integrationGithubRepoSt
  * prefix so committing or pushing refreshes it along with the diff.
  */
 export function usePrRepoStatus(root: string) {
+  const nodeId = useChatNodeId()
   return useQuery({
-    queryKey: gitKeys.prRepoStatus(root),
-    queryFn: () => api.integrationGithubRepoStatus(root),
+    queryKey: onNode(gitKeys.prRepoStatus(root), nodeId),
+    queryFn: () => apiOn(nodeId).integrationGithubRepoStatus(root),
     staleTime: FIVE_SECONDS,
   })
 }
@@ -113,9 +131,10 @@ export function usePrRepoStatus(root: string) {
  * every working-tree change and must stay local.
  */
 export function usePrForBranch(root: string, branch: string | null, enabled: boolean) {
+  const nodeId = useChatNodeId()
   return useQuery({
-    queryKey: gitKeys.prForBranch(root, branch ?? ''),
-    queryFn: () => api.integrationGithubPrForBranch(root, branch ?? ''),
+    queryKey: onNode(gitKeys.prForBranch(root, branch ?? ''), nodeId),
+    queryFn: () => apiOn(nodeId).integrationGithubPrForBranch(root, branch ?? ''),
     enabled: enabled && !!branch,
     staleTime: 30_000,
   })
@@ -135,20 +154,23 @@ const stripTrailingSlash = (p: string) => p.replace(/[/\\]+$/, '')
  */
 export function useGitRepoInvalidation(root: string | null): void {
   const queryClient = useQueryClient()
+  // The repo is on the machine of the view asking (the current workspace's).
+  const transport = useChatTransport()
 
   useEffect(() => {
     if (root == null) return
     const watched = stripTrailingSlash(root)
 
-    void watchRepo(root)
+    void watchRepo(root, transport)
     const unsubscribe = subscribe((event: GitRepoChangedEvent) => {
       if (stripTrailingSlash(event.root) !== watched) return
+      // Prefix match: reaches that machine's entries (`onNode` appends the machine).
       void queryClient.invalidateQueries({ queryKey: gitKeys.all(root) })
-    })
+    }, transport)
 
     return () => {
       unsubscribe()
-      void unwatchRepo(root)
+      void unwatchRepo(root, transport)
     }
-  }, [root, queryClient])
+  }, [root, queryClient, transport])
 }

@@ -10,7 +10,8 @@ import { Dialog, DialogTrigger } from "@/components/ui/dialog";
 import { ImageViewer } from "@/components/ai-elements/image-viewer";
 import { cn } from "@/lib/utils";
 import { isAttachmentUrl, resolveAttachmentUrl } from "@/lib/attachments";
-import { getBaseUrl, getBaseUrlSync } from "@/lib/api-client";
+import { getBaseUrl, getBaseUrlSync, type ApiTransport } from "@/lib/api-client";
+import { useChatTransport } from "@/lib/chat-api-context";
 import { useAuthedObjectUrl } from "@/hooks/useAuthedObjectUrl";
 import type { FileUIPart, SourceDocumentUIPart } from "ai";
 import {
@@ -86,7 +87,7 @@ export const getAttachmentLabel = (data: AttachmentData): string => {
   return data.filename || (category === "image" ? "Image" : "Attachment");
 };
 
-const getImageAttachmentSrc = (data: AttachmentData): string | null => {
+const getImageAttachmentSrc = (data: AttachmentData, transport: ApiTransport): string | null => {
   if (data.type !== "file" || !data.url || !data.mediaType?.startsWith("image/")) {
     return null;
   }
@@ -95,7 +96,7 @@ const getImageAttachmentSrc = (data: AttachmentData): string | null => {
   // Null while the base URL is still being resolved — the preview falls back to
   // its icon for that one frame rather than requesting a broken src.
   if (isAttachmentUrl(data.url)) {
-    return resolveAttachmentUrl(data.url);
+    return resolveAttachmentUrl(data.url, transport);
   }
 
   if (
@@ -205,7 +206,9 @@ export const AttachmentPreview = ({
   // Re-render once the base URL lands, so a stored attachment rendered before
   // the desktop port was known still gets its src.
   const [baseUrlReady, setBaseUrlReady] = useState(() => getBaseUrlSync() !== null);
-  const resolvedImageSrc = getImageAttachmentSrc(data);
+  // A stored attachment is in the attachment store of the chat's machine.
+  const transport = useChatTransport();
+  const resolvedImageSrc = getImageAttachmentSrc(data, transport);
   // On web a stored attachment is served through the broker, which requires a
   // bearer header that an <img src> cannot carry (it never touches the patched
   // window.fetch, so the request arrives unauthenticated and gets a 401). Those

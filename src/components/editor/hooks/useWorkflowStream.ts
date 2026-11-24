@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { api, type WorkflowRunView, type WorkflowFeedFrame } from '@/lib/api';
-import { apiAuthHeaders } from '@/lib/api-client';
+import { type WorkflowRunView, type WorkflowFeedFrame } from '@/lib/api';
+import { useChatApi, useChatTransport } from '@/lib/chat-api-context';
 import {
   INITIAL_AGENT_STREAM_STATE,
   parseStreamChunk,
@@ -43,6 +43,8 @@ function delay(ms: number): Promise<void> {
 }
 
 export function useWorkflowStream(runId: string): WorkflowStreamState {
+  const api = useChatApi();
+  const backend = useChatTransport();
   const [state, setState] = useState<WorkflowStreamState>({ run: null, agents: new Map(), unavailable: false });
 
   useEffect(() => {
@@ -91,7 +93,7 @@ export function useWorkflowStream(runId: string): WorkflowStreamState {
       while (!stopped && !isTerminal(runRef.current?.status)) {
         try {
           const url = await api.aiWorkflowRunFeedUrl(runId, cursor);
-          const response = await fetch(url, { headers: apiAuthHeaders() });
+          const response = await fetch(url, { headers: backend.authHeaders() });
           if (!response.ok || !response.body) {
             // 404 = the run is not in the log yet (just launched). Retry a
             // few times; if no frame has ever arrived, surface unavailable.

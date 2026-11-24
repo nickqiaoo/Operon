@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { UIMessage } from 'ai'
 import { toast } from 'sonner'
-import { api } from '@/lib/api'
+import { useChatApi } from '@/lib/chat-api-context'
 import type { CodexGoal } from '@/types/goal'
 
 /** Undefined means no update; null is an explicit goal/cleared snapshot. */
@@ -24,6 +24,7 @@ interface UseGoalArgs {
 }
 
 export function useGoal({ dbChatId, messages, supported, isGenerating, sendGoalMessage, stop }: UseGoalArgs) {
+  const api = useChatApi()
   const [goal, setGoal] = useState<CodexGoal | null>(null)
   const [pending, setPending] = useState(false)
   const goalRef = useRef(goal)

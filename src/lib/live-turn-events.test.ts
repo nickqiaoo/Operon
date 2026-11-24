@@ -19,6 +19,7 @@ vi.mock('./event-stream', () => ({
 
 const { subscribeChatPresence, watchPendingInput } = await import('./live-turn-events')
 const { useChatPendingInputStore } = await import('@/stores/chat-pending-input-store')
+const { chatKey } = await import('./chat-ref')
 
 type Status = { chatId: number; active: boolean; turnId: string | null; startedAt: number | null }
 const running = (chatId: number, turnId = 't1'): Status => ({ chatId, active: true, turnId, startedAt: 1 })
@@ -32,16 +33,16 @@ const live = () => sseHandles.filter((h) => !h.closed)
 describe('subscribeChatPresence', () => {
   it('answers immediately with idle, matching the snapshot the per-chat stream used to send', () => {
     const seen: Status[] = []
-    const off = subscribeChatPresence(77, { onStatus: (s) => seen.push(s) })
+    const off = subscribeChatPresence({ chatId: 77 }, { onStatus: (s) => seen.push(s) })
 
     expect(seen).toEqual([{ chatId: 77, active: false, turnId: null, startedAt: null }])
     off()
   })
 
   it('opens ONE stream no matter how many chats are watched', () => {
-    const offA = subscribeChatPresence(1, { onStatus: () => {} })
-    const offB = subscribeChatPresence(2, { onStatus: () => {} })
-    const offC = subscribeChatPresence(3, { onStatus: () => {} })
+    const offA = subscribeChatPresence({ chatId: 1 }, { onStatus: () => {} })
+    const offB = subscribeChatPresence({ chatId: 2 }, { onStatus: () => {} })
+    const offC = subscribeChatPresence({ chatId: 3 }, { onStatus: () => {} })
 
     expect(live()).toHaveLength(1)
     offA(); offB(); offC()
@@ -50,8 +51,8 @@ describe('subscribeChatPresence', () => {
   it('routes an event only to the chat it names', () => {
     const a: Status[] = []
     const b: Status[] = []
-    const offA = subscribeChatPresence(10, { onStatus: (s) => a.push(s) })
-    const offB = subscribeChatPresence(20, { onStatus: (s) => b.push(s) })
+    const offA = subscribeChatPresence({ chatId: 10 }, { onStatus: (s) => a.push(s) })
+    const offB = subscribeChatPresence({ chatId: 20 }, { onStatus: (s) => b.push(s) })
     a.length = 0
     b.length = 0
 
@@ -63,11 +64,11 @@ describe('subscribeChatPresence', () => {
   })
 
   it('gives a chat subscribed later the turn it missed, without asking the server', () => {
-    const first = subscribeChatPresence(30, { onStatus: () => {} })
+    const first = subscribeChatPresence({ chatId: 30 }, { onStatus: () => {} })
     live()[0].emit({ type: 'sync', statuses: [running(31, 'inflight')] })
 
     const seen: Status[] = []
-    const second = subscribeChatPresence(31, { onStatus: (s) => seen.push(s) })
+    const second = subscribeChatPresence({ chatId: 31 }, { onStatus: (s) => seen.push(s) })
 
     // The old design got this from connecting; here it comes from the cached sync.
     expect(seen).toEqual([running(31, 'inflight')])
@@ -76,7 +77,7 @@ describe('subscribeChatPresence', () => {
 
   it('reports a turn that ended while the stream was down', () => {
     const seen: Status[] = []
-    const off = subscribeChatPresence(40, { onStatus: (s) => seen.push(s) })
+    const off = subscribeChatPresence({ chatId: 40 }, { onStatus: (s) => seen.push(s) })
     live()[0].emit({ type: 'sync', statuses: [running(40)] })
     expect(seen.at(-1)).toEqual(running(40))
 
@@ -89,13 +90,13 @@ describe('subscribeChatPresence', () => {
   })
 
   it('closes the stream once nothing is watching, and reopens on the next subscribe', () => {
-    const off = subscribeChatPresence(50, { onStatus: () => {} })
+    const off = subscribeChatPresence({ chatId: 50 }, { onStatus: () => {} })
     expect(live()).toHaveLength(1)
 
     off()
     expect(live()).toHaveLength(0)
 
-    const again = subscribeChatPresence(50, { onStatus: () => {} })
+    const again = subscribeChatPresence({ chatId: 50 }, { onStatus: () => {} })
     expect(live()).toHaveLength(1)
     again()
   })
@@ -103,8 +104,8 @@ describe('subscribeChatPresence', () => {
   it('tells every watcher when the stream errors', () => {
     let aFailed = false
     let bFailed = false
-    const offA = subscribeChatPresence(60, { onStatus: () => {}, onError: () => { aFailed = true } })
-    const offB = subscribeChatPresence(61, { onStatus: () => {}, onError: () => { bFailed = true } })
+    const offA = subscribeChatPresence({ chatId: 60 }, { onStatus: () => {}, onError: () => { aFailed = true } })
+    const offB = subscribeChatPresence({ chatId: 61 }, { onStatus: () => {}, onError: () => { bFailed = true } })
 
     live()[0].fail()
 
@@ -116,11 +117,11 @@ describe('subscribeChatPresence', () => {
 
 describe('watchPendingInput', () => {
   const ask = (approvalId: string) => ({ approvalId, toolName: 'Bash', requestedAt: 1, userFacing: true })
-  const pendingOf = (chatId: number) => useChatPendingInputStore.getState().pendingByChat.get(chatId)
+  const pendingOf = (chatId: number) => useChatPendingInputStore.getState().pendingByChat.get(chatKey({ chatId }))
 
   it('mirrors every chat\'s pending input and holds the shared stream open', () => {
     const release = watchPendingInput()
-    const offChat = subscribeChatPresence(50, { onStatus: () => {} })
+    const offChat = subscribeChatPresence({ chatId: 50 }, { onStatus: () => {} })
     expect(live()).toHaveLength(1)
 
     live()[0].emit({ type: 'sync', statuses: [], pendingInput: [{ chatId: 51, pending: [ask('a')] }, { chatId: 52, pending: [] }] })

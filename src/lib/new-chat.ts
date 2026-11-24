@@ -115,8 +115,11 @@ async function openBlankChat(): Promise<void> {
   useEditorStore.getState().createChatTab(providerId, "Chat")
 }
 
-/** Move a not-yet-sent chat into another workspace and follow it there. */
-export function moveDraftToWorkspace(tabId: string, workspaceId: number, projectId: number): void {
+/**
+ * Move a not-yet-sent chat into another workspace and follow it there.
+ * `nodeId`: the machine of both workspaces (a draft stays on its machine).
+ */
+export function moveDraftToWorkspace(tabId: string, workspaceId: number, projectId: number, nodeId?: string): void {
   useEditorStore.getState().moveTabToWorkspace(tabId, workspaceId)
-  useProjectStore.getState().setActiveWorkspace(workspaceId, projectId)
+  useProjectStore.getState().setActiveWorkspace(workspaceId, projectId, nodeId)
 }

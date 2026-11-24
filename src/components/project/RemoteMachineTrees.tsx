@@ -1,0 +1,276 @@
+import { useEffect, useState, type ReactNode } from "react"
+import { useIntl } from "react-intl"
+import { ChevronRight, Folder, FolderOpen, GitBranch, Monitor } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { fileCitationsToText } from "@/lib/file-citation"
+import { subscribeEvents } from "@/lib/event-stream"
+import { useDelegationMachines } from "@/lib/delegation-queries"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { useProjectStore, type Project } from "@/stores/project-store"
+import type { DelegationMachine } from "@shared/delegations"
+
+/**
+ * The account's other machines, each with its own project tree, under this
+ * machine's tree in the sidebar. A workspace belongs to one machine; picking a
+ * remote one makes that machine current for the workbench (chats, files, git,
+ * terminal). With no other machine on the account, nothing here renders and
+ * the sidebar looks as it always did.
+ *
+ * Remote trees list projects and workspaces only. Their conversations join the
+ * tree once a remote chat list can be read the same way as this machine's.
+ */
+
+/** Other machines of the account. Desktop only: the web shell already is one machine's UI. */
+export function useOtherMachines(): DelegationMachine[] {
+  const { data } = useDelegationMachines({
+    enabled: __APP_TARGET__ !== "web",
+    refetchInterval: 30_000,
+  })
+  return data?.machines.filter((machine) => !machine.current) ?? NO_MACHINES
+}
+
+const NO_MACHINES: DelegationMachine[] = []
+
+/** Space above each machine after the first: the same in every group. */
+export const MACHINE_GROUP_GAP = "pt-3"
+
+/** This machine's label, for the header over the local tree once there are others. */
+export function useThisMachineLabel(): string | null {
+  const { data } = useDelegationMachines({ enabled: __APP_TARGET__ !== "web", refetchInterval: 30_000 })
+  return data?.machines.find((machine) => machine.current)?.label ?? null
+}
+
+/** A hostname as people say it: `mac-mini.local` → `mac-mini`. */
+export function machineDisplayName(label: string): string {
+  return label.replace(/\.local\.?$/i, "")
+}
+
+/**
+ * Header row over one machine's tree. Folding it hides the whole tree. Same
+ * height and inset as a project row, in the muted tier: it groups projects, it
+ * is not one. Hostnames keep their case (no `heading-section` caps): a long
+ * one in capitals was the heaviest thing in the panel.
+ */
+export function MachineHeader({ label, offline, foldable = true, open, onToggle, trailing }: {
+  label: string
+  offline?: boolean
+  /** False when there is nothing under it to show (offline, unreachable). */
+  foldable?: boolean
+  open: boolean
+  onToggle: () => void
+  trailing?: ReactNode
+}) {
+  return (
+    <div className="px-2">
+      <button
+        type="button"
+        onClick={foldable ? onToggle : undefined}
+        aria-expanded={foldable ? open : undefined}
+        aria-disabled={!foldable || undefined}
+        title={label}
+        className={cn(
+          "group/machine mb-0.5 flex w-full min-w-0 items-center gap-1.5 rounded-lg py-1 pl-2 pr-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:py-2",
+          !foldable && "cursor-default hover:bg-transparent hover:text-muted-foreground",
+          offline && "opacity-60",
+        )}
+      >
+        <Monitor className="size-4 shrink-0" strokeWidth={1.5} aria-hidden />
+        <span className="min-w-0 flex-1 truncate">{machineDisplayName(label)}</span>
+        {trailing}
+        {/* Folded shows always; open only on hover, like the rest of the tree's controls. */}
+        {foldable && <ChevronRight
+          className={cn(
+            "size-3 shrink-0 transition-transform",
+            open && "rotate-90 opacity-0 group-hover/machine:opacity-100 group-focus-visible/machine:opacity-100 [@media(hover:none)]:opacity-100",
+          )}
+          strokeWidth={1.75}
+          aria-hidden
+        />}
+      </button>
+    </div>
+  )
+}
+
+export function RemoteMachineTrees({ machines, activeNodeId, activeWorkspaceId, onSelectWorkspace }: {
+  machines: DelegationMachine[]
+  /** The current workspace's machine (null: this one). */
+  activeNodeId: string | null
+  activeWorkspaceId: number | null
+  onSelectWorkspace: (nodeId: string, workspaceId: number, projectId: number) => void
+}) {
+  const dropRemoteProjects = useProjectStore((s) => s.dropRemoteProjects)
+  // Forget the tree of a machine that left the account.
+  const nodeIds = machines.map((machine) => machine.nodeId).join("\n")
+  useEffect(() => {
+    const listed = new Set(nodeIds.split("\n").filter(Boolean))
+    for (const nodeId of Object.keys(useProjectStore.getState().remoteProjects)) {
+      if (!listed.has(nodeId)) dropRemoteProjects(nodeId)
+    }
+  }, [nodeIds, dropRemoteProjects])
+
+  return (
+    <>
+      {machines.map((machine) => (
+        <RemoteMachineTree
+          key={machine.nodeId}
+          machine={machine}
+          activeWorkspaceId={activeNodeId === machine.nodeId ? activeWorkspaceId : null}
+          onSelectWorkspace={onSelectWorkspace}
+        />
+      ))}
+    </>
+  )
+}
+
+type ProjectTreeFrame = { type: "ready" } | { type: "tree_changed"; projectId: number }
+
+function RemoteMachineTree({ machine, activeWorkspaceId, onSelectWorkspace }: {
+  machine: DelegationMachine
+  activeWorkspaceId: number | null
+  onSelectWorkspace: (nodeId: string, workspaceId: number, projectId: number) => void
+}) {
+  const intl = useIntl()
+  const { nodeId, online } = machine
+  const [open, setOpen] = useState(true)
+  const tree = useProjectStore((s) => s.remoteProjects[nodeId])
+  const loadRemoteProjects = useProjectStore((s) => s.loadRemoteProjects)
+  const reachable = tree?.loaded === true && tree.error == null
+
+  // Read the tree when the machine comes online (and again each time it does).
+  useEffect(() => {
+    if (!online) return
+    void loadRemoteProjects(nodeId)
+  }, [nodeId, online, loadRemoteProjects])
+
+  // Then follow it the way this machine's tree follows its own server. Only
+  // once it answered: a stream to a machine that can't be reached just retries.
+  useEffect(() => {
+    if (!online || !reachable) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let seenReady = false
+    const schedule = () => {
+      if (timer != null) return
+      timer = setTimeout(() => {
+        timer = null
+        void loadRemoteProjects(nodeId)
+      }, 150)
+    }
+    const subscription = subscribeEvents<ProjectTreeFrame>("projects", {
+      onEvent: (frame) => {
+        if (frame.type === "ready") {
+          if (seenReady) schedule()
+          seenReady = true
+          return
+        }
+        schedule()
+      },
+    }, nodeId)
+    return () => {
+      if (timer != null) clearTimeout(timer)
+      subscription.close()
+    }
+  }, [nodeId, online, reachable, loadRemoteProjects])
+
+  const projects = tree?.projects ?? []
+  const status = !online
+    ? intl.formatMessage({ id: "sidebar.machine.offline", defaultMessage: "Offline" })
+    : tree?.error != null
+      ? intl.formatMessage({ id: "sidebar.machine.unreachable", defaultMessage: "Unavailable" })
+      : null
+
+  return (
+    <div data-testid={`machine-tree-${nodeId}`} className={MACHINE_GROUP_GAP}>
+      <MachineHeader
+        label={machine.label}
+        offline={!online}
+        foldable={status == null}
+        open={open}
+        onToggle={() => setOpen(!open)}
+        trailing={status && <span className="shrink-0 text-[11px] font-normal text-muted-foreground">{status}</span>}
+      />
+      {/* Offline or unreachable: the status beside the name says it all. */}
+      {open && status == null && (
+        <div>
+          {online && !tree?.loaded && (
+            <div className="px-6 py-1 text-xs text-muted-foreground">
+              {intl.formatMessage({ id: "sidebar.machine.loading", defaultMessage: "Loading…" })}
+            </div>
+          )}
+          {tree?.loaded && projects.length === 0 && tree.error == null && (
+            <div className="px-6 py-1 text-xs text-muted-foreground">
+              {intl.formatMessage({ id: "sidebar.machine.empty", defaultMessage: "No projects yet." })}
+            </div>
+          )}
+          {projects.map((project) => (
+            <RemoteProject
+              key={project.id}
+              project={project}
+              activeWorkspaceId={activeWorkspaceId}
+              onSelectWorkspace={(workspaceId) => onSelectWorkspace(nodeId, workspaceId, project.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const trimSlash = (p: string) => p.replace(/[\\/]+$/, "")
+
+function RemoteProject({ project, activeWorkspaceId, onSelectWorkspace }: {
+  project: Project
+  activeWorkspaceId: number | null
+  onSelectWorkspace: (workspaceId: number) => void
+}) {
+  // Folding is kept per session: the persisted folded-ids are this machine's ids.
+  const [open, setOpen] = useState(true)
+  const ProjectIcon = open ? FolderOpen : Folder
+  const containsActive = project.workspaces.some((w) => w.id === activeWorkspaceId)
+  const workspaces = [...project.workspaces].sort(
+    (a, b) => Number(trimSlash(b.worktreePath) === trimSlash(project.rootPath)) - Number(trimSlash(a.worktreePath) === trimSlash(project.rootPath)),
+  )
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="px-2">
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          title={project.name}
+          aria-label={`${open ? "Collapse" : "Expand"} ${project.name}`}
+          className={cn(
+            "mb-0.5 flex w-full min-w-0 items-center gap-1.5 rounded-lg py-1 pl-2 text-left text-sm font-medium text-foreground/80 transition-colors hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:py-2",
+            !open && containsActive && "bg-row-selected text-foreground hover:bg-row-selected",
+          )}
+        >
+          <ProjectIcon className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} aria-hidden />
+          <span className="min-w-0 flex-1 truncate">{project.name}</span>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="pb-1">
+          {workspaces.map((workspace) => {
+            const active = workspace.id === activeWorkspaceId
+            return (
+              <button
+                key={workspace.id}
+                type="button"
+                onClick={() => onSelectWorkspace(workspace.id)}
+                aria-current={active ? "page" : undefined}
+                title={workspace.worktreePath}
+                className={cn(
+                  "flex w-full min-w-0 items-center gap-2 rounded-lg py-1 pl-5 pr-3 text-left transition-colors hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:py-2",
+                  active && "bg-row-selected hover:bg-row-selected",
+                )}
+              >
+                <GitBranch className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} aria-hidden />
+                <span className={cn("min-w-0 flex-1 truncate text-sm", active ? "font-semibold text-foreground" : "font-medium text-foreground/70")}>
+                  {fileCitationsToText(workspace.name)}
+                </span>
+              </button>
+            )
+          })}
+          {workspaces.length === 0 && <div className="px-6 py-1 text-xs text-muted-foreground">No workspaces yet.</div>}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}

@@ -3,6 +3,8 @@ import { useAppShellStore } from "./app-shell-store"
 import { useEditorStore } from "./editor-store"
 import { useProjectStore } from "./project-store"
 import { useTabsStore } from "./tabs-store"
+import { workspaceBucketKey } from "@/lib/chat-ref"
+import { projectsOn } from "./project-store"
 
 type ProjectStoreState = ReturnType<typeof useProjectStore.getState>
 
@@ -16,7 +18,7 @@ export interface WorkspaceSyncOptions {
 /** The desktop editor only has a current project while a workspace of that project is active. */
 export const DESKTOP_WORKSPACE_SYNC: WorkspaceSyncOptions = {
   projectIdOf: (state) =>
-    state.projects.find((project) =>
+    projectsOn(state, state.activeNodeId).find((project) =>
       project.workspaces.some((workspace) => workspace.id === state.activeWorkspaceId)
     )?.id ?? null,
   panelsPerWorkspace: true,
@@ -40,11 +42,13 @@ export const MOBILE_WORKSPACE_SYNC: WorkspaceSyncOptions = {
  */
 export function bindWorkspaceStores({ projectIdOf, panelsPerWorkspace }: WorkspaceSyncOptions): () => void {
   const sync = (state: ProjectStoreState) => {
-    const { activeWorkspaceId } = state
-    useTabsStore.getState().setActiveWorkspace(activeWorkspaceId != null ? String(activeWorkspaceId) : null)
-    useEditorStore.getState().setWorkspace(activeWorkspaceId, projectIdOf(state))
+    const { activeWorkspaceId, activeNodeId } = state
+    // Every bucket is keyed by machine as well: workspace ids repeat across machines.
+    const key = workspaceBucketKey(activeWorkspaceId, activeNodeId)
+    useTabsStore.getState().setActiveWorkspace(activeWorkspaceId != null ? key : null)
+    useEditorStore.getState().setWorkspace(activeWorkspaceId, projectIdOf(state), activeNodeId)
     if (panelsPerWorkspace) {
-      useAppShellStore.getState().switchPanelWorkspace(String(activeWorkspaceId ?? "global"))
+      useAppShellStore.getState().switchPanelWorkspace(key)
     }
   }
 
@@ -53,7 +57,9 @@ export function bindWorkspaceStores({ projectIdOf, panelsPerWorkspace }: Workspa
     if (
       state.activeWorkspaceId === previous.activeWorkspaceId &&
       state.activeProjectId === previous.activeProjectId &&
-      state.projects === previous.projects
+      state.activeNodeId === previous.activeNodeId &&
+      state.projects === previous.projects &&
+      state.remoteProjects === previous.remoteProjects
     ) return
     sync(state)
   })

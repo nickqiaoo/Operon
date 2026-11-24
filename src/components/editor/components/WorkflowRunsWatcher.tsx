@@ -16,7 +16,8 @@ import { Loader2, CheckIcon, XIcon, ChevronDownIcon, CircleAlert as CircleAlertI
 import { FormattedMessage } from 'react-intl';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { api, type WorkflowPendingApprovalView } from '@/lib/api';
+import { type WorkflowPendingApprovalView } from '@/lib/api';
+import { useChatApi, useChatRef } from '@/lib/chat-api-context';
 import { useWorkflowRunsStore, selectBlockedRuns } from '@/stores/workflow-runs-store';
 import { AskUserQuestionRenderer, type ToolInvocationPart } from './AskUserQuestionRenderer';
 
@@ -50,6 +51,7 @@ export function WorkflowApprovalPrompt({
   approval: WorkflowPendingApprovalView;
   chatId?: number | null;
 }) {
+  const api = useChatApi();
   const [busy, setBusy] = useState(false);
   const decide = async (
     outcome: 'allow' | 'deny',
@@ -164,10 +166,12 @@ export function WorkflowApprovalPrompt({
  * run to complete correctly.
  */
 export function WorkflowApprovalsBar({ chatId }: { chatId?: number | null }) {
+  // On the machine this tab's chat lives on: that machine's runs, answered there.
+  const chat = useChatRef(chatId);
   // `useShallow`: the selector derives a fresh array every call, and zustand v5
   // compares snapshots by reference — without it React sees a new value on every
   // render and loops until it throws "Maximum update depth exceeded".
-  const blocked = useWorkflowRunsStore(useShallow((s) => selectBlockedRuns(s, chatId)));
+  const blocked = useWorkflowRunsStore(useShallow((s) => selectBlockedRuns(s, chat)));
   const [expanded, setExpanded] = useState(false);
   const items = blocked.flatMap((run) =>
     (run.pendingApprovals ?? []).map((approval) => ({ approval, chatId: run.chatId })),

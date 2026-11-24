@@ -3,6 +3,7 @@ import { ClipboardList, ChevronRightIcon, Loader2, AlertCircle } from 'lucide-re
 import { useEditorStore } from '@/stores/editor-store'
 import { requestOpenTask } from '@/lib/task-navigation'
 import { api } from '@/lib/api'
+import { useChatNodeId } from '@/lib/chat-api-context'
 import { Trace, TraceDescription, TraceIcon, TraceLine, TraceTitle } from '@/components/ui/trace'
 import {
   TASK_CREATING_TOOLS,
@@ -140,6 +141,9 @@ export function createdTaskNumber(toolPart: ToolPartLike): number | null {
  *     transcript rendering free of network calls.
  */
 export function TaskCreatedRenderer({ toolPart }: { toolPart: ToolPartLike }) {
+  // The board is this machine's. A task made by a chat on another machine is on
+  // that machine's board, so here it is a plain line with nothing to open.
+  const remote = useChatNodeId() != null
   const projectId = useEditorStore((s) => s.currentProjectId)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -163,6 +167,18 @@ export function TaskCreatedRenderer({ toolPart }: { toolPart: ToolPartLike }) {
   // asks the same question, so such a call stays in the collapsed work group and
   // never reaches this renderer; the guard is here to keep the two in step.
   if (number === null) return null
+
+  if (remote) {
+    return (
+      <Trace>
+        <TraceLine>
+          <TraceIcon><ClipboardList /></TraceIcon>
+          <TraceTitle>{isSpec ? 'Created spec-driven task' : 'Created task'} {title}</TraceTitle>
+          <TraceDescription className="font-mono">#{number}</TraceDescription>
+        </TraceLine>
+      </Trace>
+    )
+  }
 
   // An OperonSpec gets the live card with its design gate. It needs the task id,
   // which only the structured payload carries; without it, the plain card below.

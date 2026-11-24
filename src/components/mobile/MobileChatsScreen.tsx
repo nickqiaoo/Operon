@@ -8,6 +8,7 @@ import { useChatHistoryList, type ChatHistoryListItem } from "@/lib/chat-queries
 import { Skeleton } from "@/components/ui/skeleton"
 import { useEditorStore } from "@/stores/editor-store"
 import { useChatPresenceStore } from "@/stores/chat-presence-store"
+import { chatKey, localChat, type ChatRef } from "@/lib/chat-ref"
 import { useSessionPanelStore } from "@/stores/session-panel-store"
 import { useBackHandler } from "@/hooks/useAndroidBackButton"
 import { MobileHeader, useMobileContentBottom, useMobileContentOffset } from "./MobileHeader"
@@ -88,7 +89,8 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
   const closeTab = useEditorStore((s) => s.closeTab)
   // Server-reported turn presence for every chat (the shell keeps the stream
   // open), so a row shows its turn running even with no panel mounted.
-  const runningChatIds = useChatPresenceStore((s) => s.runningChatIds)
+  const runningChats = useChatPresenceStore((s) => s.runningChats)
+  const isRunning = (chat: ChatRef) => runningChats.has(chatKey(chat))
 
   const [openId, setOpenId] = useState<string | null>(initialChatTabId ?? null)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -456,7 +458,7 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
             >
               <AgentAvatar provider={tab.providerId} size="sm" />
               <span className="truncate text-base text-foreground/85">{tab.title}</span>
-              {tab.chatId != null && runningChatIds.has(tab.chatId) && (
+              {tab.chatId != null && isRunning({ nodeId: tab.nodeId, chatId: tab.chatId }) && (
                 <Loader2 className="ml-auto size-4 shrink-0 animate-spin text-status-info" aria-label="Running" />
               )}
             </button>
@@ -473,7 +475,7 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
             >
               <AgentAvatar provider={item.providerId} size="sm" />
               <span className="truncate text-base text-foreground/85">{item.title}</span>
-              {runningChatIds.has(item.id) ? (
+              {isRunning(localChat(item.id)) ? (
                 <Loader2 className="ml-auto size-4 shrink-0 animate-spin text-status-info" aria-label="Running" />
               ) : (
                 <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground/60">

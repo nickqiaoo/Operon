@@ -1,4 +1,4 @@
-import { api } from "@/lib/api"
+import type { Api } from "@/lib/api"
 
 /**
  * Convert an absolute path returned by the FS API into the canonical path
@@ -30,7 +30,9 @@ export function toAbsolutePath(rootPath: string, treePath: string): string {
  */
 export async function readDirAsTreePaths(
   rootPath: string,
-  absoluteDirPath: string
+  absoluteDirPath: string,
+  /** The machine the workspace lives on (`useChatApi()` / `apiOn(nodeId)`). */
+  api: Pick<Api, "readDir">
 ): Promise<string[]> {
   const entries = await api.readDir(absoluteDirPath)
   return entries.map((entry) =>

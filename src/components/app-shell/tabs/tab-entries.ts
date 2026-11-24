@@ -15,6 +15,7 @@ import { browserScopeChatId } from "@/stores/browser-scope-store"
 import { useEditorStore } from "@/stores/editor-store"
 import { providerSupportsSideChat, useProviderSupportsSideChat } from "@/lib/provider-queries"
 import { openSideChat } from "@/lib/side-chat"
+import { chatRefOfTab, type ChatRef } from "@/lib/chat-ref"
 import type { PanelId, Tab, TabType } from "./types"
 
 // Menu labels for the new-tab entries. Descriptors keep them statically
@@ -51,13 +52,13 @@ const counter = () => Math.random().toString(36).slice(2, 8)
  * The conversation a side chat would branch from: the active editor tab, when it
  * is a persisted chat whose provider can fork and is not itself a side chat.
  */
-function activeChatForSideChat(): { chatId: number; providerId?: string } | null {
+function activeChatForSideChat(): { chat: ChatRef; providerId?: string } | null {
   const editor = useEditorStore.getState()
   const tab = editor.tabs.find((t) => t.id === editor.activeTabId)
   if (tab == null || tab.type !== "chat" || tab.isSideChat) return null
   if (tab.chatId == null) return null
-  if (!providerSupportsSideChat(tab.providerId)) return null
-  return { chatId: tab.chatId, providerId: tab.providerId }
+  if (!providerSupportsSideChat(tab.providerId, tab.nodeId)) return null
+  return { chat: chatRefOfTab(tab) ?? { chatId: tab.chatId }, providerId: tab.providerId }
 }
 
 const nextTerminalTitle = (tabs: readonly Tab[]): string => {
@@ -141,7 +142,7 @@ export const newTabEntries: MenuEntry[] = [
     open: async () => {
       const active = activeChatForSideChat()
       if (active == null) return
-      await openSideChat(active.chatId, { providerId: active.providerId })
+      await openSideChat(active.chat, { providerId: active.providerId })
     },
   },
   {

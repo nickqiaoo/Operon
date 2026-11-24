@@ -67,6 +67,7 @@ export interface ActiveInput {
   recentChats: readonly RecentChat[]
   /** Unread inbox rows, any order. */
   unread: readonly Notification[]
+  /** This machine's chats only (see `nodeChatIds`). */
   pendingChatIds: ReadonlySet<number>
   runningChatIds: ReadonlySet<number>
   streamingTabIds: ReadonlySet<string>
@@ -146,6 +147,9 @@ export function buildActiveEntries(input: ActiveInput): ActiveEntry[] {
   for (const bucket of input.buckets) {
     for (const tab of bucket.tabs) {
       if (tab.type !== "chat" || tab.isSideChat) continue
+      // These lists are this machine's conversations; a tab showing another
+      // machine's chat would alias a local one of the same id.
+      if (tab.nodeId) continue
       const chatId = chatIdOfTab(tab)
       const streaming = input.streamingTabIds.has(tab.id)
       if (chatId == null) {

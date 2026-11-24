@@ -3,6 +3,8 @@ import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@t
 import type { ChatStatus } from 'ai'
 import type { SubagentTranscript } from '@shared/background-tasks'
 import { api } from './api'
+import { onNode, useChatApi, useChatNodeId, useChatRef } from './chat-api-context'
+import { chatKey, type ChatRef } from './chat-ref'
 
 /**
  * TanStack Query layer for the per-workspace conversation lists (the desktop
@@ -33,8 +35,19 @@ export const chatHistoryKeys = {
   /** The user's own conversations across every workspace, most recently active first. */
   recent: () => ['chat-history-recent'] as const,
   /** `revision` is the caller's "something changed" marker (another call, finished). */
-  subagentTranscript: (chatId: number, toolUseId: string, revision: string) =>
-    ['subagent-transcript', chatId, toolUseId, revision] as const,
+  subagentTranscript: (chat: ChatRef, toolUseId: string, revision: string) =>
+    ['subagent-transcript', chatKey(chat), toolUseId, revision] as const,
+}
+
+/**
+ * Provider quota and context usage. Keyed by machine (`'local'` for this one):
+ * quotas are per login on the machine the agent runs on, and chat ids are only
+ * unique per machine. The top bar and local tabs share the `'local'` slots.
+ */
+export const aiUsageKeys = {
+  claude: (node = 'local') => ['ai', 'claude-usage', node] as const,
+  codex: (node = 'local') => ['ai', 'codex-usage', node] as const,
+  context: (chatId: number, node = 'local') => ['ai', 'context-usage', node, chatId] as const,
 }
 
 /** Keeps the first row per id when an update moves a chat across a page boundary. */
@@ -188,10 +201,13 @@ export function useSubagentTranscript(
   enabled: boolean,
   revision: string,
 ): SubagentTranscript | undefined {
+  // The transcript is on the machine of the tab asking.
+  const chatApi = useChatApi()
+  const chat = useChatRef(chatId) ?? { chatId: 0 }
   const { data } = useQuery({
-    queryKey: chatHistoryKeys.subagentTranscript(chatId ?? 0, toolUseId ?? '', revision),
+    queryKey: chatHistoryKeys.subagentTranscript(chat, toolUseId ?? '', revision),
     queryFn: async (): Promise<SubagentTranscript> => {
-      const result = await api.aiSubagentTranscript(chatId!, toolUseId!)
+      const result = await chatApi.aiSubagentTranscript(chatId!, toolUseId!)
       // Not written yet: the next revision tries again.
       if (result.error) throw new Error(result.error)
       return { steps: result.steps, finished: result.finished }
@@ -221,9 +237,11 @@ export function turnDiffsEnabled(chatId: number | undefined, cwd: string | null,
 }
 
 export function useTurnDiffs(chatId: number | undefined, cwd: string | null, status: ChatStatus, liveTurnActive: boolean | null) {
+  const chatApi = useChatApi()
+  const nodeId = useChatNodeId()
   const { data } = useQuery({
-    queryKey: turnDiffKeys.detail(chatId, cwd),
-    queryFn: () => api.aiGetTurnDiffs(chatId!, cwd!),
+    queryKey: onNode(turnDiffKeys.detail(chatId, cwd), nodeId),
+    queryFn: () => chatApi.aiGetTurnDiffs(chatId!, cwd!),
     enabled: turnDiffsEnabled(chatId, cwd, status, liveTurnActive),
     staleTime: 0,
     retry: false,
@@ -238,9 +256,11 @@ export function useTurnDiffs(chatId: number | undefined, cwd: string | null, sta
  * for the turn to finish, and a fetch from here could expose a half-done turn.
  */
 export function useLatestChangedTurnUid(chatId: number | undefined, cwd: string | null) {
+  const chatApi = useChatApi()
+  const nodeId = useChatNodeId()
   const { data } = useQuery({
-    queryKey: turnDiffKeys.detail(chatId, cwd),
-    queryFn: () => api.aiGetTurnDiffs(chatId!, cwd!),
+    queryKey: onNode(turnDiffKeys.detail(chatId, cwd), nodeId),
+    queryFn: () => chatApi.aiGetTurnDiffs(chatId!, cwd!),
     enabled: false,
     select: (diffs) => diffs.turns.at(-1)?.messageUid,
   })

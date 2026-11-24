@@ -1,5 +1,6 @@
 import { useQuery, type Query } from '@tanstack/react-query'
-import { api } from './api'
+import type { api } from './api'
+import { onNode, useChatApi, useChatNodeId } from './chat-api-context'
 
 /**
  * Queries behind the composer's `@` file picker: a fuzzy search across the
@@ -40,9 +41,11 @@ const typingQueryDefaults = {
 } as const
 
 export function useFileMentionSearch(root: string | null, query: string, { enabled }: MentionQueryOptions) {
+  const chatApi = useChatApi()
+  const nodeId = useChatNodeId()
   return useQuery({
-    queryKey: fileMentionKeys.search(root ?? '', query.toLowerCase()),
-    queryFn: () => api.findPaths(root!, query, MENTION_SEARCH_LIMIT),
+    queryKey: onNode(fileMentionKeys.search(root ?? '', query.toLowerCase()), nodeId),
+    queryFn: () => chatApi.findPaths(root!, query, MENTION_SEARCH_LIMIT),
     enabled: enabled && !!root,
     placeholderData: previousInSameRoot(root ?? ''),
     ...typingQueryDefaults,
@@ -50,9 +53,11 @@ export function useFileMentionSearch(root: string | null, query: string, { enabl
 }
 
 export function useFileMentionDir(root: string | null, dirPath: string, { enabled }: MentionQueryOptions) {
+  const chatApi = useChatApi()
+  const nodeId = useChatNodeId()
   return useQuery({
-    queryKey: fileMentionKeys.dir(root ?? '', dirPath),
-    queryFn: () => api.readDir(dirPath),
+    queryKey: onNode(fileMentionKeys.dir(root ?? '', dirPath), nodeId),
+    queryFn: () => chatApi.readDir(dirPath),
     enabled: enabled && !!root,
     placeholderData: previousInSameRoot(root ?? ''),
     ...typingQueryDefaults,

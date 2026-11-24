@@ -8,14 +8,17 @@ import { create } from "zustand"
  */
 interface AnnotationSendState {
   workspaceId: number | null
+  /** Machine of that workspace; null for this one. */
+  nodeId: string | null
   nonce: number
-  requestSend: (workspaceId: number | null) => void
+  requestSend: (workspaceId: number | null, nodeId: string | null) => void
   consume: () => void
 }
 
 export const useAnnotationSendStore = create<AnnotationSendState>((set) => ({
   workspaceId: null,
+  nodeId: null,
   nonce: 0,
-  requestSend: (workspaceId) => set((s) => ({ workspaceId, nonce: s.nonce + 1 })),
-  consume: () => set({ workspaceId: null, nonce: 0 }),
+  requestSend: (workspaceId, nodeId) => set((s) => ({ workspaceId, nodeId, nonce: s.nonce + 1 })),
+  consume: () => set({ workspaceId: null, nodeId: null, nonce: 0 }),
 }))

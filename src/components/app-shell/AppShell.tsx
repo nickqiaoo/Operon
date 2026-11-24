@@ -5,8 +5,10 @@ import { BottomPanel } from "./BottomPanel"
 import { CENTER_CONTENT_MIN_WIDTH, RIGHT_PANEL_MIN_WIDTH } from "./constants"
 import { RightPanel } from "./RightPanel"
 import { PanelTabsProvider } from "./tabs/PanelTabsProvider"
+import { WorkspaceApiProvider } from "./WorkspaceApiProvider"
 import { useWorkflowTab } from "./useWorkflowTab"
 import { ExternalAgentsSync } from "@/components/editor/components/ExternalAgentsSync"
+import { RemoteNodeFeeds } from "@/components/editor/components/RemoteNodeFeeds"
 import { PendingInputSync } from "@/components/editor/components/PendingInputSync"
 import { WorkflowRunsSync } from "@/components/editor/components/WorkflowRunsSync"
 
@@ -49,6 +51,8 @@ export function AppShell({ children, className }: AppShellProps) {
       <WorkflowRunsSync />
       <ExternalAgentsSync />
       <PendingInputSync />
+      <RemoteNodeFeeds />
+      <WorkspaceApiProvider>
       <div
         className={cn(
           "relative flex h-full min-h-0 w-full flex-col bg-background",
@@ -70,6 +74,7 @@ export function AppShell({ children, className }: AppShellProps) {
         </div>
         <BottomPanel />
       </div>
+      </WorkspaceApiProvider>
     </PanelTabsProvider>
   )
 }

@@ -13,13 +13,13 @@ import {
  * composer, mirroring {@link AnnotationTray}. They fold into the next message
  * and clear on send — see `ChatPanel.handleSubmit`.
  */
-export function LineCommentTray({ workspaceId }: { workspaceId: number | null }) {
+export function LineCommentTray({ workspaceId, nodeId }: { workspaceId: number | null; nodeId?: string }) {
   const intl = useIntl()
   const items = useLineCommentsStore((s) => s.items)
   const remove = useLineCommentsStore((s) => s.remove)
   const mine = useMemo(
-    () => lineCommentsForWorkspace(items, workspaceId),
-    [items, workspaceId]
+    () => lineCommentsForWorkspace(items, workspaceId, nodeId),
+    [items, workspaceId, nodeId]
   )
 
   if (mine.length === 0) return null

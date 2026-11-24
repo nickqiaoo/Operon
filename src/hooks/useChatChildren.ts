@@ -3,7 +3,8 @@ import { buildChatChildren, type ChatChild } from '@/lib/chat-children'
 import { activateWorkspace } from '@/lib/workspace-nav'
 import { useChatPendingInputStore } from '@/stores/chat-pending-input-store'
 import { useEditorStore } from '@/stores/editor-store'
-import { useExternalAgentsStore } from '@/stores/external-agents-store'
+import { isOnNode, useExternalAgentsStore } from '@/stores/external-agents-store'
+import { chatTabId, nodeEntries, nodeKeyOf, type ChatRef } from '@/lib/chat-ref'
 import { useProjectStore } from '@/stores/project-store'
 
 /**
@@ -11,19 +12,24 @@ import { useProjectStore } from '@/stores/project-store'
  * dispatched, and — when it is a board task's session — the sub-tasks handed out
  * from it. The stores are pushed; the sub-tasks come with the project tree.
  */
-export function useChatChildren(chatId: number | undefined): ChatChild[] {
+export function useChatChildren(chat: ChatRef | undefined): ChatChild[] {
   const agents = useExternalAgentsStore((s) => s.agents)
   const pendingByChat = useChatPendingInputStore((s) => s.pendingByChat)
   const projects = useProjectStore((s) => s.projects)
-  return useMemo(
-    () => (chatId == null ? [] : buildChatChildren({
+  const chatId = chat?.chatId
+  const nodeId = chat?.nodeId
+  return useMemo(() => {
+    if (chatId == null) return []
+    // A chat's children are reported by the machine it lives on, with chat ids
+    // of that machine. The project tree (board sub-tasks) is this machine's.
+    const children = buildChatChildren({
       chatId,
-      externalAgents: agents.values(),
-      pendingByChat,
-      taskChildren: projects.flatMap((p) => p.taskChildren ?? []),
-    })),
-    [chatId, agents, pendingByChat, projects],
-  )
+      externalAgents: [...agents.values()].filter((agent) => isOnNode(agent, nodeId)),
+      pendingByChat: nodeEntries(pendingByChat, nodeKeyOf(nodeId)),
+      taskChildren: nodeId ? [] : projects.flatMap((p) => p.taskChildren ?? []),
+    })
+    return nodeId ? children.map((child) => ({ ...child, nodeId })) : children
+  }, [chatId, nodeId, agents, pendingByChat, projects])
 }
 
 /** Sessions of board sub-tasks, by chat id: they show under their parent's session, not as rows of their own. */
@@ -58,17 +64,22 @@ export function useOtherWorkspaceName(workspaceId: number | undefined): string |
  * where the git panel and files would be another worktree's.
  */
 export async function openChildChat(
-  child: Pick<ChatChild, 'childChatId' | 'title' | 'providerId' | 'modelId' | 'modeId' | 'workspaceId'>,
+  child: Pick<ChatChild, 'childChatId' | 'nodeId' | 'title' | 'providerId' | 'modelId' | 'modeId' | 'workspaceId'>,
 ): Promise<void> {
   const editor = useEditorStore.getState()
+  const ref: ChatRef = child.nodeId ? { nodeId: child.nodeId, chatId: child.childChatId } : { chatId: child.childChatId }
   // Already open somewhere: that tab, in whatever workspace holds it.
-  const existing = editor.findChatTab(child.childChatId)
+  const existing = editor.findChatTab(ref)
+  // Its own workspace, on its own machine: a remote agent's workspace sits under
+  // that machine in the tree, and switching there points the whole workbench at it.
   const workspaceId = existing ? existing.workspaceId : child.workspaceId
-  if (workspaceId != null && workspaceId !== editor.currentWorkspaceId) {
-    await activateWorkspace(workspaceId)
+  const nodeId = existing ? existing.nodeId : child.nodeId
+  const here = workspaceId === editor.currentWorkspaceId && (nodeId ?? null) === editor.currentNodeId
+  if (workspaceId != null && !here) {
+    await activateWorkspace(workspaceId, nodeId)
   }
   useEditorStore.getState().openChatTab(
-    existing?.tabId ?? `chat:${child.childChatId}`,
+    existing?.tabId ?? chatTabId(ref),
     `Agent: ${child.title}`,
     { modelId: child.modelId ?? 'default', ...(child.modeId ? { modeId: child.modeId } : {}) },
     child.providerId,

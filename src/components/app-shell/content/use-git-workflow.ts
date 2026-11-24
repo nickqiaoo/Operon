@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { api } from "@/lib/api"
+import { useChatApi } from "@/lib/chat-api-context"
 import { trackEvent } from "@/lib/analytics"
 import type { PushErrorCode } from "@/lib/api-client"
 import { gitKeys } from "@/lib/git-queries"
@@ -31,6 +31,7 @@ const PUSH_ERROR_COPY: Record<PushErrorCode, string> = {
  * surfaces step-specific toasts; stops at the first failing step.
  */
 export function useGitWorkflow(rootPath: string) {
+  const api = useChatApi()
   const queryClient = useQueryClient()
   const [running, setRunning] = useState(false)
 

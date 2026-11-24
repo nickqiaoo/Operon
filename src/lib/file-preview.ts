@@ -1,4 +1,4 @@
-import { api } from "@/lib/api"
+import { api as localApi, type Api } from "@/lib/api"
 
 const IMAGE_MEDIA_TYPE_BY_EXTENSION: Record<string, string> = {
   avif: "image/avif",
@@ -37,7 +37,11 @@ export const isRasterImageFilePath = (filePath: string): boolean => {
 
 export const shouldReadFileContent = (filePath: string): boolean => !isRasterImageFilePath(filePath)
 
-export async function readFileForPreview(filePath: string): Promise<string> {
+export async function readFileForPreview(
+  filePath: string,
+  /** The machine the file lives on; this one by default. */
+  api: Pick<Api, "readFile"> = localApi,
+): Promise<string> {
   if (!shouldReadFileContent(filePath)) {
     return ""
   }

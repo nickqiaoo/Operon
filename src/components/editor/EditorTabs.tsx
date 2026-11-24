@@ -61,6 +61,7 @@ import { TERMINAL_CLI_LAUNCH } from "@/lib/terminal-clis"
 import { useRef, useState } from "react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { formatRelativeTime } from "@/lib/format"
+import { chatKey, chatRefOfTab, type ChatRef } from "@/lib/chat-ref"
 
 const NO_PROVIDERS: ProviderSummary[] = []
 
@@ -91,13 +92,13 @@ const getHistoryLogo = (providerId?: string): string | undefined => {
  * per tab, so a turn starting or ending re-renders this marker instead of the
  * whole tab strip.
  */
-function TabStatusIndicator({ tabId, chatId }: { tabId: string; chatId?: number }) {
+function TabStatusIndicator({ tabId, chat }: { tabId: string; chat?: ChatRef }) {
   const intl = useIntl()
   // Keyed by tab id, written by every mounted ChatPanel — including the ones the
   // user isn't looking at, which is the whole point of showing it up here.
   const streaming = useStreamingStore((s) => s.streamingTabIds.has(tabId))
   const unseen = useStreamingStore((s) => s.unseenTabIds.has(tabId))
-  const needsInput = useChatPendingInputStore((s) => chatId != null && s.pendingByChat.has(chatId))
+  const needsInput = useChatPendingInputStore((s) => chat != null && s.pendingByChat.has(chatKey(chat)))
   return (
     needsInput ? (
       // Blocked on the user. Wins over the spinner: the turn is still
@@ -199,7 +200,7 @@ export function EditorTabs({
               <img src={providerLogos[tab.providerId ?? tab.provider ?? 'google'] ?? googleLogo} alt="model" className="absolute left-2 size-3.5 shrink-0 dark:invert" />
             )}
             <span className="truncate font-medium">{fileCitationsToText(tab.title)}</span>
-            <TabStatusIndicator tabId={tab.id} chatId={tab.chatId} />
+            <TabStatusIndicator tabId={tab.id} chat={chatRefOfTab(tab)} />
             {tab.closable !== false && (
               <button
                 type="button"

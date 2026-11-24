@@ -8,7 +8,7 @@ import {
 } from "@pierre/trees/react"
 import type { FileTreeBatchOperation, GitStatusEntry } from "@pierre/trees"
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query"
-import { api } from "@/lib/api"
+import { onNode, useChatApi, useChatNodeId } from "@/lib/chat-api-context"
 import { cn } from "@/lib/utils"
 import { useFileTreeSearchStore } from "@/stores/file-tree-search-store"
 import {
@@ -191,6 +191,8 @@ export function WorkspaceFileTree({
   bottomInset,
   className,
 }: WorkspaceFileTreeProps) {
+  const api = useChatApi()
+  const nodeId = useChatNodeId()
   const [initialPaths, setInitialPaths] = useState<string[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const queryClient = useQueryClient()
@@ -208,8 +210,8 @@ export function WorkspaceFileTree({
     // directory, so the manual refresh can invalidate + re-read it too.
     queryClient
       .fetchQuery({
-        queryKey: workspaceDirKeys.dir(rootPath, ""),
-        queryFn: () => readDirAsTreePaths(rootPath, rootPath),
+        queryKey: onNode(workspaceDirKeys.dir(rootPath, ""), nodeId),
+        queryFn: () => readDirAsTreePaths(rootPath, rootPath, api),
         staleTime: WORKSPACE_DIR_STALE_MS,
       })
       .then((paths) => {
@@ -231,7 +233,7 @@ export function WorkspaceFileTree({
     }
     // selectedPath isn't a dep — we don't reload the tree on every selection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rootPath, queryClient])
+  }, [rootPath, queryClient, api, nodeId])
 
   const tree =
     error != null ? (
@@ -340,13 +342,15 @@ function SearchResults({
   onSelectFile: (absolutePath: string) => void
   gitStatus?: readonly GitStatusEntry[] | null
 }) {
+  const api = useChatApi()
+  const nodeId = useChatNodeId()
   const [debounced, setDebounced] = useState(query)
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(query), SEARCH_DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
   }, [query])
   const results = useQuery({
-    queryKey: ["workspace-file-search", rootPath, debounced],
+    queryKey: onNode(["workspace-file-search", rootPath, debounced], nodeId),
     queryFn: () => api.searchFiles(rootPath, debounced),
     placeholderData: keepPreviousData,
     staleTime: 5_000,
@@ -484,6 +488,8 @@ function TreeInner({
   gitStatus,
   className,
 }: TreeInnerProps) {
+  const api = useChatApi()
+  const nodeId = useChatNodeId()
   const queryClient = useQueryClient()
   /** All paths currently in the model (for membership check). */
   const knownPathsRef = useRef<Set<string>>(new Set(initialPaths))
@@ -567,12 +573,12 @@ function TreeInner({
       const absoluteDir =
         treeDir === "" ? rootPath : toAbsolutePath(rootPath, treeDir)
       return queryClient.fetchQuery({
-        queryKey: workspaceDirKeys.dir(rootPath, treeDir),
-        queryFn: () => readDirAsTreePaths(rootPath, absoluteDir),
+        queryKey: onNode(workspaceDirKeys.dir(rootPath, treeDir), nodeId),
+        queryFn: () => readDirAsTreePaths(rootPath, absoluteDir, api),
         staleTime: WORKSPACE_DIR_STALE_MS,
       })
     },
-    [queryClient, rootPath]
+    [queryClient, rootPath, api, nodeId]
   )
 
   /** Apply a fresh child listing to the model: add new, remove vanished. */

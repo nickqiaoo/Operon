@@ -19,6 +19,7 @@ import type { PermissionOutcome } from './permission-utils';
 import { useSubagentTranscript } from '@/lib/chat-queries';
 import { useBackgroundTask } from '@/stores/chat-background-task-store';
 import { useChatDbId } from './chat-db-id-context';
+import { useChatRef } from '@/lib/chat-api-context';
 
 export type ToolInvocationPart = ToolPartLike & {
   state?: string;
@@ -63,6 +64,7 @@ export function SubAgentRenderer({
 }: SubAgentRendererProps) {
   const intl = useIntl();
   const chatId = useChatDbId();
+  const chatRef = useChatRef(chatId);
   const parentState = normalizeToolState(toolPart.state);
   const title = getTaskDescription(toolPart, intl);
 
@@ -71,7 +73,7 @@ export function SubAgentRenderer({
   // from the server's task list, or — after a restart, when that is gone — from
   // whether its transcript ends in a final report.
   const rawInput = (toolPart.args || toolPart.input || {}) as { run_in_background?: unknown };
-  const task = useBackgroundTask(chatId, toolPart.toolCallId);
+  const task = useBackgroundTask(chatRef, toolPart.toolCallId);
   const isBackground = rawInput.run_in_background === true || task != null;
 
   const [userOpen, setUserOpen] = useState<boolean>();

@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import type { Anchor, DesignSubmission } from "@/types/browser-runtime"
+import { sameNode } from "@/lib/chat-ref"
 
 /**
  * The single source of truth for browser annotations (codex-style "comment on a
@@ -18,6 +19,11 @@ export interface Annotation {
   instanceId: string
   /** Workspace active at creation — the chat list filters on this. */
   workspaceId: number | null
+  /**
+   * Machine of that workspace; undefined for this one. Workspace ids are only
+   * unique per machine, so remote workspace 3 must not pick up local 3's items.
+   */
+  nodeId?: string
   /** Annotated element / region. */
   anchor: Anchor
   /** The user's comment text (may be empty for a design-only annotation). */
@@ -66,5 +72,7 @@ export const annotationsForInstance = (
 /** Annotations for one workspace's chat list, oldest first. */
 export const annotationsForWorkspace = (
   items: Annotation[],
-  workspaceId: number | null
-): Annotation[] => items.filter((i) => i.workspaceId === workspaceId)
+  workspaceId: number | null,
+  nodeId?: string | null
+): Annotation[] =>
+  items.filter((i) => i.workspaceId === workspaceId && sameNode(i.nodeId, nodeId))

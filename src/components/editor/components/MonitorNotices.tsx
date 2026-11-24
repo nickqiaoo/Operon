@@ -18,6 +18,8 @@ import { useOperonTask } from '@/lib/agent-session-queries';
 import { useChatBackgroundTaskStore } from '@/stores/chat-background-task-store';
 import { useChatDbId, useChatProviderId } from './chat-db-id-context';
 import { groupNotices, type BackgroundNotice, type MonitorOutcome, type NoticeRow } from './background-notice';
+import { useChatRef } from '@/lib/chat-api-context';
+import { chatKey } from '@/lib/chat-ref';
 
 /**
  * Everything a Monitor shows in the chat.
@@ -44,9 +46,10 @@ export interface MonitorTaskState {
 /** The live state of the watch a Monitor call started, from whichever runtime runs the chat. */
 export function useMonitorTaskState(toolCallId: string | undefined): MonitorTaskState | undefined {
   const chatId = useChatDbId();
+  const chat = useChatRef(chatId);
   const providerId = useChatProviderId();
   const claudeTask = useChatBackgroundTaskStore((state) =>
-    chatId == null || !toolCallId ? undefined : state.tasksByChat.get(chatId)?.find((task) => task.toolUseId === toolCallId),
+    chat == null || !toolCallId ? undefined : state.tasksByChat.get(chatKey(chat))?.find((task) => task.toolUseId === toolCallId),
   );
   const operonTask = useOperonTask(providerId, chatId, toolCallId);
 

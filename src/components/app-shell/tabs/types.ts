@@ -46,7 +46,8 @@ export type TabPayload =
    * ask something without disturbing the main thread. `chatId` is a real chat
    * row; closing the tab deletes it. See `@/lib/side-chat`.
    */
-  | { type: "side-chat"; chatId: number; parentChatId: number }
+  /** `nodeId`: the machine both chats live on (the parent's); absent for this one. */
+  | { type: "side-chat"; chatId: number; parentChatId: number; nodeId?: string }
   /**
    * Live workflow runs — every run the app knows about, in one tab.
    *

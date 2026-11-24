@@ -15,6 +15,13 @@ export type EditorTab = {
   type: EditorTabType
   closable?: boolean
   chatId?: number
+  /**
+   * The machine the chat is stored on; absent for this machine. Set once when the
+   * tab opens and never changed: the panel binds its API to it (`ChatApiProvider`)
+   * and `chatId` is only meaningful together with it. Its tab id carries it too
+   * (`chat:<nodeId>:<chatId>`), so a remote chat 12 never collides with local 12.
+   */
+  nodeId?: string
   filePath?: string
   content?: string
   provider?: string

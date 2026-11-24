@@ -3,6 +3,8 @@ import type { SkillScope } from '@/types/skill'
 import { skillsList } from '@/components/editor/agent/agentControl'
 import { api } from './api'
 import { queryClient } from './query-client'
+import { useChatRef } from './chat-api-context'
+import { chatKey, type ChatRef } from './chat-ref'
 
 /**
  * TanStack Query layer for Settings → Skills. Installed lists are keyed by
@@ -12,7 +14,7 @@ import { queryClient } from './query-client'
 
 export const skillKeys = {
   all: ['skills'] as const,
-  operon: (chatId: number | undefined) => ['skills', 'operon', chatId ?? null] as const,
+  operon: (chat: ChatRef | undefined) => ['skills', 'operon', chat ? chatKey(chat) : null] as const,
   installedAll: () => ['skills', 'installed'] as const,
   installed: (scope: SkillScope, projectPath: string | undefined) =>
     ['skills', 'installed', scope, projectPath ?? ''] as const,
@@ -80,9 +82,11 @@ export function invalidateInstalledSkills() {
 }
 
 export function useOperonSkills(chatId: number | undefined, enabled: boolean) {
+  // On the machine of the tab asking: a remote chat's skills are its machine's.
+  const chat = useChatRef(chatId)
   return useQuery({
-    queryKey: skillKeys.operon(chatId),
-    queryFn: async () => (await skillsList(chatId!)).skills,
+    queryKey: skillKeys.operon(chat),
+    queryFn: async () => (await skillsList(chat!)).skills,
     enabled: chatId !== undefined && enabled,
     staleTime: Infinity,
     retry: false,

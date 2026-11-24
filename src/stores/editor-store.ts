@@ -1,5 +1,6 @@
 import { create } from "zustand"
-import { api } from "@/lib/api"
+import { api, apiFor } from "@/lib/api"
+import { chatRefFromTabId, chatRefOfTab, chatTabId, parseWorkspaceBucketKey, sameChat, workspaceBucketKey, type ChatRef } from "@/lib/chat-ref"
 import { trackEvent } from "@/lib/analytics"
 import { clearChatDraft } from "@/lib/chat-drafts"
 import type { EditorTab } from "@/types/editor"
@@ -12,10 +13,16 @@ interface EditorState {
 interface EditorStore extends EditorState {
   currentWorkspaceId: number | null
   currentProjectId: number | null
+  /**
+   * The machine the current workspace is on; null for this one. A workspace's
+   * tabs all show chats of its machine, and new chats opened in it are made there.
+   */
+  currentNodeId: string | null
+  /** Buckets by `workspaceBucketKey` (`"global"`, `"3"`, `"<nodeId>:3"`). */
   workspaceStates: Record<string, EditorState>
 
   /** Switch tab buckets. Follows the project store; call it from workspace-sync.ts only. */
-  setWorkspace: (workspaceId: number | null, projectId: number | null) => void
+  setWorkspace: (workspaceId: number | null, projectId: number | null, nodeId?: string | null) => void
   setActiveTab: (id: string) => void
   closeTab: (id: string) => void
   createChatTab: (providerId: string, title?: string, options?: EditorTab['options'], isSubAgent?: boolean) => string
@@ -31,14 +38,14 @@ interface EditorStore extends EditorState {
    * Where a persisted chat is already open as an editor tab: the current workspace first, then
    * the others. `workspaceId` is null for the global bucket. Side chats are not editor tabs.
    */
-  findChatTab: (chatId: number) => { workspaceId: number | null; tabId: string } | undefined
+  findChatTab: (chat: ChatRef) => { workspaceId: number | null; nodeId?: string; tabId: string } | undefined
   setTabChatId: (tabId: string, chatId: number) => void
   /**
    * Register a side chat so ChatPanel can find its state. Never activated and
    * never shown in the editor tab strip — the right-panel tab owning it is the
    * only way in. Returns the editor tab id to hand to ChatPanel.
    */
-  openSideChatTab: (dbChatId: number, title: string, providerId?: string) => string
+  openSideChatTab: (chat: ChatRef, title: string, providerId?: string) => string
   updateTabTitle: (id: string, title: string) => void
   updateTabProvider: (id: string, provider: string) => void
   updateTabProviderId: (id: string, providerId: string) => void
@@ -53,12 +60,6 @@ interface EditorStore extends EditorState {
   clearTabInputAttachment: (id: string) => void
 }
 
-const persistedChatIdFromTabId = (tabId: string): number | undefined => {
-  const match = /^chat:(\d+)$/.exec(tabId)
-  if (!match) return undefined
-  const chatId = Number.parseInt(match[1], 10)
-  return chatId > 0 ? chatId : undefined
-}
 
 /**
  * Set one field on a tab, leaving the store untouched when it already holds
@@ -79,14 +80,14 @@ const patchTab = <K extends keyof EditorTab>(
 }
 
 const hasOtherChatReference = (
-  state: Pick<EditorStore, "tabs" | "workspaceStates" | "currentWorkspaceId">,
+  state: Pick<EditorStore, "tabs" | "workspaceStates" | "currentWorkspaceId" | "currentNodeId">,
   closedTabId: string,
-  chatId: number,
+  chat: ChatRef,
 ): boolean => {
-  const currentWorkspaceKey = String(state.currentWorkspaceId ?? "global")
+  const currentWorkspaceKey = workspaceBucketKey(state.currentWorkspaceId, state.currentNodeId)
   if (
     state.tabs.some(
-      (tab) => tab.id !== closedTabId && tab.type === "chat" && tab.chatId === chatId,
+      (tab) => tab.id !== closedTabId && tab.type === "chat" && sameChat(chatRefOfTab(tab), chat),
     )
   ) {
     return true
@@ -95,7 +96,7 @@ const hasOtherChatReference = (
   return Object.entries(state.workspaceStates).some(
     ([workspaceKey, workspaceState]) =>
       workspaceKey !== currentWorkspaceKey &&
-      workspaceState.tabs.some((tab) => tab.type === "chat" && tab.chatId === chatId),
+      workspaceState.tabs.some((tab) => tab.type === "chat" && sameChat(chatRefOfTab(tab), chat)),
   )
 }
 
@@ -106,35 +107,32 @@ export const useEditorStore = create<EditorStore>()(
   activeTabId: "",
   currentWorkspaceId: null,
   currentProjectId: null,
+  currentNodeId: null,
   workspaceStates: {},
 
-  setWorkspace: (workspaceId, projectId) => {
+  setWorkspace: (workspaceId, projectId, nodeId = null) => {
     const state = get()
+    const nextNodeId = workspaceId == null ? null : nodeId ?? null
     // Skip if workspace hasn't changed
-    if (state.currentWorkspaceId === workspaceId && state.currentProjectId === projectId) return
-    // Save current state
-    const currentId = state.currentWorkspaceId
+    if (
+      state.currentWorkspaceId === workspaceId &&
+      state.currentProjectId === projectId &&
+      state.currentNodeId === nextNodeId
+    ) return
+    // Park the current bucket under its machine-qualified key.
     const newStates = { ...state.workspaceStates }
-
-    if (currentId) {
-      newStates[currentId] = {
-        tabs: state.tabs,
-        activeTabId: state.activeTabId
-      }
-    } else {
-      // Save global state
-      newStates['global'] = {
-        tabs: state.tabs,
-        activeTabId: state.activeTabId
-      }
+    newStates[workspaceBucketKey(state.currentWorkspaceId || null, state.currentNodeId)] = {
+      tabs: state.tabs,
+      activeTabId: state.activeTabId,
     }
 
     // Load new state
-    const nextState = newStates[workspaceId ?? 'global'] || { tabs: [], activeTabId: "" }
+    const nextState = newStates[workspaceBucketKey(workspaceId, nextNodeId)] || { tabs: [], activeTabId: "" }
 
     set({
       currentWorkspaceId: workspaceId,
       currentProjectId: projectId,
+      currentNodeId: nextNodeId,
       workspaceStates: newStates,
       tabs: nextState.tabs,
       activeTabId: nextState.activeTabId
@@ -152,10 +150,8 @@ export const useEditorStore = create<EditorStore>()(
     clearChatDraft(id)
     const state = get()
     const closedTab = state.tabs.find((tab) => tab.id === id)
-    const shouldCleanupChat =
-      closedTab?.type === "chat" &&
-      closedTab.chatId !== undefined &&
-      !hasOtherChatReference(state, id, closedTab.chatId)
+    const closedChat = closedTab?.type === "chat" ? chatRefOfTab(closedTab) : undefined
+    const shouldCleanupChat = closedChat !== undefined && !hasOtherChatReference(state, id, closedChat)
     const nextTabs = state.tabs.filter((tab) => tab.id !== id)
     let nextActive = state.activeTabId
     if (state.activeTabId === id) {
@@ -170,8 +166,11 @@ export const useEditorStore = create<EditorStore>()(
     // (for example, an older build opened a duplicate from Inbox). Only the last
     // open reference owns session cleanup; closing one view must not abort the
     // runtime still displayed by another tab.
-    if (shouldCleanupChat && closedTab.chatId !== undefined) {
-      api.aiSessionCleanup(closedTab.chatId).catch((e) => {
+    if (shouldCleanupChat) {
+      // On the machine the chat lives on. `api` itself for a local one, so the
+      // local path is what it always was.
+      const chatApi = closedChat.nodeId ? apiFor(closedChat.nodeId) : api
+      chatApi.aiSessionCleanup(closedChat.chatId).catch((e) => {
         console.warn('[editor-store] Session cleanup failed:', e)
       })
     }
@@ -195,6 +194,8 @@ export const useEditorStore = create<EditorStore>()(
       type: "chat",
       closable: true,
       // chatId is undefined — set after first DB save via setTabChatId
+      // A new chat belongs to the workspace it is opened in, so to its machine.
+      ...(get().currentNodeId ? { nodeId: get().currentNodeId ?? undefined } : {}),
       providerId,
       isSubAgent,
       options,
@@ -231,12 +232,12 @@ export const useEditorStore = create<EditorStore>()(
 
   openChatTab: (tabId, title = "Chat", options?: EditorTab['options'], providerId?: string, isSubAgent?: boolean) => {
     const state = get()
-    const persistedChatId = persistedChatIdFromTabId(tabId)
+    // `chat:12` / `chat:<nodeId>:12`: the tab id names which chat, on which machine.
+    const persisted = chatRefFromTabId(tabId)
     const existing = state.tabs.find(
       (tab) =>
         tab.type === "chat" &&
-        (tab.id === tabId ||
-          (persistedChatId !== undefined && tab.chatId === persistedChatId))
+        (tab.id === tabId || (persisted !== undefined && sameChat(chatRefOfTab(tab), persisted)))
     )
     if (existing) {
       if (options || providerId !== undefined || isSubAgent !== undefined) {
@@ -262,7 +263,8 @@ export const useEditorStore = create<EditorStore>()(
       providerId,
       isSubAgent,
       options,
-      chatId: persistedChatId,
+      chatId: persisted?.chatId,
+      ...(persisted?.nodeId ? { nodeId: persisted.nodeId } : {}),
     }
     set({
       tabs: [...state.tabs, newTab],
@@ -271,23 +273,26 @@ export const useEditorStore = create<EditorStore>()(
     return newTab.id
   },
 
-  findChatTab: (chatId) => {
+  findChatTab: (chat) => {
     const state = get()
+    const tabId = chatTabId(chat)
     const matches = (tab: EditorTab) =>
-      tab.type === "chat" && !tab.isSideChat && (tab.chatId === chatId || tab.id === `chat:${chatId}`)
+      tab.type === "chat" && !tab.isSideChat && (sameChat(chatRefOfTab(tab), chat) || tab.id === tabId)
     const current = state.tabs.find(matches)
-    if (current) return { workspaceId: state.currentWorkspaceId, tabId: current.id }
-    const currentKey = String(state.currentWorkspaceId ?? "global")
+    if (current) {
+      return { workspaceId: state.currentWorkspaceId, ...(state.currentNodeId ? { nodeId: state.currentNodeId } : {}), tabId: current.id }
+    }
+    const currentKey = workspaceBucketKey(state.currentWorkspaceId, state.currentNodeId)
     for (const [key, bucket] of Object.entries(state.workspaceStates)) {
       if (key === currentKey) continue
       const tab = bucket.tabs.find(matches)
-      if (tab) return { workspaceId: key === "global" ? null : Number(key), tabId: tab.id }
+      if (tab) return { ...parseWorkspaceBucketKey(key), tabId: tab.id }
     }
     return undefined
   },
 
-  openSideChatTab: (dbChatId, title, providerId) => {
-    const tabId = `chat:${dbChatId}`
+  openSideChatTab: (chat, title, providerId) => {
+    const tabId = chatTabId(chat)
     const state = get()
     if (state.tabs.some((tab) => tab.id === tabId)) return tabId
     set({
@@ -300,7 +305,8 @@ export const useEditorStore = create<EditorStore>()(
           closable: true,
           providerId,
           isSideChat: true,
-          chatId: dbChatId,
+          chatId: chat.chatId,
+          ...(chat.nodeId ? { nodeId: chat.nodeId } : {}),
         },
       ],
     })
@@ -349,7 +355,8 @@ export const useEditorStore = create<EditorStore>()(
     const tab = state.tabs.find((t) => t.id === id)
     if (!tab) return
     const tabs = state.tabs.filter((t) => t.id !== id)
-    const targetKey = String(workspaceId ?? "global")
+    // Within the current machine: a tab's chat lives where it lives.
+    const targetKey = workspaceBucketKey(workspaceId, state.currentNodeId)
     const target = state.workspaceStates[targetKey] ?? { tabs: [], activeTabId: "" }
     set({
       tabs,

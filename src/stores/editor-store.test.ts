@@ -111,7 +111,7 @@ describe("finding an open chat across workspaces", () => {
       workspaceStates: { "2": { tabs: [chatTab("chat:42", 42)], activeTabId: "chat:42" } },
     })
 
-    expect(useEditorStore.getState().findChatTab(42)).toEqual({ workspaceId: 1, tabId: "chat:local-a" })
+    expect(useEditorStore.getState().findChatTab({ chatId: 42 })).toEqual({ workspaceId: 1, tabId: "chat:local-a" })
   })
 
   it("finds a tab sitting in another workspace or the global bucket", () => {
@@ -126,15 +126,15 @@ describe("finding an open chat across workspaces", () => {
     })
 
     // The current workspace's stale snapshot does not count; the live tabs do.
-    expect(useEditorStore.getState().findChatTab(42)).toEqual({ workspaceId: 3, tabId: "chat:local-b" })
-    expect(useEditorStore.getState().findChatTab(9)).toEqual({ workspaceId: null, tabId: "chat:9" })
-    expect(useEditorStore.getState().findChatTab(100)).toBeUndefined()
+    expect(useEditorStore.getState().findChatTab({ chatId: 42 })).toEqual({ workspaceId: 3, tabId: "chat:local-b" })
+    expect(useEditorStore.getState().findChatTab({ chatId: 9 })).toEqual({ workspaceId: null, tabId: "chat:9" })
+    expect(useEditorStore.getState().findChatTab({ chatId: 100 })).toBeUndefined()
   })
 
   it("skips side chats, which are not editor tabs", () => {
     useEditorStore.setState({ tabs: [{ ...chatTab("chat:42", 42), isSideChat: true }] })
 
-    expect(useEditorStore.getState().findChatTab(42)).toBeUndefined()
+    expect(useEditorStore.getState().findChatTab({ chatId: 42 })).toBeUndefined()
   })
 })
 

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { MarkdownToc } from "@/components/ui/markdown-toc"
 import { SelectionToolbar, type SelectionAction } from "@/components/ui/selection-toolbar"
-import { api } from "@/lib/api"
+import { useChatApi, useChatNodeId } from "@/lib/chat-api-context"
 import { getImageMediaType, readFileForPreview } from "@/lib/file-preview"
 import { basename } from "@/lib/workspace-files"
 import { useEditorStore } from "@/stores/editor-store"
@@ -90,6 +90,7 @@ export function FilePreviewPane({
   className,
 }: FilePreviewPaneProps) {
   const intl = useIntl()
+  const api = useChatApi()
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
@@ -127,6 +128,7 @@ export function FilePreviewPane({
   const theme = useThemeStore((s) => s.theme)
   const themeType = theme === "system" ? "system" : theme === "dark" ? "dark" : "light"
   const workspaceId = useEditorStore((s) => s.currentWorkspaceId)
+  const nodeId = useChatNodeId()
 
   const diffEnabled = useFilePreviewDiffStore((s) => s.enabled)
   const setDiffBase = useFilePreviewDiffStore((s) => s.setBase)
@@ -158,6 +160,7 @@ export function FilePreviewPane({
           useSelectedTextStore.getState().add({
             id: crypto.randomUUID(),
             workspaceId,
+            nodeId,
             path: commentPath,
             location: lineRangeFromSelection(range),
             text,
@@ -166,7 +169,7 @@ export function FilePreviewPane({
         },
       },
     ],
-    [commentPath, workspaceId, workspaceTools]
+    [commentPath, workspaceId, nodeId, workspaceTools]
   )
   const lineAnnotations = useMemo<LineAnnotation<CommentMeta>[]>(
     () => !workspaceTools ? [] : entries.map((entry) => ({ lineNumber: entry.line, metadata: entry.meta })),
@@ -231,7 +234,7 @@ export function FilePreviewPane({
     let cancelled = false
     setContent(null)
     setError(null)
-    readFileForPreview(selectedPath)
+    readFileForPreview(selectedPath, api)
       .then((c) => {
         if (cancelled) return
         setContent(c)
@@ -245,7 +248,7 @@ export function FilePreviewPane({
       cancelled = true
     }
     // reloadNonce re-reads the file when the refresh button is clicked.
-  }, [selectedPath, isRasterImage, reloadNonce])
+  }, [selectedPath, isRasterImage, reloadNonce, api])
 
   // Load image URL.
   useEffect(() => {
@@ -268,7 +271,7 @@ export function FilePreviewPane({
     return () => {
       cancelled = true
     }
-  }, [isRasterImage, selectedPath, reloadNonce])
+  }, [isRasterImage, selectedPath, reloadNonce, api])
 
   useEffect(() => {
     setViewMode(selectedPath != null && !isRasterImage && isMarkdown ? "preview" : "source")

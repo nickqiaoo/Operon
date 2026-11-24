@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { WorkflowRunView } from '@/lib/api'
 import type { AgentStreamState } from '@/components/editor/components/agent-stream'
+import { nodeKeyOf, type ChatRef, type NodeKey } from '@/lib/chat-ref'
 
 /**
  * The workflow runs this app is WATCHING — not every run that exists.
@@ -45,6 +46,16 @@ interface WorkflowRunsState {
    */
   startSignals: Set<string>
   streams: Map<string, WorkflowRunStream>
+  /**
+   * Other machines' runs, by machine — only so a tab showing one of their chats
+   * can raise that chat's blocked sub-agents above its composer. Everything
+   * above (`runs`, `startSignals`, `streams`) is this machine's: the workflow
+   * panel is a tool of this machine, like the file browser.
+   */
+  remoteRuns: ReadonlyMap<NodeKey, WorkflowRunView[]>
+  /** One remote machine's whole list (its feed's `sync`); `[]` forgets it. */
+  setRemoteRuns: (node: NodeKey, runs: WorkflowRunView[]) => void
+  upsertRemoteRun: (node: NodeKey, run: WorkflowRunView) => void
   /** Replace the whole list — a feed `sync` frame. */
   setRuns: (runs: WorkflowRunView[]) => void
   /** Apply one folded run view — a feed `run` frame. */
@@ -64,6 +75,21 @@ export const useWorkflowRunsStore = create<WorkflowRunsState>((set) => ({
   runs: [],
   startSignals: new Set(),
   streams: new Map(),
+  remoteRuns: new Map(),
+  setRemoteRuns: (node, runs) =>
+    set((prev) => {
+      const next = new Map(prev.remoteRuns)
+      if (runs.length === 0) next.delete(node)
+      else next.set(node, runs)
+      return { remoteRuns: next }
+    }),
+  upsertRemoteRun: (node, run) =>
+    set((prev) => {
+      const current = prev.remoteRuns.get(node) ?? []
+      const index = current.findIndex((r) => r.runId === run.runId)
+      const runs = index < 0 ? [...current, run] : current.map((r, i) => (i === index ? run : r))
+      return { remoteRuns: new Map(prev.remoteRuns).set(node, runs) }
+    }),
   setRuns: (runs) => set({ runs: sortRuns(runs) }),
   upsertRun: (run) =>
     set((prev) => {
@@ -97,11 +123,13 @@ export const useWorkflowRunsStore = create<WorkflowRunsState>((set) => ({
 /** Runs blocking on a human, for one conversation — what the composer bar shows. */
 export function selectBlockedRuns(
   state: WorkflowRunsState,
-  chatId: number | null | undefined,
+  chat: ChatRef | undefined,
 ): WorkflowRunView[] {
-  if (chatId == null) return []
-  return state.runs.filter(
-    (run) => run.chatId === chatId && (run.pendingApprovals?.length ?? 0) > 0,
+  if (chat == null) return []
+  // A run's `chatId` is an id on the machine that reported it.
+  const runs = chat.nodeId ? state.remoteRuns.get(nodeKeyOf(chat.nodeId)) ?? [] : state.runs
+  return runs.filter(
+    (run) => run.chatId === chat.chatId && (run.pendingApprovals?.length ?? 0) > 0,
   )
 }
 

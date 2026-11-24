@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import { replaceEqualDeep } from "@tanstack/react-query"
-import { api } from "@/lib/api"
+import { api, apiFor } from "@/lib/api"
 import { trackEvent } from "@/lib/analytics"
 import { getSelectedNodeId } from "@/lib/web-auth"
 
@@ -109,10 +109,27 @@ export function sortProjects(projects: Project[]): Project[] {
   })
 }
 
+/** One other machine's tree, as the sidebar shows it under that machine's heading. */
+export interface RemoteProjectTree {
+  projects: Project[]
+  /** Set while the machine can't be reached; `projects` then holds the last tree seen. */
+  error: string | null
+  loaded: boolean
+}
+
 interface ProjectStore {
+  /** This machine's projects. */
   projects: Project[]
   activeProjectId: number | null
   activeWorkspaceId: number | null
+  /**
+   * The machine the active workspace (and `activeProjectId`) belongs to; null
+   * for this one. Ids are only unique per machine, so the pair is what names a
+   * workspace. Not persisted: a launch starts on this machine.
+   */
+  activeNodeId: string | null
+  /** Other machines' trees, by node id. In memory only, refetched while shown. */
+  remoteProjects: Record<string, RemoteProjectTree>
   /** Local sidebar preference; omitted ids stay expanded. */
   collapsedProjectIds: number[]
   /** Local sidebar preference: workspaces whose conversations are folded away. */
@@ -134,6 +151,10 @@ interface ProjectStore {
 
   // Actions
   loadProjects: () => Promise<void>
+  /** Fetch another machine's tree (through this machine's relay). Never throws. */
+  loadRemoteProjects: (nodeId: string) => Promise<void>
+  /** Forget a machine that left the list. */
+  dropRemoteProjects: (nodeId: string) => void
   /** Drop the cached tree and selection. For switching to another backend node. */
   resetProjects: () => void
   addProject: (input: { name: string; rootPath: string; workspaces: Omit<Workspace, "id">[] }) => Promise<Project>
@@ -145,7 +166,8 @@ interface ProjectStore {
   setSpecHidden: (taskId: number, hidden: boolean) => void
   setWorkspaceTaskArchived: (taskId: number, archivedAt: number | null) => void
   setActiveProject: (id: number | null) => void
-  setActiveWorkspace: (id: number | null, projectId?: number | null) => void
+  /** `nodeId`: the workspace is on another machine (absent: this one). */
+  setActiveWorkspace: (id: number | null, projectId?: number | null, nodeId?: string | null) => void
   addWorkspace: (projectId: number, workspace: Omit<Workspace, "id">) => Promise<Workspace>
   removeWorkspace: (projectId: number, workspaceId: number) => Promise<void>
   setProjectWorkspaces: (projectId: number, workspaces: Workspace[]) => void
@@ -156,12 +178,38 @@ interface ProjectStore {
   getActiveWorkspace: () => Workspace | null
 }
 
+const NO_PROJECTS: Project[] = []
+
+/** The project tree of one machine (`nodeId` null / undefined: this one). */
+export function projectsOn(
+  state: Pick<ProjectStore, "projects" | "remoteProjects">,
+  nodeId: string | null | undefined,
+): Project[] {
+  return nodeId ? state.remoteProjects[nodeId]?.projects ?? NO_PROJECTS : state.projects
+}
+
+/** A workspace by id on one machine's tree. */
+export function findWorkspaceOn(
+  state: Pick<ProjectStore, "projects" | "remoteProjects">,
+  nodeId: string | null | undefined,
+  workspaceId: number | null | undefined,
+): Workspace | undefined {
+  if (workspaceId == null) return undefined
+  for (const project of projectsOn(state, nodeId)) {
+    const workspace = project.workspaces.find((w) => w.id === workspaceId)
+    if (workspace) return workspace
+  }
+  return undefined
+}
+
 export const useProjectStore = create<ProjectStore>()(
   persist(
     (set, get) => ({
       projects: [],
       activeProjectId: null,
       activeWorkspaceId: null,
+      activeNodeId: null,
+      remoteProjects: {},
       collapsedProjectIds: [],
       collapsedWorkspaceIds: [],
       hiddenSpecIds: [],
@@ -175,6 +223,8 @@ export const useProjectStore = create<ProjectStore>()(
           projects: [],
           activeProjectId: null,
           activeWorkspaceId: null,
+          activeNodeId: null,
+          remoteProjects: {},
           collapsedProjectIds: [],
           collapsedWorkspaceIds: [],
           hiddenSpecIds: [],
@@ -200,10 +250,14 @@ export const useProjectStore = create<ProjectStore>()(
           throw error
         }
         set((state) => {
+          // The selection is another machine's: this tree has nothing to say about it.
+          const selectionElsewhere = state.activeNodeId != null
           const hasActiveProject =
+            selectionElsewhere ||
             state.activeProjectId !== null &&
             fullProjects.some((project) => project.id === state.activeProjectId)
           const hasActiveWorkspace =
+            selectionElsewhere ||
             state.activeWorkspaceId !== null &&
             fullProjects.some((project) =>
               project.workspaces.some((workspace) => workspace.id === state.activeWorkspaceId)
@@ -248,6 +302,43 @@ export const useProjectStore = create<ProjectStore>()(
         })
       },
 
+      loadRemoteProjects: async (nodeId) => {
+        try {
+          const { projects } = await apiFor(nodeId).projectListWithWorkspaces()
+          const fresh = projects.map(({ workspaces, ...project }) => ({ ...project, workspaces }))
+          set((state) => ({
+            remoteProjects: {
+              ...state.remoteProjects,
+              [nodeId]: {
+                projects: replaceEqualDeep(state.remoteProjects[nodeId]?.projects ?? [], fresh),
+                error: null,
+                loaded: true,
+              },
+            },
+          }))
+        } catch (error) {
+          set((state) => ({
+            remoteProjects: {
+              ...state.remoteProjects,
+              [nodeId]: {
+                projects: state.remoteProjects[nodeId]?.projects ?? [],
+                error: error instanceof Error ? error.message : String(error),
+                loaded: true,
+              },
+            },
+          }))
+        }
+      },
+
+      dropRemoteProjects: (nodeId) => {
+        set((state) => {
+          if (!(nodeId in state.remoteProjects)) return state
+          const remoteProjects = { ...state.remoteProjects }
+          delete remoteProjects[nodeId]
+          return { remoteProjects }
+        })
+      },
+
       addProject: async (input) => {
         const { project } = await api.projectCreate({ name: input.name, rootPath: input.rootPath })
         const workspaces: Workspace[] = []
@@ -260,6 +351,7 @@ export const useProjectStore = create<ProjectStore>()(
           projects: sortProjects([...state.projects, fullProject]),
           activeProjectId: fullProject.id,
           activeWorkspaceId: workspaces[0]?.id ?? null,
+          activeNodeId: null,
         }))
         trackEvent('project_added', { workspace_count: workspaces.length })
         return fullProject
@@ -270,7 +362,7 @@ export const useProjectStore = create<ProjectStore>()(
         set((state) => ({
           projects: state.projects.filter((p) => p.id !== id),
           collapsedProjectIds: state.collapsedProjectIds.filter((projectId) => projectId !== id),
-          activeProjectId: state.activeProjectId === id ? null : state.activeProjectId,
+          activeProjectId: state.activeNodeId == null && state.activeProjectId === id ? null : state.activeProjectId,
         }))
       },
 
@@ -344,14 +436,21 @@ export const useProjectStore = create<ProjectStore>()(
         set({
           activeProjectId: id,
           activeWorkspaceId: project?.workspaces[0]?.id ?? null,
+          activeNodeId: null,
         })
       },
 
-      setActiveWorkspace: (id, projectId) => {
-        set((state) => ({
-          activeWorkspaceId: id,
-          activeProjectId: projectId ?? state.activeProjectId
-        }))
+      setActiveWorkspace: (id, projectId, nodeId) => {
+        set((state) => {
+          const activeNodeId = nodeId ?? null
+          return {
+            activeWorkspaceId: id,
+            // A project id from the other machine's tree means nothing here, so
+            // switching machine without one clears it rather than keeping it.
+            activeProjectId: projectId ?? (activeNodeId === state.activeNodeId ? state.activeProjectId : null),
+            activeNodeId,
+          }
+        })
         trackEvent('workspace_switched', {})
       },
 
@@ -376,13 +475,13 @@ export const useProjectStore = create<ProjectStore>()(
               ? { ...p, workspaces: p.workspaces.filter((w) => w.id !== workspaceId) }
               : p
           ),
-          activeWorkspaceId: state.activeWorkspaceId === workspaceId ? null : state.activeWorkspaceId,
+          activeWorkspaceId: state.activeNodeId == null && state.activeWorkspaceId === workspaceId ? null : state.activeWorkspaceId,
         }))
       },
 
       setProjectWorkspaces: (projectId, workspaces) => {
         set((state) => {
-          const isActiveProject = state.activeProjectId === projectId
+          const isActiveProject = state.activeNodeId == null && state.activeProjectId === projectId
           const hasActiveWorkspace = workspaces.some((w) => w.id === state.activeWorkspaceId)
           return {
             projects: state.projects.map((p) =>
@@ -417,13 +516,13 @@ export const useProjectStore = create<ProjectStore>()(
 
       getActiveProject: () => {
         const state = get()
-        return state.projects.find((p) => p.id === state.activeProjectId) || null
+        return projectsOn(state, state.activeNodeId).find((p) => p.id === state.activeProjectId) || null
       },
 
       getActiveWorkspace: () => {
         const state = get()
         if (!state.activeWorkspaceId) return null
-        for (const project of state.projects) {
+        for (const project of projectsOn(state, state.activeNodeId)) {
           const workspace = project.workspaces.find((w) => w.id === state.activeWorkspaceId)
           if (workspace) return workspace
         }

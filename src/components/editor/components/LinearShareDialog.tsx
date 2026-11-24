@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { api } from "@/lib/api"
+import { useChatApi } from "@/lib/chat-api-context"
 import { LinearIcon } from "@/components/icons/LinearIcon"
 
 const inputCn =
@@ -64,6 +64,7 @@ interface LinearShareDialogProps {
 }
 
 export function LinearShareDialog({ open, onOpenChange, messageText }: LinearShareDialogProps) {
+  const api = useChatApi()
   const intl = useIntl()
   const [loading, setLoading] = useState(false)
   const [teams, setTeams] = useState<LinearTeam[]>([])
