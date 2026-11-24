@@ -1,6 +1,6 @@
 ---
 name: operon-external-agent
-description: Delegate work to an external coding agent in an Operon chat tab, follow up in the same conversation, inspect its result, or stop it. Use when the user asks another agent to handle a task. For JavaScript workflow orchestration, use operon-workflow instead.
+description: Delegate work to an external coding agent in an Operon chat tab, on this machine or another of the user's machines, follow up in the same conversation, inspect its result, or stop it. Use when the user asks another agent to handle a task. For JavaScript workflow orchestration, use operon-workflow instead.
 ---
 
 <!-- OPERON_MANAGED_EXTERNAL_AGENT_SKILL -->
@@ -35,6 +35,20 @@ branch and the user wants or agreed to one, create it first with
 returned `workspace_id`. Creating a workspace never starts an agent by itself.
 The child's changes then stay in that worktree, not in yours: the run's reply and
 its result report the `branch` and `worktree_path` to look at.
+
+## Run on another machine
+
+When the user wants the work done on another of their machines (named by them, or
+because the code or tools are there), call `external_agent_list_targets` for the
+machines and their `nodeId`. Pass `target_node_id` to `external_agent_list_models`
+to get that machine's agents, models and workspaces, ask for any choice the user
+has not made, then call `external_agent_run` with the same `target_node_id` and
+that machine's `workspace_id` (omit it only when the machine has one workspace).
+
+The agent works in the workspace as it exists on that machine; its files are not
+in this conversation's workspace. Everything else is the same as on this machine:
+its tab, follow-ups, status, stop and results. The target must allow it in its
+Remote settings, and both machines must be online for a turn to run.
 
 ## Continue the same child
 

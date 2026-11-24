@@ -82,6 +82,26 @@ export function getDesktopPrivateKey(): Uint8Array {
   return Uint8Array.from(Buffer.from(b64, 'base64'))
 }
 
+let delegationKeys: { privateKey: Uint8Array; publicKey: Uint8Array; fingerprint: string } | undefined
+
+/**
+ * The key this machine uses to talk to its other machines (remote external agents).
+ * Derived from the desktop key, so it needs no storage of its own, but never equal
+ * to it: the desktop key is the one phones pair with, and the delegation key's
+ * public half is published to Broker, which vouches for it to the other machines.
+ */
+export function getDelegationKeypair(): { privateKey: Uint8Array; publicKey: Uint8Array; fingerprint: string } {
+  if (delegationKeys) return delegationKeys
+  const seed = Buffer.from(crypto.hkdfSync('sha256', getDesktopPrivateKey(), Buffer.alloc(0), 'operon.delegation.identity.v1', 32))
+  const privateKey = crypto.createPrivateKey({
+    key: Buffer.concat([Buffer.from('302e020100300506032b656e04220420', 'hex'), seed]), format: 'der', type: 'pkcs8',
+  })
+  const spki = crypto.createPublicKey(privateKey).export({ type: 'spki', format: 'der' })
+  const publicKey = Uint8Array.from(spki.subarray(spki.length - 32))
+  delegationKeys = { privateKey: Uint8Array.from(seed), publicKey, fingerprint: fingerprintPublicKey(publicKey) }
+  return delegationKeys
+}
+
 function generateX25519Keypair(): { privateKey: Uint8Array; publicKey: Uint8Array } {
   const { publicKey, privateKey } = crypto.generateKeyPairSync('x25519')
   const pubRaw = publicKey.export({ type: 'spki', format: 'der' })

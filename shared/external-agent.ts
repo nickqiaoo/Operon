@@ -1,4 +1,7 @@
+import type { RemoteExecutionRef } from './delegations.js'
+
 export type ExternalAgentTurnStatus = 'queued' | 'running' | 'completed' | 'cancelled' | 'failed' | 'interrupted'
+export const SUPPORTED_EXTERNAL_AGENT_IDS = ['codex', 'claude-code', 'opencode', 'kimi', 'cursor', 'grok', 'copilot', 'antigravity', 'qoder'] as const
 
 export interface ExternalAgentBinding {
   agentId: string
@@ -29,6 +32,8 @@ export interface ExternalAgentView extends ExternalAgentBinding {
   error?: string
   /** When the child conversation last changed: newest first in its parent's Agents list. */
   updatedAt?: number
+  /** Runs on another machine of the account; the conversation is still this one. */
+  remote?: Pick<RemoteExecutionRef, 'nodeId' | 'machine' | 'workspace'>
 }
 
 export type ExternalAgentFrame =

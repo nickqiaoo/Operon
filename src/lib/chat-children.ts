@@ -26,6 +26,8 @@ export interface ChatChild {
   key: string
   agentId: string
   childChatId: number
+  /** Runs on another machine of the account. */
+  remote?: ExternalAgentView['remote']
   providerId: string
   modelId?: string
   modeId?: string
@@ -85,6 +87,7 @@ export function buildChatChildren(input: ChatChildrenInput): ChatChild[] {
       key: view.agentId,
       agentId: view.agentId,
       childChatId: view.childChatId,
+      remote: view.remote,
       providerId: view.providerId,
       modelId: view.modelId,
       modeId: view.modeId,

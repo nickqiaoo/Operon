@@ -200,7 +200,7 @@ export function ExternalAgentToolRenderer({
       <TraceIcon><ProviderIcon id={agentType} size={16} /></TraceIcon>
       <TraceTitle>{description || codingAgentName(agentType)}</TraceTitle>
       <TraceDescription className="min-w-0 shrink truncate">
-        {[codingAgentName(agentType), model, workspace].filter(Boolean).join(' · ')}
+        {[codingAgentName(agentType), model, live?.remote ? `${live.remote.machine} · ${live.remote.workspace}` : workspace].filter(Boolean).join(' · ')}
       </TraceDescription>
       {status && status !== 'running' && (
         <TraceDescription className={status === 'waiting' ? 'text-status-warn' : undefined}>

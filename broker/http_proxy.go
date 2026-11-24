@@ -1,12 +1,40 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
+
+const (
+	delegationSourceHeader      = "x-operon-delegation-source"
+	delegationPublicKeyHeader   = "x-operon-delegation-public-key"
+	delegationSourceLabelHeader = "x-operon-delegation-source-label"
+)
+
+const delegationUUID = `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`
+
+// What one machine may call on another with its node token: the target's agent
+// catalog, a provider's models, and the turn / control endpoints of an agent
+// session the caller runs there (shared/delegations.ts nodeDelegationRoute).
+var (
+	delegationModelsPath  = regexp.MustCompile(`^delegations/providers/[a-z0-9][a-z0-9-]{0,63}/models$`)
+	delegationSessionPath = regexp.MustCompile(`^delegations/sessions/` + delegationUUID + `/(turn|control)$`)
+)
+
+func nodeDelegationRoute(method, path string) bool {
+	switch method {
+	case http.MethodGet:
+		return path == "delegations/catalog" || delegationModelsPath.MatchString(path)
+	case http.MethodPost:
+		return delegationSessionPath.MatchString(path)
+	}
+	return false
+}
 
 // streamKeepaliveInterval bounds how long a tunneled stream may sit byte-idle
 // before the broker injects an SSE comment. Idle response connections get
@@ -39,14 +67,33 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	// the path user. This is the isolation boundary — without it one user could
 	// address another user's node (fs/git/agent-grade power). Preflight OPTIONS is
 	// short-circuited by withCORS before reaching here.
-	claims, err := s.requireAccess(r)
-	if err != nil {
-		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-		return
-	}
-	if claims.Subject != uid {
-		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
-		return
+	var source NodeRow
+	if claims, err := s.requireAccess(r); err == nil {
+		if claims.Subject != uid {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+			return
+		}
+	} else {
+		claims, err := s.requireNode(r)
+		if err != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		if claims.Subject != uid || claims.NodeID == nid || !nodeDelegationRoute(r.Method, rest) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+			return
+		}
+		from, fromActive := s.delegationNode(uid, claims.NodeID)
+		to, toActive := s.delegationNode(uid, nid)
+		if !fromActive || !toActive {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+			return
+		}
+		if from.DelegationPublicKey == "" || to.DelegationPublicKey == "" {
+			writeBrokerError(w, http.StatusConflict, "delegation_key_missing", "The machines must connect to Remote with a version of Operon that supports delegations.")
+			return
+		}
+		source = from
 	}
 	if s.lifecycle.IsDraining() {
 		writeServerDraining(w)
@@ -67,8 +114,26 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	var body, enc string
 	if r.Body != nil {
-		if b, _ := io.ReadAll(r.Body); len(b) > 0 {
+		reader := io.Reader(r.Body)
+		if source.ID != "" {
+			// A turn's input carries its attachments (images up to 10MB each, base64 and encrypted).
+			reader = http.MaxBytesReader(w, r.Body, 32<<20)
+		}
+		b, err := io.ReadAll(reader)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request_body"})
+			return
+		}
+		if len(b) > 0 {
 			body, enc = encodeBytes(b)
+		}
+	}
+	headers := sanitizeReqHeaders(r.Header)
+	if source.ID != "" {
+		headers[delegationSourceHeader] = []string{source.ID}
+		headers[delegationPublicKeyHeader] = []string{source.DelegationPublicKey}
+		if source.Label != "" && len(source.Label) <= 256 {
+			headers[delegationSourceLabelHeader] = []string{base64.StdEncoding.EncodeToString([]byte(source.Label))}
 		}
 	}
 
@@ -79,7 +144,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		Method:  r.Method,
 		Path:    path,
 		Query:   query,
-		Headers: sanitizeReqHeaders(r.Header),
+		Headers: headers,
 		Body:    body,
 		Enc:     enc,
 	})
@@ -196,6 +261,11 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) delegationNode(uid, nid string) (NodeRow, bool) {
+	node, found, err := s.store.GetNode(nid)
+	return node, err == nil && found && node.UserID == uid && node.RevokedAt == 0
+}
+
 // drainToBuffer continues consuming a tunneled response after the browser has gone,
 // recording chunks for a later resume. It owns p.cancel() once the handler hands off.
 func drainToBuffer(p *pendingReq, buf *chatBuffer) {
@@ -268,7 +338,9 @@ func sanitizeReqHeaders(h http.Header) map[string][]string {
 		// and must never receive the browser's broker token. Also strip the
 		// headers only the webhook path sets (x-operon-origin and friends), so a
 		// browser cannot forge an inbound Linear/GitHub event.
-		if isHopByHop(lk) || lk == "host" || lk == "content-length" || lk == "authorization" || isBrokerOnlyHeader(lk) {
+		if isHopByHop(lk) || lk == "host" || lk == "content-length" || lk == "authorization" ||
+			lk == delegationSourceHeader || lk == delegationPublicKeyHeader || lk == delegationSourceLabelHeader ||
+			lk == "x-operon-delegation-tunnel" || isBrokerOnlyHeader(lk) {
 			continue
 		}
 		cp := make([]string, len(vals))

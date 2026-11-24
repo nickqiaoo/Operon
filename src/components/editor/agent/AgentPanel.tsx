@@ -86,6 +86,8 @@ interface AgentPanelProps {
   usageCards?: SessionUsageCard[]
   /** Where and with what the chat runs — read out at the top of the overview. */
   facts?: SessionFacts
+  /** The conversation can start external agents (a regular workspace chat). */
+  allowDispatch?: boolean
 }
 
 export interface SessionFacts {
@@ -147,7 +149,7 @@ function isMcpProblem(server: McpServerDTO): boolean {
  */
 // Memoized: ChatPanel re-renders on every streamed chunk, and redrawing the open
 // panel (MCP rows, skills, usage cards) each time cost ~30ms a chunk in dev.
-export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, providerId, onClose, onUseSkill, variant = 'inline', usageCards = EMPTY_USAGE_CARDS, facts }: AgentPanelProps) {
+export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, providerId, onClose, onUseSkill, variant = 'inline', usageCards = EMPTY_USAGE_CARDS, facts, allowDispatch = false }: AgentPanelProps) {
   const intl = useIntl()
   // Two-phase open/close so the panel can animate both IN and OUT:
   //   `render` keeps it mounted a beat longer than `open`, so the slide-out has
@@ -334,8 +336,9 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
     </section>
   )
 
-  const agentsSection = !skillDetail && childAgents.length > 0 ? (
-    <ChildrenSection key={`agents:${sessionKey}`} chatId={id} agents={childAgents} />
+  const canDispatch = allowDispatch && id > 0
+  const agentsSection = !skillDetail && (childAgents.length > 0 || canDispatch) ? (
+    <ChildrenSection key={`agents:${sessionKey}`} chatId={id} agents={childAgents} allowDispatch={canDispatch} />
   ) : null
 
   // Not behind `noSession`: the quota is the account's, and is worth reading before

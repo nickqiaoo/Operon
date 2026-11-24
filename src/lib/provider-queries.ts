@@ -68,7 +68,8 @@ export interface ProviderModelsResponse {
 export const providerKeys = {
   all: ['providers'] as const,
   list: () => ['providers', 'list'] as const,
-  models: (providerId: string) => ['providers', 'models', providerId] as const,
+  models: (providerId: string, nodeId?: string) =>
+    nodeId ? ['providers', 'models', providerId, nodeId] as const : ['providers', 'models', providerId] as const,
   decisionModels: () => ['providers', 'decision-models'] as const,
 }
 
@@ -93,10 +94,13 @@ export function useProviders(options?: { enabled?: boolean }) {
   return useQuery({ ...providersQuery, enabled: options?.enabled })
 }
 
-export function providerModelsQuery(providerId: string) {
+/** `nodeId`: the catalog on another machine, where a remote external agent runs. */
+export function providerModelsQuery(providerId: string, nodeId?: string) {
   return queryOptions({
-    queryKey: providerKeys.models(providerId),
-    queryFn: async () => (await api.getProviderModels(providerId)) as ProviderModelsResponse,
+    queryKey: providerKeys.models(providerId, nodeId),
+    queryFn: async () => (nodeId
+      ? await api.getRemoteProviderModels(nodeId, providerId)
+      : await api.getProviderModels(providerId)) as ProviderModelsResponse,
     staleTime: THIRTY_SECONDS,
     refetchInterval: (query) => {
       const data = query.state.data
@@ -112,9 +116,9 @@ export function providerModelsQuery(providerId: string) {
 }
 
 /** One provider's model / mode / capability catalog. Disabled until `providerId` is known. */
-export function useProviderModels(providerId: string | undefined) {
+export function useProviderModels(providerId: string | undefined, nodeId?: string) {
   return useQuery({
-    ...providerModelsQuery(providerId ?? ''),
+    ...providerModelsQuery(providerId ?? '', nodeId),
     enabled: !!providerId,
   })
 }

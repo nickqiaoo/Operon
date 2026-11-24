@@ -59,7 +59,7 @@ interface AskUserQuestionRendererProps {
   toolPart: ToolInvocationPart;
   messageId: string;
   partIndex: number;
-  onPermissionDecide: (id: string, outcome: 'allow' | 'deny' | 'allowAlways', updatedInput?: Record<string, unknown>) => void;
+  onPermissionDecide: (id: string, outcome: 'allow' | 'deny' | 'allowAlways', updatedInput?: Record<string, unknown>) => Promise<boolean> | void;
 }
 
 export type ToolInvocationPart = ToolPartLike & {
@@ -122,6 +122,17 @@ export function AskUserQuestionRenderer({
   // question text (quotes, newlines) is safe as a key.
   const fieldName = (index: number) => `q${index}`;
 
+  const decide = async (outcome: 'allow' | 'deny', input?: Record<string, unknown>) => {
+    if (!approvalId) return;
+    setOptimisticOutcome(outcome);
+    try {
+      if (await onPermissionDecide(approvalId, outcome, input) !== false) return;
+    } catch {
+      // Keep the form available to retry after a failed submission.
+    }
+    setOptimisticOutcome(null);
+  };
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!approvalId) return;
@@ -138,25 +149,19 @@ export function AskUserQuestionRenderer({
       if (values.length > 0) formattedAnswers[key] = values.join(', ');
     });
 
-    setOptimisticOutcome('allow');
-
     if (isGemini) {
       // Gemini payload: only answers (ToolAskUserConfirmationPayload)
-      onPermissionDecide(approvalId, 'allow', { answers: formattedAnswers });
+      void decide('allow', { answers: formattedAnswers });
     } else {
       // CC payload: questions + answers keyed by question text
-      onPermissionDecide(approvalId, 'allow', {
+      void decide('allow', {
         questions: rawInput.questions,
         answers: formattedAnswers,
-      } as Record<string, unknown>);
+      });
     }
   };
 
-  const handleDeny = () => {
-    if (!approvalId) return;
-    setOptimisticOutcome('deny');
-    onPermissionDecide(approvalId, 'deny');
-  };
+  const handleDeny = () => { void decide('deny'); };
 
   const answerPlaceholder = intl.formatMessage({ id: 'editor.ask.answerPlaceholder', defaultMessage: 'Enter your answer...' });
   const otherPlaceholder = intl.formatMessage({ id: 'editor.ask.otherPlaceholder', defaultMessage: 'Something else…' });

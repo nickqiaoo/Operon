@@ -8,7 +8,7 @@ import {
   utf8,
   type SealedEnvelope,
   type StoredRemotePairing,
-} from '@shared/e2ee/protocol'
+} from './protocol.js'
 
 const REQUEST_INFO = utf8('operon.remote.request-key.v1')
 const RESPONSE_INFO = utf8('operon.remote.response-key.v1')
@@ -48,6 +48,15 @@ export function deriveRemoteDirectionKeys(pairing: StoredRemotePairing): RemoteD
     base64ToBytes(pairing.nodePublicKey),
   )
   const salt = sha256(utf8(`${pairing.desktopId}:${pairing.deviceId}`))
+  return {
+    request: hkdf(sha256, shared, salt, REQUEST_INFO, 32),
+    response: hkdf(sha256, shared, salt, RESPONSE_INFO, 32),
+  }
+}
+
+export function deriveDelegationKeys(privateKey: Uint8Array, peerPublicKey: Uint8Array, sourceNodeId: string, targetNodeId: string): RemoteDirectionKeys {
+  const shared = x25519.getSharedSecret(privateKey, peerPublicKey)
+  const salt = sha256(utf8(`operon.delegation.v1\n${sourceNodeId}\n${targetNodeId}`))
   return {
     request: hkdf(sha256, shared, salt, REQUEST_INFO, 32),
     response: hkdf(sha256, shared, salt, RESPONSE_INFO, 32),

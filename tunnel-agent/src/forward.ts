@@ -10,6 +10,7 @@ export async function handleReq(
   localBase: string,
   inflight: Map<string, AbortController>,
   localToken?: string,
+  delegationTunnelToken?: string,
 ): Promise<void> {
   const ac = new AbortController()
   inflight.set(f.id, ac)
@@ -26,6 +27,10 @@ export async function handleReq(
     // here, never forwarded from the browser — strip any client-sent value.
     headers.delete('x-operon-token')
     if (localToken) headers.set('x-operon-token', localToken)
+    headers.delete('x-operon-delegation-tunnel')
+    if (delegationTunnelToken && (f.path === '/api/delegations' || f.path.startsWith('/api/delegations/'))) {
+      headers.set('x-operon-delegation-tunnel', delegationTunnelToken)
+    }
 
     const url = localBase + f.path + (f.query ?? '')
     const body = toFetchBody(decodeBody(f.body, f.enc))
@@ -34,6 +39,7 @@ export async function handleReq(
       headers,
       body,
       signal: ac.signal,
+      ...(headers.has('x-operon-delegation-tunnel') ? { redirect: 'error' } : {}),
       duplex: body ? 'half' : undefined,
     }
     const res = await fetch(url, init)

@@ -21,12 +21,13 @@ type Store struct {
 }
 
 type NodeRow struct {
-	ID        string
-	UserID    string
-	Label     string
-	CreatedAt int64
-	LastSeen  int64
-	RevokedAt int64 // 0 = active
+	ID                  string
+	UserID              string
+	Label               string
+	CreatedAt           int64
+	LastSeen            int64
+	RevokedAt           int64 // 0 = active
+	DelegationPublicKey string
 }
 
 type RefreshSessionRotation struct {
@@ -86,6 +87,7 @@ func (s *Store) migrate() error {
 			revoked_at BIGINT
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_nodes_user ON nodes(user_id)`,
+		`ALTER TABLE nodes ADD COLUMN IF NOT EXISTS delegation_public_key TEXT`,
 		`CREATE TABLE IF NOT EXISTS refresh_sessions (
 				id         TEXT PRIMARY KEY,
 				user_id    TEXT NOT NULL,
@@ -455,8 +457,8 @@ func (s *Store) GetNode(nodeID string) (NodeRow, bool, error) {
 	var label sql.NullString
 	var lastSeen, revoked sql.NullInt64
 	err := s.db.QueryRow(
-		`SELECT id, user_id, label, created_at, last_seen, revoked_at FROM nodes WHERE id = $1`, nodeID,
-	).Scan(&n.ID, &n.UserID, &label, &n.CreatedAt, &lastSeen, &revoked)
+		`SELECT id, user_id, label, created_at, last_seen, revoked_at, COALESCE(delegation_public_key, '') FROM nodes WHERE id = $1`, nodeID,
+	).Scan(&n.ID, &n.UserID, &label, &n.CreatedAt, &lastSeen, &revoked, &n.DelegationPublicKey)
 	if err == sql.ErrNoRows {
 		return NodeRow{}, false, nil
 	}
@@ -467,6 +469,12 @@ func (s *Store) GetNode(nodeID string) (NodeRow, bool, error) {
 	n.LastSeen = lastSeen.Int64
 	n.RevokedAt = revoked.Int64
 	return n, true, nil
+}
+
+func (s *Store) setDelegationPublicKey(ctx context.Context, node NodeRow, key string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE nodes SET delegation_public_key = $1
+		WHERE id = $2 AND user_id = $3 AND revoked_at IS NULL`, key, node.ID, node.UserID)
+	return err
 }
 
 // ListNodes returns a user's nodes (revoked included, flagged).

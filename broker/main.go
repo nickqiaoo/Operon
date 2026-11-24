@@ -179,6 +179,7 @@ func main() {
 	mux.HandleFunc("GET /agent/down", s.handleAgentDown)
 	mux.HandleFunc("POST /agent/up", s.handleAgentUp)
 	mux.HandleFunc("POST /agent/push", s.handleAgentPush)
+	mux.HandleFunc("GET /agent/delegation-nodes", s.handleDelegationNodes)
 	// Stream resilience (web/mobile): resume replays a buffered chat turn after a
 	// dropped connection; cancel is the explicit user-stop path. Registered before
 	// the catch-all — these literal patterns are more specific, so ServeMux routes

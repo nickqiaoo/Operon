@@ -24,7 +24,7 @@ async function main(): Promise<void> {
   console.log(`[agent] local backend: ${localBase} (token: ${localToken ? 'yes' : 'no'})`)
   console.log(`[agent] broker:        ${brokerUrl}  (node=${nodeId} label=${label})`)
 
-  startAgent({ brokerUrl, secret, nodeId, label, localBase, localToken })
+  startAgent({ brokerUrl, secret, nodeId, label, localBase, localToken, delegationTunnelToken: process.env.OPERON_DELEGATION_TUNNEL_TOKEN })
 }
 
 main().catch((err: unknown) => {

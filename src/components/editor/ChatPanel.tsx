@@ -6,7 +6,7 @@ import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo,
 import { isTypingTarget } from '@/lib/shadcn-react/message-scroller/components';
 import { FormattedMessage, useIntl } from 'react-intl';
 import type { FileUIPart } from 'ai';
-import { ChartPie, Gauge, Loader2, Server } from 'lucide-react';
+import { ChartPie, Gauge, Loader2, Monitor, Server } from 'lucide-react';
 import { AgentPanel, SESSION_PANEL_PAD_CLASS, type SessionUsageCard } from './agent/AgentPanel';
 import type { OperonSkillDTO } from './agent/agentControl';
 import {
@@ -248,8 +248,11 @@ function ChatPanelContent({
     observer.observe(scroller);
     return () => observer.disconnect();
   }, []);
+  // A remote external agent: its conversation is here, its agent session on another machine.
+  const remoteExecution = useExternalAgentsStore((state) =>
+    tab?.chatId != null ? state.agents.get(`ext-${tab.chatId}`)?.remote : undefined);
   const sideChatProviderId = tab?.providerId ?? providerId;
-  const canOpenSideChat = useProviderSupportsSideChat(sideChatProviderId);
+  const canOpenSideChat = useProviderSupportsSideChat(sideChatProviderId) && !remoteExecution;
   const selectionActions = useMemo<SelectionAction[]>(() => {
     const actions: SelectionAction[] = [
       {
@@ -318,7 +321,7 @@ function ChatPanelContent({
   const modelManagement = useModelManagement(
     tab?.options?.modelId ?? recentOptionsState.options.modelId ?? '',
     providerId,
-    { ...recentOptionsState.options, preserveModel: tab?.isSubAgent === true },
+    { ...recentOptionsState.options, preserveModel: tab?.isSubAgent === true, remoteNodeId: remoteExecution?.nodeId },
   );
   const {
     model, setModel, availableModels, selectedModel,
@@ -513,6 +516,8 @@ function ChatPanelContent({
 
   const { historyLoaded, loadedModel, loadedProviderId, loadedThinkingLevel, loadedModeId, loadedUpdatedAt, loadedSshEnvironment, hasMore: chatHasMore, loadingMore: chatLoadingMore, loadMore: chatLoadMore } = useChatHistory(historyDbChatId, setMessages, tab?.options?.timestamp);
   const sshEnvironment = loadedSshEnvironment ?? tab?.sshEnvironment;
+  // The agent works on files of another host: nothing here can open, annotate or review them.
+  const runsElsewhere = sshEnvironment ?? remoteExecution;
 
   // Reopening a conversation waits for its transcript (a WAN round trip on web
   // and iPad). Until it lands the panel is one loading state — no transcript,
@@ -714,7 +719,7 @@ function ChatPanelContent({
 
   // Per-turn file diffs, rendered as a card at the end of each turn that changed
   // files. Refetched once the turn settles so the new turn's card appears.
-  const reviewCwd = useProjectStore((s) => sshEnvironment ? null : s.projects.flatMap((project) => project.workspaces).find((workspace) => workspace.id === currentWorkspaceId)?.worktreePath ?? null);
+  const reviewCwd = useProjectStore((s) => runsElsewhere ? null : s.projects.flatMap((project) => project.workspaces).find((workspace) => workspace.id === currentWorkspaceId)?.worktreePath ?? null);
   // Phone: there is no side file viewer, so a file the chat cites opens in a sheet over it.
   const inheritedOpenFile = useFileOpenHandler();
   const [mobilePreview, setMobilePreview] = useState<MobileFilePreview | null>(null);
@@ -849,23 +854,23 @@ function ChatPanelContent({
     // (context markdown + screenshot), then clear them — sending consumes them,
     // which also drops their on-page pins via the store subscription.
     const annStore = useAnnotationsStore.getState();
-    const annotations = sshEnvironment ? [] : annotationsForWorkspace(annStore.items, currentWorkspaceId);
+    const annotations = runsElsewhere ? [] : annotationsForWorkspace(annStore.items, currentWorkspaceId);
     const annFiles = annotations.flatMap(annotationToFiles);
     // Fold this workspace's queued inline line comments (diff / file preview) in
     // as text context, then clear them — same one-shot consume as annotations.
     const lineStore = useLineCommentsStore.getState();
-    const lineComments = sshEnvironment ? [] : lineCommentsForWorkspace(lineStore.items, currentWorkspaceId);
+    const lineComments = runsElsewhere ? [] : lineCommentsForWorkspace(lineStore.items, currentWorkspaceId);
     const lineCommentFiles = lineComments.map(lineCommentToFile);
     // Same one-shot consume for text picked out of a file preview.
     const selectedStore = useSelectedTextStore.getState();
-    const selectedSnippets = sshEnvironment ? [] : selectedTextForChat(selectedStore.items, currentWorkspaceId, dbChatId);
+    const selectedSnippets = runsElsewhere ? [] : selectedTextForChat(selectedStore.items, currentWorkspaceId, dbChatId);
     const selectedFiles = selectedSnippets.map(selectedTextToFile);
     const extraFiles = [...annFiles, ...lineCommentFiles, ...selectedFiles];
     const merged = extraFiles.length > 0
       ? { ...message, files: [...message.files, ...extraFiles] as FileUIPart[] }
       : message;
     submitMessage(merged, attachments.files, setInput);
-    if (!sshEnvironment) {
+    if (!runsElsewhere) {
       for (const a of annotations) annStore.remove(a.id);
       lineStore.clearWorkspace(currentWorkspaceId);
       selectedStore.clearWorkspace(currentWorkspaceId);
@@ -875,7 +880,7 @@ function ChatPanelContent({
       model: model || undefined,
       has_attachments: attachments.files.length > 0 || extraFiles.length > 0,
     });
-  }, [attachments.files, currentWorkspaceId, dbChatId, model, providerId, selectedModel?.providerId, setInput, submitMessage, handleCompact, sshEnvironment]);
+  }, [attachments.files, currentWorkspaceId, dbChatId, model, providerId, selectedModel?.providerId, setInput, submitMessage, handleCompact, runsElsewhere]);
 
   // --- Goal (codex) ---
   const sendGoalMessage = useCallback((objective: string) => {
@@ -928,7 +933,7 @@ function ChatPanelContent({
   const pendingWorktreeSendRef = useRef<{ workspaceId: number; message: { text: string; files: FileUIPart[] } } | null>(null);
   const handleComposerSubmit = useCallback((message: { text: string; files: FileUIPart[] }): void | Promise<void> => {
     const intent = draftWorktreeIntent(chatId);
-    if (isMobile || sshEnvironment || !showDraftBar || !intent.newWorktree || intent.creating || !message.text.trim()) return handleSubmitOrGoal(message);
+    if (isMobile || runsElsewhere || !showDraftBar || !intent.newWorktree || intent.creating || !message.text.trim()) return handleSubmitOrGoal(message);
     const project = useProjectStore.getState().projects.find((p) => p.workspaces.some((w) => w.id === currentWorkspaceId));
     const workspace = project?.workspaces.find((w) => w.id === currentWorkspaceId);
     if (!project || !workspace) return handleSubmitOrGoal(message);
@@ -948,7 +953,7 @@ function ChatPanelContent({
       });
       throw error;
     });
-  }, [chatId, isMobile, sshEnvironment, showDraftBar, currentWorkspaceId, handleSubmitOrGoal, intl]);
+  }, [chatId, isMobile, runsElsewhere, showDraftBar, currentWorkspaceId, handleSubmitOrGoal, intl]);
   useEffect(() => {
     const pending = pendingWorktreeSendRef.current;
     if (!pending || pending.workspaceId !== currentWorkspaceId) return;
@@ -973,7 +978,7 @@ function ChatPanelContent({
   const consumePendingSkill = useCallback(() => setPendingSkill(null), []);
   const sendNonce = useAnnotationSendStore((s) => s.nonce);
   useEffect(() => {
-    if (sendNonce === 0 || !visible || sshEnvironment) return;
+    if (sendNonce === 0 || !visible || runsElsewhere) return;
     const { workspaceId: reqWs, consume } = useAnnotationSendStore.getState();
     // Browser-send leaves the browser panel focused. The visible conversation
     // in the matching workspace consumes the request once.
@@ -982,7 +987,7 @@ function ChatPanelContent({
     if (anns.length === 0) { consume(); return; }
     consume();
     handleSubmitRef.current({ text: getInput().trim(), files: [] });
-  }, [sendNonce, currentWorkspaceId, getInput, visible, sshEnvironment]);
+  }, [sendNonce, currentWorkspaceId, getInput, visible, runsElsewhere]);
 
   const submitSteerItem = useCallback(async (item: LiveSteerItem) => {
     const currentChatId = tab?.chatId ?? dbChatIdRef.current;
@@ -1224,7 +1229,7 @@ function ChatPanelContent({
   }, [chatId]);
 
   return (
-    <FileOpenProvider value={sshEnvironment ? null : isMobile ? openFileOnMobile : inheritedOpenFile}>
+    <FileOpenProvider value={runsElsewhere ? null : isMobile ? openFileOnMobile : inheritedOpenFile}>
     <div
       ref={transcriptRef}
       className={cn(
@@ -1520,7 +1525,7 @@ function ChatPanelContent({
             <TodoQueue todos={latestTodos} live={status === 'streaming' || status === 'submitted'} />
           </div>
         ) : null}
-        {!sshEnvironment && (
+        {!runsElsewhere && (
           <>
             <AnnotationTray workspaceId={currentWorkspaceId} />
             <SelectedTextTray workspaceId={currentWorkspaceId} chatId={dbChatId} />
@@ -1552,6 +1557,13 @@ function ChatPanelContent({
             <Server className="size-3.5 shrink-0" />
             <span className="truncate">{sshEnvironment.name}</span>
             <span className="shrink-0 text-muted-foreground/70">SSH</span>
+          </div>
+        )}
+        {!showDraftBar && remoteExecution && (
+          <div className="mb-1.5 flex min-w-0 items-center gap-1.5 px-3 text-xs text-muted-foreground" title={`${remoteExecution.machine} · ${remoteExecution.workspace}`}>
+            <Monitor className="size-3.5 shrink-0" />
+            <span className="shrink-0">{remoteExecution.machine}</span>
+            <span className="truncate text-muted-foreground/70">{remoteExecution.workspace}</span>
           </div>
         )}
         {readOnlyReason != null ? (
@@ -1602,7 +1614,7 @@ function ChatPanelContent({
           compactWhenIdle={isMobile}
           floating={isMobile}
           mobileKeyboardOpen={isMobile && mobileKeyboardOpen}
-          hasPendingContext={!sshEnvironment && (pendingAnnotationCount > 0 || pendingLineCommentCount > 0)}
+          hasPendingContext={!runsElsewhere && (pendingAnnotationCount > 0 || pendingLineCommentCount > 0)}
           pendingSkill={pendingSkill}
           onPendingSkillConsumed={consumePendingSkill}
           initialSkills={initialSkills}
@@ -1626,6 +1638,7 @@ function ChatPanelContent({
         variant={isMobile ? 'overlay' : 'inline'}
         usageCards={sessionUsageCards}
         facts={sessionFacts}
+        allowDispatch={!tab?.isSubAgent && !tab?.isSideChat && !runsElsewhere && currentWorkspaceId != null}
         onClose={closeSessionPanel}
         onUseSkill={handleSessionPanelSkill}
       />

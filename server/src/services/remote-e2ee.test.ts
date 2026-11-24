@@ -22,7 +22,7 @@ import {
 import type { MobilePairingStorageAdapter, StorageAdapter } from '../storage/interface.js'
 import type { CreateMobilePairingInput, MobilePairingRow, MobilePairingStatus } from '../types/mobile.js'
 import { fingerprintPublicKey, initDesktopIdentity } from './mobile/identity.js'
-import { createDeviceKeypair, derivePairingKey, deriveRemoteDirectionKeys, open, seal } from '../../../src/lib/e2ee/crypto.js'
+import { createDeviceKeypair, derivePairingKey, deriveRemoteDirectionKeys, open, seal } from '@shared/e2ee/crypto'
 import {
   approveRemotePairing,
   claimRemotePairing,

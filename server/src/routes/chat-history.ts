@@ -137,6 +137,9 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
     if (parent.metadata?.sshEnvironment) {
       return c.json({ success: false, error: 'Side chats are unavailable for SSH conversations.' }, 400)
     }
+    if (parent.metadata?.remoteExecution) {
+      return c.json({ success: false, error: 'Side chats are unavailable for agents on another machine.' }, 400)
+    }
 
     const chatId = storage.createChat({
       tp: 'side',

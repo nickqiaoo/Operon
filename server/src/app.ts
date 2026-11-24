@@ -108,6 +108,8 @@ import { notify } from './services/notification-service.js'
 import type { MobilePairingSummary } from './types/mobile.js'
 import { createApiTokenMiddleware } from './services/api-token.js'
 import type { RemoteE2EEMode } from '@shared/e2ee/protocol'
+import { delegationRoutes } from './routes/delegations.js'
+import { DelegationHost } from './services/delegation-host.js'
 
 export interface AppDeps {
   storage: StorageAdapter & ChatStorageAdapter & CronjobStorageAdapter & CanvasWorkflowStorageAdapter & ProjectStorageAdapter & ChannelStorageAdapter & TaskStorageAdapter & NotificationStorageAdapter & AssistantStorageAdapter & CheckpointStorageAdapter & IMStorageAdapter & AgentBindingStorageAdapter & MemoryMaintenanceStorageAdapter
@@ -128,6 +130,8 @@ export interface AppDeps {
   /** Host-side echo of a confirmed pairing — the desktop raises an OS notification. */
   onDevicePaired?: (pairing: MobilePairingSummary) => void
 }
+
+let stopDelegations: (() => void) | undefined
 
 export async function createApp(deps: AppDeps) {
   initProviderConfigService(deps.storage)
@@ -304,6 +308,9 @@ export async function createApp(deps: AppDeps) {
   const ai = aiRoutes(deps.storage)
   const tasks = taskRoutes(deps.storage)
   const inbox = notificationRoutes(deps.storage)
+  stopDelegations?.()
+  const delegationHost = new DelegationHost(deps.storage)
+  stopDelegations = delegationHost.init()
   const externalAgents = externalAgentRoutes()
   const projects = projectRoutes(deps.storage)
   app.route('/api/events', eventRoutes({
@@ -362,6 +369,7 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/assistant', assistantRoutes(deps.storage))
   app.route('/api/assistant-mcp', assistantMcpRoutes())
   app.route('/api/external-agents', externalAgents)
+  app.route('/api/delegations', delegationRoutes(delegationHost))
   app.route('/api/workflow-mcp', workflowMcpRoutes())
   app.route('/api/provider-configs', providerConfigRoutes())
   app.route('/api/env', envRoutes())

@@ -13,6 +13,8 @@ export interface ChatMetadata {
   /** chat-runtime fields */
   modeId?: string
   sshEnvironment?: import('../../../shared/ssh-environment.js').SshEnvironmentRef
+  /** The agent runs on another machine of the account (a remote external agent's chat). */
+  remoteExecution?: import('../../../shared/delegations.js').RemoteExecutionRef
   /** A workflow or spec sub-agent's conversation (tp 'workflow-agent'): which run row it is. */
   workflowAgent?: {
     runId: string

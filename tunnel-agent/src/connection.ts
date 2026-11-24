@@ -33,6 +33,8 @@ export interface AgentOptions {
    * agent reads it from ~/.operon/run/api-token.
    */
   localToken?: string
+  delegationTunnelToken?: string
+  delegationPublicKey?: string
   /**
    * The broker refused this token — it is revoked, or was minted by a different
    * broker than the one this build talks to. Reconnecting cannot fix either, so
@@ -120,7 +122,7 @@ export function startAgent(opts: AgentOptions): AgentHandle {
           // would cost an HTTP request per node per 15s for no added signal.
           break
         case 'req':
-          void handleReq(f as ReqFrame, send, opts.localBase, inflight, opts.localToken)
+          void handleReq(f as ReqFrame, send, opts.localBase, inflight, opts.localToken, opts.delegationTunnelToken)
           break
         case 'cancel': {
           const id = (f as CancelFrame).id
@@ -179,7 +181,11 @@ export function startAgent(opts: AgentOptions): AgentHandle {
         `${opts.brokerUrl}/agent/down?label=${encodeURIComponent(opts.label)}`,
         {
           method: 'GET',
-          headers: { authorization: `Bearer ${opts.secret}`, accept: 'text/event-stream' },
+          headers: {
+            authorization: `Bearer ${opts.secret}`,
+            accept: 'text/event-stream',
+            ...(opts.delegationPublicKey ? { 'x-operon-delegation-public-key': opts.delegationPublicKey } : {}),
+          },
           signal: ac.signal,
         },
       )

@@ -15,7 +15,7 @@ import {
   responseFrameAad,
   responseContext,
 } from '@shared/e2ee/protocol'
-import { deriveRemoteDirectionKeys, open, seal } from './crypto'
+import { deriveRemoteDirectionKeys, open, seal } from '@shared/e2ee/crypto'
 import { getRemotePairing, removeRemotePairing } from './device-store'
 
 const encoder = new TextEncoder()

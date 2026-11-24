@@ -9,6 +9,9 @@ import { getProviderModels } from './ai/providers.js'
 import { assistantAgentMode, subagentMode } from './agents/subagent-mode.js'
 import { enqueueExternalAgentResult } from './external-agent-notifications.js'
 import { listPendingApprovals } from './ai/chat-pending-input.js'
+import type { DelegationWorkspace, RemoteExecutionRef } from '@shared/delegations'
+import { delegationRequest, listDelegationNodes } from './delegation-transport.js'
+import { remoteProviderModels } from './remote-agent-session.js'
 
 const listeners = new Set<(event: ExternalAgentFrame) => void>()
 const activeTurns = new Map<number, string>()
@@ -30,12 +33,14 @@ export function externalAgentView(childChatId: number): ExternalAgentView | unde
   if (!binding || !meta?.providerId) return undefined
   const last = binding.lastTurn
   const pending = last?.status === 'running' || last?.status === 'queued'
+  const remote = meta.metadata?.remoteExecution
   return {
     ...binding, childChatId, modelId: meta.model, modeId: meta.metadata?.modeId, providerId: meta.providerId, workspaceId: meta.workspaceId,
     turnId: last?.turnId,
     status: pending && !activeTurns.has(childChatId) ? 'interrupted' : last?.status ?? 'idle',
     error: last?.error,
     updatedAt: meta.updatedAt,
+    ...(remote ? { remote: { nodeId: remote.nodeId, machine: remote.machine, workspace: remote.workspace } } : {}),
   }
 }
 
@@ -121,20 +126,37 @@ export async function createExternalAgent(params: {
   providerId: string; model: string; description: string; prompt: string
   /** Reasoning effort; unset runs at the agent's own level. */
   effort?: string
+  /**
+   * Run on another machine of the account, in one of its workspaces. The
+   * conversation is still a child here, in the parent's workspace; only its agent
+   * session runs there.
+   */
+  remote?: { nodeId: string; workspaceId?: number }
 }) {
   const storage = getChatStorage()
   const { parent } = params
   const parentWorkspaceId = 'chatId' in parent ? storage?.getChatMeta(parent.chatId)?.workspaceId : undefined
-  const workspaceId = 'chatId' in parent ? parent.workspaceId ?? parentWorkspaceId : parent.workspaceId
+  const workspaceId = params.remote
+    ? 'chatId' in parent ? parentWorkspaceId : parent.workspaceId
+    : 'chatId' in parent ? parent.workspaceId ?? parentWorkspaceId : parent.workspaceId
   if (!storage || !workspaceId) throw new Error('External agents require an existing workspace conversation')
   // Elsewhere than the parent's own: only a workspace of the same project.
-  const elsewhere = 'chatId' in parent && workspaceId !== parentWorkspaceId
+  const elsewhere = !params.remote && 'chatId' in parent && workspaceId !== parentWorkspaceId
     ? otherWorkspace(parentWorkspaceId, workspaceId)
     : undefined
   const parentChatId = 'chatId' in parent ? parent.chatId : 0
   const owner: ExternalAgentOwner = 'chatId' in parent ? parent.chatId : 'assistant'
-  const models = params.model === 'default' || params.effort ? await getProviderModels(params.providerId) : undefined
+  const remoteExecution = params.remote ? await resolveRemoteExecution(params.providerId, params.remote) : undefined
+  const needsModels = params.model === 'default' || !!params.effort || !!remoteExecution
+  const models = needsModels
+    ? remoteExecution
+      ? await remoteProviderModels(remoteExecution.nodeId, params.providerId) as unknown as ProviderModels
+      : await getProviderModels(params.providerId)
+    : undefined
   const modelId = params.model === 'default' ? models?.currentModelId || undefined : params.model
+  if (remoteExecution && modelId && models?.models?.length && !models.models.some((model) => model.modelId === modelId)) {
+    throw new Error(`Models of ${params.providerId} on ${remoteExecution.machine}: ${models.models.map((model) => model.modelId).join(', ')}`)
+  }
   if (params.effort) {
     const levels = models?.configOptions?.find((option) => option.category === 'thought_level')?.options.map((option) => option.value) ?? []
     if (!levels.includes(params.effort)) {
@@ -148,18 +170,41 @@ export async function createExternalAgent(params: {
     title: `Agent: ${params.description}`, workspaceId,
     providerId: params.providerId, model: modelId,
     ...(params.effort ? { thinkingLevel: params.effort } : {}),
-    updatedAt: Date.now(), metadata: { modeId },
+    updatedAt: Date.now(), metadata: { modeId, ...(remoteExecution ? { remoteExecution } : {}) },
   })
   const agentId = `ext-${chatId}`
-  storage.updateChatMetadata(chatId, { modeId, externalAgent: {
+  storage.updateChatMetadata(chatId, { modeId, ...(remoteExecution ? { remoteExecution } : {}), externalAgent: {
     agentId, parentChatId, description: params.description, model: params.model,
     ...('assistantActivityId' in parent ? { assistantActivityId: parent.assistantActivityId } : {}),
   } })
   const result = await sendExternalAgent(owner, agentId, params.prompt)
   const view = externalAgentView(chatId)
   if (view) publish({ type: 'created', agent: view })
+  if (remoteExecution) return { ...result, machine: remoteExecution.machine, workspace: remoteExecution.workspace }
   // Its changes are not in the parent's worktree: say where they are.
   return elsewhere ? { ...result, workspace_id: workspaceId, branch: elsewhere.branchName, worktree_path: elsewhere.worktreePath } : result
+}
+
+type ProviderModels = Awaited<ReturnType<typeof getProviderModels>>
+
+async function resolveRemoteExecution(providerId: string, remote: { nodeId: string; workspaceId?: number }): Promise<RemoteExecutionRef> {
+  const [machines, catalog] = await Promise.all([
+    listDelegationNodes(),
+    delegationRequest<{ workspaces: DelegationWorkspace[] }>(remote.nodeId,
+      `/api/delegations/catalog?provider=${encodeURIComponent(providerId)}&models=0`),
+  ])
+  const machine = machines.find(({ nodeId, current }) => nodeId === remote.nodeId && !current)
+  if (!machine) throw new Error('That machine is not on this account')
+  const { workspaces } = catalog
+  if (!workspaces.length) throw new Error(`${machine.label} has no workspaces`)
+  const workspace = remote.workspaceId === undefined && workspaces.length === 1
+    ? workspaces[0]
+    : workspaces.find(({ id }) => id === remote.workspaceId)
+  if (!workspace) {
+    throw new Error(`Choose a workspace on ${machine.label}: ${workspaces.map(({ id, project, name }) => `${id} (${project} / ${name})`).join(', ')}`)
+  }
+  return { nodeId: machine.nodeId, machine: machine.label || machine.nodeId, workspaceId: workspace.id,
+    workspace: `${workspace.project} / ${workspace.name}`, sessionId: randomUUID() }
 }
 
 function otherWorkspace(parentWorkspaceId: number | undefined, workspaceId: number) {

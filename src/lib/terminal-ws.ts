@@ -1,7 +1,7 @@
 import { getApiTokenSync, getBaseUrl } from './api-client.js'
 import { ensureAccessToken, getBrokerWsProtocols, getSelectedNodeId, notifyNodeOffline } from './web-auth.js'
 import { decodeWebSocketFrame, utf8, webSocketFrameAad } from '@shared/e2ee/protocol'
-import { deriveRemoteDirectionKeys, open, seal } from './e2ee/crypto'
+import { deriveRemoteDirectionKeys, open, seal } from '@shared/e2ee/crypto'
 import { getRemotePairing } from './e2ee/device-store'
 
 type CreateOptions = { cwd?: string; cols?: number; rows?: number; launch?: string }

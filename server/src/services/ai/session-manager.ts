@@ -11,6 +11,7 @@ import type {
   Runtime,
 } from '@operon/agent-runtime'
 import type { HostSessionOptions } from './session-options.js'
+import { createRemoteAgentSession } from '../remote-agent-session.js'
 
 export interface ActiveRequest {
   requestId: string
@@ -86,6 +87,7 @@ const buildStructuralKey = (params: HostSessionOptions): string =>
     codex: params.codex ?? {},
     opencode: params.opencode ?? {},
     sshEnvironment: params.operon?.sshEnvironment,
+    remoteExecution: params.remoteExecution && [params.remoteExecution.nodeId, params.remoteExecution.sessionId, params.remoteExecution.workspaceId],
     // NOTE: instructions is intentionally excluded. For a given chat it is stable:
     // a workspace chat gets the spec hint from its first message on (chat-flow
     // resolves sourceChatId before the session exists), and a channel agent's
@@ -202,7 +204,9 @@ export class SessionManager {
       await this.destroy(chatId, 'rebuild')
     }
 
-    const runtime = await this.runtime.provider(providerId).createSession(params)
+    const runtime: AgentSession = params.remoteExecution
+      ? await createRemoteAgentSession(providerId, params.remoteExecution, params)
+      : await this.runtime.provider(providerId).createSession(params)
     const record: SessionRecord = {
       chatId,
       providerId,

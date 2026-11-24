@@ -19,6 +19,7 @@ import type {
 } from '@/types/skill'
 import type { CanvasWorkflow, CanvasWorkflowListItem, CanvasWorkflowRun, CreateCanvasWorkflowInput, UpdateCanvasWorkflowInput } from '@/types/canvas-workflow'
 import type { FileUIPart, UIMessage } from 'ai'
+import type { DelegationMachine, DelegationWorkspace, IncomingDelegation } from '@shared/delegations'
 import type { DetailedContextUsage } from '@/types/context-usage'
 import type { ClaudeRateLimits, CodexRateLimits } from '@/components/editor/utils/chatMetadata'
 import type { CodexGoal } from '@/types/goal'
@@ -395,6 +396,18 @@ export type WorkflowFeedEventKind =
   | 'settled'
 
 export const api = {
+  delegationMachines: () => get<{ machines: DelegationMachine[] }>('/delegations/local/machines'),
+  /** Another machine's agents and workspaces, for starting an external agent there. */
+  delegationCatalog: (nodeId: string) => get<{ workspaces: DelegationWorkspace[]; agents: { agentType: string }[] }>(
+    `/delegations/local/machines/${encodeURIComponent(nodeId)}/catalog`),
+  /** Same shape as `getProviderModels`, read from the machine the agent runs on. */
+  getRemoteProviderModels: (nodeId: string, providerId: string) =>
+    get<unknown>(`/delegations/local/machines/${encodeURIComponent(nodeId)}/providers/${encodeURIComponent(providerId)}/models`),
+  runExternalAgent: (chatId: number, input: {
+    providerId: string; model: string; effort?: string; description: string; prompt: string; target?: string; workspaceId?: number
+  }) => post<{ agent_id: string; chat_id: number }>(`/delegations/local/chats/${chatId}/agents`, input),
+  delegationSettings: () => get<{ enabled: boolean; recent: IncomingDelegation[] }>('/delegations/local/settings'),
+  setDelegationSettings: (enabled: boolean) => post<{ enabled: boolean; recent: IncomingDelegation[] }>('/delegations/local/settings', { enabled }),
   // --- Git (HTTP) ---
   gitStatus: httpClient.gitStatus,
   gitDiff: httpClient.gitDiff,

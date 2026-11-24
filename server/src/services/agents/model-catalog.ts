@@ -93,6 +93,7 @@ function toEntry(
   result: Awaited<ReturnType<typeof getProviderModels>>,
   query?: string,
   toolName = 'ListAgentModels',
+  full = false,
 ): AgentModelCatalogEntry {
   const currentModel = result.currentModelId || undefined
   const matching = query ? result.models.filter((model) => matches(model, query)) : result.models
@@ -115,7 +116,7 @@ function toEntry(
     ...(result.modelsPending ? { pending: true } : {}),
   }
 
-  if (matching.length <= INLINE_MODEL_LIMIT) {
+  if (full || matching.length <= INLINE_MODEL_LIMIT) {
     return {
       ...base,
       models: matching.map(listed),
@@ -176,10 +177,11 @@ export async function agentModelCatalog(
   availableAgents: readonly string[],
   query?: string,
   toolName = 'ListAgentModels',
+  full = false,
 ): Promise<AgentModelCatalogEntry[]> {
   const read = async (agentType: string): Promise<AgentModelCatalogEntry> => {
     try {
-      return toEntry(agentType, await getProviderModels(toProviderId(agentType)), query, toolName)
+      return toEntry(agentType, await getProviderModels(toProviderId(agentType)), query, toolName, full)
     } catch (error) {
       return {
         agentType,

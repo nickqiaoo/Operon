@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -123,6 +124,16 @@ func (s *Server) handleAgentDown(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"node revoked or unknown"}`, http.StatusForbidden)
 		return
 	}
+	if key := r.Header.Get(delegationPublicKeyHeader); key != "" && key != node.DelegationPublicKey {
+		if !validDelegationPublicKey(key) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_delegation_key"})
+			return
+		}
+		if err := s.store.setDelegationPublicKey(r.Context(), node, key); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "delegation_key_registration_failed"})
+			return
+		}
+	}
 	userID := claims.Subject
 	nodeID := claims.NodeID
 	label := node.Label
@@ -190,6 +201,11 @@ func (s *Server) handleAgentDown(w http.ResponseWriter, r *http.Request) {
 
 	c.runWriteLoop(w) // blocks until the connection ends
 	slog.Info("broker: agent offline", "user", userID, "node", nodeID, "conn", connID)
+}
+
+func validDelegationPublicKey(key string) bool {
+	raw, err := base64.StdEncoding.Strict().DecodeString(key)
+	return err == nil && len(raw) == 32 && base64.StdEncoding.EncodeToString(raw) == key
 }
 
 // handleAgentUp: POST /agent/up?connId= — one uplink batch. Authenticates, finds the

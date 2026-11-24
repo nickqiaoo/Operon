@@ -3,6 +3,9 @@ import { brokerHttpBase } from '../../../tunnel-agent/src/saasConfig.js'
 import { getSaasConfig, clearSaasConfig } from '../gateway/saas/config.js'
 import { BROKER_URL } from '../gateway/saas/broker.js'
 import { getApiToken, isApiTokenAuthDisabled } from './api-token.js'
+import { delegationTunnelToken } from './delegation-tunnel.js'
+import { getDelegationKeypair } from './mobile/identity.js'
+import { bytesToBase64 } from '@shared/e2ee/protocol'
 
 // Runs the tunnel agent IN-PROCESS (Electron main) so that once the user has signed
 // in, this machine is reachable from the web app with zero manual steps. The agent
@@ -31,6 +34,8 @@ export function startSaasRuntime(): boolean {
     localBase: `http://127.0.0.1:${port}`,
     // Same process as the server, so the /api token gate is satisfied directly.
     localToken: isApiTokenAuthDisabled() ? undefined : getApiToken(),
+    delegationTunnelToken,
+    delegationPublicKey: bytesToBase64(getDelegationKeypair().publicKey),
     // A refused token is worthless — revoked, or minted by a broker this build
     // no longer talks to — and the agent has already given up. Throw it away so
     // the machine reads as disconnected, which is the truth, instead of holding

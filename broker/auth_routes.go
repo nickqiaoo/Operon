@@ -443,7 +443,38 @@ func (s *Server) handleListUserNodes(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
 		return
 	}
-	rows, err := s.store.ListNodes(claims.Subject)
+	s.listUserNodes(w, r, claims.Subject, false)
+}
+
+func (s *Server) handleDelegationNodes(w http.ResponseWriter, r *http.Request) {
+	claims, err := s.requireNode(r)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	if _, active := s.delegationNode(claims.Subject, claims.NodeID); !active {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	if target := r.URL.Query().Get("nodeId"); target != "" {
+		node, active := s.delegationNode(claims.Subject, target)
+		if !active {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+			return
+		}
+		if node.DelegationPublicKey == "" {
+			writeBrokerError(w, http.StatusConflict, "delegation_key_missing", "The selected machine has not registered a delegation key. Update and restart Operon on that machine.")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"publicKey": node.DelegationPublicKey})
+		return
+	}
+	s.listUserNodes(w, r, claims.Subject, true)
+}
+
+func (s *Server) listUserNodes(w http.ResponseWriter, r *http.Request, uid string, activeOnly bool) {
+	rows, err := s.store.ListNodes(uid)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list failed"})
 		return
@@ -456,13 +487,16 @@ func (s *Server) handleListUserNodes(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []nodeView{}
 	for _, n := range rows {
+		if activeOnly && n.RevokedAt != 0 {
+			continue
+		}
 		// Online if THIS instance owns the tunnel (fast path), or — in a cluster —
 		// some peer owns it per the shared route directory. Without the directory
 		// check a round-robined /auth/nodes flaps online/offline between the owner
 		// and non-owner instances.
-		_, online := s.reg.Get(claims.Subject, n.ID)
+		_, online := s.reg.Get(uid, n.ID)
 		if !online && s.dir.enabled() {
-			online = s.dir.nodeOnline(r.Context(), claims.Subject, n.ID)
+			online = s.dir.nodeOnline(r.Context(), uid, n.ID)
 		}
 		out = append(out, nodeView{NodeID: n.ID, Label: n.Label, Online: online, Revoked: n.RevokedAt != 0})
 	}

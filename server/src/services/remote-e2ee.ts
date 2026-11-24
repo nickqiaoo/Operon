@@ -8,7 +8,13 @@ import type { MobilePairingStorageAdapter } from '../storage/interface.js'
 import type { MobilePairingRow, MobilePairingSummary } from '../types/mobile.js'
 import { BROKER_URL } from '../gateway/saas/broker.js'
 import { getSaasConfig } from '../gateway/saas/config.js'
+import { DELEGATION_NODE_ID, nodeDelegationRoute } from '@shared/delegations'
+import { deriveDelegationKeys } from '@shared/e2ee/crypto'
+import { trustedDelegationTunnel } from './delegation-tunnel.js'
 import {
+  DELEGATION_PUBLIC_KEY_HEADER,
+  DELEGATION_SOURCE_HEADER,
+  DELEGATION_TUNNEL_HEADER,
   E2EE_DEVICE_HEADER,
   E2EE_CONTEXT_HEADER,
   E2EE_FRAMING_HEADER,
@@ -39,6 +45,7 @@ import {
   fingerprintPublicKey,
   getDesktopIdentity,
   getDesktopPrivateKey,
+  getDelegationKeypair,
 } from './mobile/identity.js'
 
 const PAIRING_TTL_MS = 5 * 60 * 1000
@@ -311,6 +318,11 @@ export function createRemoteE2EEMiddleware(): MiddlewareHandler {
       await next()
       return
     }
+    const source = c.req.header(DELEGATION_SOURCE_HEADER)
+    if (source && (!DELEGATION_NODE_ID.test(source) || !trustedDelegationTunnel(c.req.header(DELEGATION_TUNNEL_HEADER)) ||
+        !nodeDelegationRoute(c.req.method, c.req.path))) {
+      return c.json({ error: 'delegation_scope_denied' }, 403)
+    }
     // WebSocket messages have their own ordered frame wrapper. The HTTP
     // handshake cannot carry a browser-defined header, so the terminal route
     // validates query-bound device identity before upgrading the connection.
@@ -333,7 +345,7 @@ export function createRemoteE2EEMiddleware(): MiddlewareHandler {
       return
     }
     if (c.req.header(E2EE_HEADER) !== REMOTE_E2EE_VERSION) {
-      if (getRemoteE2EEMode() === 'off') {
+      if (!source && getRemoteE2EEMode() === 'off') {
         await next()
         return
       }
@@ -347,18 +359,31 @@ export function createRemoteE2EEMiddleware(): MiddlewareHandler {
       c.res = c.json({ error: 'e2ee_invalid', message: 'Missing E2EE device identity' }, 400)
       return
     }
-    const desktopId = getDesktopIdentity().desktopId
-    const row = requireState().storage.getMobilePairingByDevice(desktopId, deviceId)
-    if (!row || row.status !== 'confirmed') {
-      c.res = c.json({ error: 'e2ee_device_untrusted', message: 'This device is not paired' }, 403)
-      return
+    let keys: DirectionKeys
+    let desktopId: string | undefined
+    if (source) {
+      const target = getSaasConfig().nodeId
+      const publicKey = c.req.header(DELEGATION_PUBLIC_KEY_HEADER)
+      try {
+        const peer = base64ToBytes(publicKey ?? '')
+        if (!target || deviceId !== source || peer.length !== 32 || fingerprintPublicKey(peer) !== keyId) {
+          return c.json({ error: 'e2ee_key_invalid', message: 'Delegation key identity does not match' }, 403)
+        }
+        keys = deriveDelegationKeys(getDelegationKeypair().privateKey, peer, source, target)
+      } catch {
+        return c.json({ error: 'e2ee_key_invalid', message: 'Invalid delegation public key' }, 403)
+      }
+    } else {
+      desktopId = getDesktopIdentity().desktopId
+      const row = requireState().storage.getMobilePairingByDevice(desktopId, deviceId)
+      if (!row || row.status !== 'confirmed') {
+        return c.json({ error: 'e2ee_device_untrusted', message: 'This device is not paired' }, 403)
+      }
+      if (keyId !== row.mobileFingerprint) {
+        return c.json({ error: 'e2ee_key_invalid', message: 'Encrypted key identity does not match' }, 403)
+      }
+      keys = deriveDirectionKeys(row)
     }
-    if (keyId !== row.mobileFingerprint) {
-      c.res = c.json({ error: 'e2ee_key_invalid', message: 'Encrypted key identity does not match' }, 403)
-      return
-    }
-
-    const keys = deriveDirectionKeys(row)
     let responseBinding = ''
     try {
       const apiPath = `${c.req.path}${new URL(c.req.url).search}`
@@ -377,10 +402,10 @@ export function createRemoteE2EEMiddleware(): MiddlewareHandler {
         E2EE_KEY_HEADER,
         E2EE_PROOF_HEADER,
         E2EE_INNER_CONTENT_TYPE_HEADER,
-        REMOTE_TUNNEL_HEADER,
       ]) {
         headers.delete(name)
       }
+      if (!c.req.path.startsWith('/api/delegations') && !c.req.path.startsWith('/api/e2ee/')) headers.delete(REMOTE_TUNNEL_HEADER)
       if (innerContentType) headers.set('content-type', innerContentType)
       else headers.delete('content-type')
       headers.delete('content-length')
@@ -413,7 +438,7 @@ export function createRemoteE2EEMiddleware(): MiddlewareHandler {
         error: error instanceof Error ? error.message : 'Internal server error',
       }, 500)
     }
-    requireState().storage.touchMobilePairingLastSeen(desktopId, deviceId, Date.now())
+    if (desktopId) requireState().storage.touchMobilePairingLastSeen(desktopId, deviceId, Date.now())
     const encrypted = encryptResponse(c.res, keys.response, {
       deviceId,
       keyId,

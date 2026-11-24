@@ -34,6 +34,7 @@ import { MobileMoreScreen } from "./MobileMoreScreen"
 import { MobileAssistantScreen, type AssistantHeader } from "./MobileAssistantScreen"
 import { InstallPrompt } from "@/components/web/InstallPrompt"
 import { PendingInputSync } from "@/components/editor/components/PendingInputSync"
+import { ExternalAgentsSync } from "@/components/editor/components/ExternalAgentsSync"
 import { setAnalyticsScreen } from "@/lib/analytics"
 
 /** The open conversation's native-bar button (`action:session`) that opens its Session panel. */
@@ -745,6 +746,7 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
       {/* One watch over every conversation's live turn, as the desktop shell
           does: the lists show which chats are running with no panel mounted. */}
       <PendingInputSync />
+      <ExternalAgentsSync />
       {/* Every screen draws its own top: list screens a MobileHeader, an open
           conversation its own row, the assistant a header floating over its
           thread (handed the inset rather than pushed down). */}

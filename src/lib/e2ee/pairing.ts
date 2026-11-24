@@ -14,7 +14,7 @@ import {
 } from '@shared/e2ee/protocol'
 import { nativePlatform } from '../native'
 import { getUserId } from '../web-auth'
-import { createDeviceKeypair, derivePairingKey, fingerprintPublicKey, open, seal } from './crypto'
+import { createDeviceKeypair, derivePairingKey, fingerprintPublicKey, open, seal } from '@shared/e2ee/crypto'
 import { getOrCreateDeviceId, saveRemotePairing } from './device-store'
 
 export function parsePairingQr(value: string): RemotePairingQrPayload {

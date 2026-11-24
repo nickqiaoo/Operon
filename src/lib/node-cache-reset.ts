@@ -1,5 +1,6 @@
 import { queryClient } from './query-client'
 import { useProjectStore } from '@/stores/project-store'
+import { useExternalAgentsStore } from '@/stores/external-agents-store'
 
 /**
  * Drop every cache scoped to the backend node before switching to another one.
@@ -13,5 +14,6 @@ import { useProjectStore } from '@/stores/project-store'
  */
 export function resetNodeScopedCaches(): void {
   useProjectStore.getState().resetProjects()
+  useExternalAgentsStore.getState().sync([])
   queryClient.clear()
 }

@@ -349,7 +349,8 @@ async function goalSessionForChat(chatId: number) {
   const live = manager.get(chatId)
   if (live) return live
   const meta = getChatStorage()?.getChatMeta(chatId)
-  if (meta?.providerId !== 'codex' || !meta.sessionId) return undefined
+  // A remote agent's thread lives on its own machine; this one has nothing to read.
+  if (meta?.providerId !== 'codex' || !meta.sessionId || meta.metadata?.remoteExecution) return undefined
   const workspace = meta.workspaceId ? getProjectStorage()?.getWorkspace(meta.workspaceId) : undefined
   // Construct only the runtime handle; goal/get reads stored state without
   // resuming the thread or starting autonomous work.

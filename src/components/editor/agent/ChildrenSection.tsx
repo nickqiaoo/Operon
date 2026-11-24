@@ -4,6 +4,7 @@ import { FormattedMessage, useIntl } from 'react-intl'
 import { codingAgentName } from '@/components/assistant/CodingAgentCard'
 import { ChildPendingInput } from '@/components/editor/components/ChildPendingInput'
 import { openChildChat, useOtherWorkspaceName } from '@/hooks/useChatChildren'
+import { ExternalAgentDispatch } from './ExternalAgentDispatch'
 import { childCounts, isActiveState, type ChatChild, type ChildState } from '@/lib/chat-children'
 import { cn } from '@/lib/utils'
 import { Badge, INDENT, ROW, ROWS, RowDot, Section } from './session-panel-parts'
@@ -23,7 +24,7 @@ const CHILD_DOT: Record<ChildState, string> = {
  * The Session panel's first card: the external agents this conversation started,
  * the ones that need you on top. Each opens its own conversation.
  */
-export function ChildrenSection({ chatId, agents }: { chatId: number; agents: ChatChild[] }) {
+export function ChildrenSection({ chatId, agents, allowDispatch = false }: { chatId: number; agents: ChatChild[]; allowDispatch?: boolean }) {
   const [expanded, setExpanded] = useState(true)
   const counts = childCounts(agents)
   return (
@@ -35,6 +36,7 @@ export function ChildrenSection({ chatId, agents }: { chatId: number; agents: Ch
       onToggle={() => setExpanded((v) => !v)}
     >
       <ChatChildrenList key={chatId} agents={agents} />
+      {allowDispatch && <ExternalAgentDispatch chatId={chatId} />}
     </Section>
   )
 }
@@ -93,7 +95,7 @@ function ChildRow({ child }: { child: ChatChild }) {
   const model = child.modelId && child.modelId !== 'default' ? child.modelId : undefined
   // Working in a workspace of its own: its changes are on that branch, so say which.
   const workspace = useOtherWorkspaceName(child.workspaceId)
-  const who = [codingAgentName(child.providerId), model, workspace].filter(Boolean).join(' · ')
+  const who = [codingAgentName(child.providerId), model, child.remote ? `${child.remote.machine} · ${child.remote.workspace}` : workspace].filter(Boolean).join(' · ')
 
   return (
     <div className={ROW}>

@@ -8,8 +8,12 @@ import { createExternalAgent, sendExternalAgent, stopExternalAgent, getExternalA
 import { createChatWorkspace, type ChatWorkspaceStorage } from '../services/chat-workspace.js'
 import { serveMcpOverHono, withCodexElicitationFallback } from './mcp-http.js'
 import { resolveMcpCallerChat } from './mcp-caller.js'
+import { getSaasConfig } from '../gateway/saas/config.js'
+import { delegationRequest, listDelegationNodes } from '../services/delegation-transport.js'
+import { DELEGATION_NODE_ID } from '@shared/delegations'
 
-export const SUPPORTED_EXTERNAL_AGENT_IDS = ['codex', 'claude-code', 'opencode', 'kimi', 'cursor', 'grok', 'copilot', 'antigravity', 'qoder'] as const
+import { SUPPORTED_EXTERNAL_AGENT_IDS } from '@shared/external-agent'
+export { SUPPORTED_EXTERNAL_AGENT_IDS }
 
 const MODEL_TOOL = 'external_agent_list_models'
 const requiredText = (args: Record<string, unknown>, key: string): string => {
@@ -22,25 +26,38 @@ export function buildExternalAgentMcpServer(availableAgents: string[], parentCha
   const server = new Server({ name: 'external_agent', version: '2.0.0' }, { capabilities: { tools: {} } })
   const agentId = { type: 'string', description: 'agent_id returned by external_agent_run. Reuses its existing conversation.' }
   const prompt = { type: 'string', description: 'Instructions for this turn.' }
+  // Other machines of the account are reachable once this one is connected to Remote.
+  const remote = !!getSaasConfig().nodeToken
+  const target = { type: 'string', description: 'Run on another machine: a nodeId from external_agent_list_targets. Omit for this machine.' }
   const tools: Tool[] = [
+    ...(remote ? [{
+      name: 'external_agent_list_targets',
+      description: 'List the other machines on this account an external agent can run on. A machine must allow it in its Remote settings.',
+      inputSchema: { type: 'object' as const, properties: {} },
+    }] : []),
     {
       name: MODEL_TOOL,
-      description: 'Dynamically list available external agents, their current models and model choices. Before creating an agent, query this and ask the user to choose the agent and model. Preserve choices already given. Large lists return groups; narrow them with query.',
+      description: `Dynamically list available external agents, their current models and model choices. Before creating an agent, query this and ask the user to choose the agent and model. Preserve choices already given. Large lists return groups; narrow them with query.${remote ? ' With target_node_id, lists that machine\'s agents and models, and its workspaces.' : ''}`,
       inputSchema: { type: 'object', properties: {
         agentTypes: { type: 'array', items: { type: 'string' }, description: 'Only these agents; omit for all available external agents.' },
         query: { type: 'string', description: 'Filter model IDs and names, e.g. sonnet or gpt.' },
+        ...(remote ? { target_node_id: target } : {}),
       } },
     },
     {
       name: 'external_agent_run',
       description: `Delegate to an external agent in a new chat tab. See /operon-external-agent. First call ${MODEL_TOOL} and ask the user which agent AND model to use; do not pick silently or re-ask choices already given. Both agent_type and model are required; model:'default' means the user accepts that agent's own model. Set selection_confirmed:true only after the user chose. Include a self-contained prompt: the child cannot see this conversation. Returns immediately; results arrive here automatically. If your next step depends on the result, end this turn and wait. Do not poll. Follow up using external_agent_send with the returned agent_id.`,
       inputSchema: { type: 'object', properties: {
-        agent_type: { type: 'string', enum: availableAgents }, prompt,
+        // Another machine has agents of its own.
+        agent_type: remote ? { type: 'string', description: `This machine: ${availableAgents.join(', ')}. Another machine: one ${MODEL_TOOL} lists for it.` } : { type: 'string', enum: availableAgents }, prompt,
         description: { type: 'string', description: 'Short task title.' },
         model: { type: 'string', description: `An ID from ${MODEL_TOOL}, or 'default' explicitly accepted by the user.` },
         effort: { type: 'string', description: `Reasoning effort, one of the levels ${MODEL_TOOL} lists for that agent and model. Only when the user asked for one; omit to use the agent's own.` },
         selection_confirmed: { type: 'boolean', description: 'True only when the user has chosen both the agent and model.' },
-        workspace_id: { type: 'integer', description: "Workspace the agent works in, in this conversation's project (e.g. one from workspace_create). Omit to work in this conversation's own workspace." },
+        workspace_id: { type: 'integer', description: remote
+          ? "Workspace the agent works in. This machine: one in this conversation's project (e.g. from workspace_create); omit for this conversation's own. Another machine: one of the workspaces " + MODEL_TOOL + ' lists for it; omit only when it has one.'
+          : "Workspace the agent works in, in this conversation's project (e.g. one from workspace_create). Omit to work in this conversation's own workspace." },
+        ...(remote ? { target_node_id: target } : {}),
       }, required: ['agent_type', 'prompt', 'description', 'model', 'selection_confirmed'] },
     },
     {
@@ -71,8 +88,19 @@ export function buildExternalAgentMcpServer(availableAgents: string[], parentCha
     const json = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value) }] })
     try {
       const name = req.params.name
+      const targetNodeId = remoteTarget(args.target_node_id)
+      if (name === 'external_agent_list_targets') {
+        const machines = (await listDelegationNodes()).filter((machine) => !machine.current)
+        return json({ machines: machines.map(({ nodeId, label, online }) => ({ nodeId, label, online })) })
+      }
       if (name === MODEL_TOOL) {
         const requested = Array.isArray(args.agentTypes) ? args.agentTypes.filter((id): id is string => typeof id === 'string') : []
+        if (targetNodeId) {
+          const params = new URLSearchParams()
+          for (const id of requested) params.append('provider', id)
+          if (typeof args.query === 'string' && args.query.trim()) params.set('query', args.query.trim())
+          return json(await delegationRequest(targetNodeId, `/api/delegations/catalog${params.size ? `?${params}` : ''}`))
+        }
         if (requested.some((id) => !availableAgents.includes(id))) throw new Error(`Available agents: ${availableAgents.join(', ')}`)
         return json({ agents: await agentModelCatalog(requested.length ? requested : availableAgents,
           typeof args.query === 'string' ? args.query.trim() || undefined : undefined, MODEL_TOOL) })
@@ -81,15 +109,18 @@ export function buildExternalAgentMcpServer(availableAgents: string[], parentCha
       if (name === 'external_agent_run') {
         const providerId = requiredText(args, 'agent_type')
         const model = requiredText(args, 'model')
-        if (!availableAgents.includes(providerId)) throw new Error(`Available agents: ${availableAgents.join(', ')}`)
+        if (!targetNodeId && !availableAgents.includes(providerId)) throw new Error(`Available agents: ${availableAgents.join(', ')}`)
         if (args.selection_confirmed !== true) throw new Error(`Call ${MODEL_TOOL} and ask the user to choose the agent and model, then set selection_confirmed:true.`)
         const effort = typeof args.effort === 'string' && args.effort.trim() ? args.effort.trim() : undefined
         if (args.workspace_id !== undefined && !(Number.isSafeInteger(args.workspace_id) && (args.workspace_id as number) > 0)) {
           throw new Error('workspace_id must be a workspace id')
         }
         const workspaceId = args.workspace_id as number | undefined
-        return json(await createExternalAgent({ parent: { chatId: parentChatId, ...(workspaceId ? { workspaceId } : {}) }, providerId, model, effort,
-          prompt: requiredText(args, 'prompt'), description: requiredText(args, 'description') }))
+        return json(await createExternalAgent({
+          parent: { chatId: parentChatId, ...(workspaceId && !targetNodeId ? { workspaceId } : {}) }, providerId, model, effort,
+          prompt: requiredText(args, 'prompt'), description: requiredText(args, 'description'),
+          ...(targetNodeId ? { remote: { nodeId: targetNodeId, workspaceId } } : {}),
+        }))
       }
       if (name === 'workspace_create') {
         const base = typeof args.base_branch === 'string' && args.base_branch.trim() ? args.base_branch.trim() : undefined
@@ -105,6 +136,12 @@ export function buildExternalAgentMcpServer(availableAgents: string[], parentCha
     }
   })
   return withCodexElicitationFallback(server)
+}
+
+function remoteTarget(value: unknown): string | undefined {
+  if (value === undefined || value === '') return undefined
+  if (typeof value !== 'string' || !DELEGATION_NODE_ID.test(value)) throw new Error('target_node_id must be a nodeId from external_agent_list_targets')
+  return value
 }
 
 export function externalAgentMcpRoutes(storage: ChatWorkspaceStorage) {
