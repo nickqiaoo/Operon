@@ -12,6 +12,7 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
     const workspaceIdStr = c.req.query('workspaceId')
     const workspaceId = workspaceIdStr ? parseInt(workspaceIdStr, 10) : undefined
     const tp = c.req.query('tp')
+    const withRemoteAgents = c.req.query('remoteAgents') === '1'
     const limitStr = c.req.query('limit')
     const offsetStr = c.req.query('offset')
     const limit = limitStr ? parseInt(limitStr, 10) : undefined
@@ -30,6 +31,7 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
         return c.json({ error: 'Invalid chat history cursor' }, 400)
       }
       const rows = service.listChats(workspaceId, tp, {
+        withRemoteAgents,
         limit: pageSize + 1,
         before: match ? { updatedAt, id } : undefined,
       })
@@ -41,6 +43,7 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
       })
     }
     const result = service.listChats(workspaceId, tp, {
+      withRemoteAgents,
       limit: Number.isFinite(limit) ? limit : undefined,
       offset: Number.isFinite(offset) ? offset : undefined,
     })

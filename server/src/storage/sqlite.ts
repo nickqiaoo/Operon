@@ -850,7 +850,10 @@ export class SqliteStorage
       whereClauses.push('workspace_id = ?')
       params.push(query.workspaceId)
     }
-    if (query?.tp !== undefined) {
+    if (query?.tp !== undefined && query.withRemoteAgents) {
+      whereClauses.push("(tp = ? OR (tp = 'subagent' AND json_extract(metadata, '$.externalAgent.remoteParent') IS NOT NULL))")
+      params.push(query.tp)
+    } else if (query?.tp !== undefined) {
       whereClauses.push('tp = ?')
       params.push(query.tp)
     } else {

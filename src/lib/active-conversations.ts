@@ -20,7 +20,7 @@ export type ActiveGroup = "needs" | "done" | "running" | "recent"
 export const ACTIVE_GROUPS: readonly ActiveGroup[] = ["needs", "done", "running", "recent"]
 
 /** App's `openChat`: focuses the chat's tab wherever it is, else opens one in its workspace. */
-export type OpenChat = (target: { chatId: number; workspaceId?: number; title?: string }) => void
+export type OpenChat = (target: { chatId: number; workspaceId?: number; title?: string; subAgent?: boolean }) => void
 
 export interface RecentChat {
   id: number

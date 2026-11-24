@@ -96,6 +96,12 @@ export interface StorageAdapter {
 export interface ListChatEntriesQuery {
   workspaceId?: number
   tp?: string
+  /**
+   * With `tp: 'chat'`: also the external agents a conversation on another
+   * machine started here. They have no parent on this machine to list under,
+   * so in this machine's tree they are rows of their own.
+   */
+  withRemoteAgents?: boolean
   /** Max rows to return. Omitted → every chat in the workspace (legacy behaviour). */
   limit?: number
   /** Rows to skip, for "load more" paging over the `updated_at DESC` order. */

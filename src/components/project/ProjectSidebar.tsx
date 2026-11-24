@@ -967,7 +967,8 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
       setActiveWorkspace(targetWorkspace, targetWorkspace === workspaceId ? projectId : undefined, nodeId)
     }
     showWorkbench()
-    const tabId = useEditorStore.getState().openChatTab(existing?.tabId ?? chatTabId(ref), chat.title || "Chat")
+    const tabId = useEditorStore.getState().openChatTab(existing?.tabId ?? chatTabId(ref), chat.title || "Chat",
+      undefined, chat.providerId, chat.tp === "subagent" || undefined)
     useEditorStore.getState().setTabChatId(tabId, chat.id)
     closeAfterNavigate()
   }, [setActiveWorkspace, showWorkbench, closeAfterNavigate])
@@ -980,7 +981,8 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
   const handleOpenChat = useCallback<OpenTreeChat>((chat, workspaceId) => {
     // Coming back to a chat from the list shows its latest output.
     useNavigationStore.getState().requestChatLatest(chat.id)
-    onOpenChat?.({ chatId: chat.id, workspaceId, title: chat.title })
+    // An agent another machine's conversation started here is listed as a row of its own.
+    onOpenChat?.({ chatId: chat.id, workspaceId, title: chat.title, ...(chat.tp === "subagent" ? { subAgent: true } : {}) })
     closeAfterNavigate()
   }, [onOpenChat, closeAfterNavigate])
 

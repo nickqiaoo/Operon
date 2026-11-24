@@ -691,7 +691,9 @@ export function createHttpClient(transport: ApiTransport) {
     page: string | number | null,
     signal: AbortSignal,
   ) {
-    const params = new URLSearchParams({ workspaceId: String(workspaceId), tp: 'chat', limit: String(limit) })
+    // The sidebar tree's rows: conversations, and agents started here from another machine
+    // (no parent on this machine to list them under). A server without the flag ignores it.
+    const params = new URLSearchParams({ workspaceId: String(workspaceId), tp: 'chat', remoteAgents: '1', limit: String(limit) })
     if (typeof page === 'number') params.set('offset', String(page))
     else params.set('cursor', page ?? '')
 
