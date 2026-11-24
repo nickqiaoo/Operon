@@ -35,6 +35,9 @@ export function useOtherMachines(): DelegationMachine[] {
 
 const NO_MACHINES: DelegationMachine[] = []
 
+/** How often a listed machine whose tree did not load is tried again. */
+const REMOTE_TREE_RETRY_MS = 30_000
+
 /** Space above each machine after the first: the same in every group. */
 export const MACHINE_GROUP_GAP = "pt-3"
 
@@ -142,12 +145,22 @@ function RemoteMachineTree({ machine, activeWorkspaceId, renderWorkspace }: {
   const tree = useProjectStore((s) => s.remoteProjects[nodeId])
   const loadRemoteProjects = useProjectStore((s) => s.loadRemoteProjects)
   const reachable = tree?.loaded === true && tree.error == null
+  const failed = tree?.loaded === true && tree.error != null
 
   // Read the tree when the machine comes online (and again each time it does).
   useEffect(() => {
     if (!online) return
     void loadRemoteProjects(nodeId)
   }, [nodeId, online, loadRemoteProjects])
+
+  // A machine Broker lists as online but that did not answer (asleep, network
+  // blip, receiving turned off) is hidden; try it again now and then so it
+  // comes back by itself once it answers.
+  useEffect(() => {
+    if (!online || !failed) return
+    const timer = setInterval(() => void loadRemoteProjects(nodeId), REMOTE_TREE_RETRY_MS)
+    return () => clearInterval(timer)
+  }, [nodeId, online, failed, loadRemoteProjects])
 
   // Then follow it the way this machine's tree follows its own server. Only
   // once it answered: a stream to a machine that can't be reached just retries.
@@ -171,6 +184,9 @@ function RemoteMachineTree({ machine, activeWorkspaceId, renderWorkspace }: {
         }
         schedule()
       },
+      // The stream dropping is how a machine going away shows up first: read
+      // the tree again, and if that fails too the machine is hidden.
+      onError: schedule,
     }, nodeId)
     return () => {
       if (timer != null) clearTimeout(timer)
@@ -193,9 +209,10 @@ function RemoteMachineTree({ machine, activeWorkspaceId, renderWorkspace }: {
   }, [queryClient, nodeId, runningKey])
 
   const projects = tree?.projects ?? []
-  // Only a machine that answered: one that is offline, still connecting, turned
-  // receiving off or runs an older version would be a row you cannot use.
-  if (!reachable) return null
+  // Only a machine that is online and answered: one that is offline, still
+  // connecting, turned receiving off or runs an older version would be a row
+  // you cannot use. A tree loaded earlier stays cached for when it is back.
+  if (!online || !reachable) return null
 
   return (
     <div data-testid={`machine-tree-${nodeId}`} className={MACHINE_GROUP_GAP}>
