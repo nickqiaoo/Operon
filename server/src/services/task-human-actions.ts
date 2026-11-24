@@ -100,10 +100,10 @@ export function commentOnTaskAsHuman(
       attachments.length > 0
         ? `${body.trim() ? '\n' : ''}(${attachments.length} image${attachments.length > 1 ? 's' : ''} attached to this comment — included with this message.)`
         : ''
-    const notification =
-      `[New comment on task #${task.number} from ${commenter}]: ${body.trim()}${images}\n` +
-      `Re-read the full task with get_project_task(task: ${task.number}) if you need context, ` +
-      `then continue the work or reply with comment_project_task(task: ${task.number}, body: "...").`
+    // Just the comment: this text is the user bubble in the task's chat. How to
+    // answer it lives in the task session's instructions (TASK_COMMENT_PROMPT),
+    // and the session already holds the task, so there is nothing to re-read.
+    const notification = `[New comment on task #${task.number} from ${commenter}]: ${body.trim()}${images}`
     woke = true
     void wakeTaskBinding(task.bindingId, notification, taskAttachmentFiles(attachments)).catch((err) => {
       console.warn(`[Task] wake-on-comment failed for task=${task.id}:`, err)

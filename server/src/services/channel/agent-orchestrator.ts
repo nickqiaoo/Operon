@@ -565,6 +565,13 @@ function buildThreadTurnPrompt(
   return { prompt, lastId: wake.lastId, files }
 }
 
+/** Task sessions: how a human comment on the task reaches you and how to answer it. */
+const TASK_COMMENT_PROMPT =
+  'Comments a human leaves on your task arrive in this chat as `[New comment on task #N from <name>]: <comment>`. ' +
+  'Act on them in this session — you already have the task; call get_project_task only if you need something ' +
+  'you have not read yet. Your chat text is not shown on the task, so put any answer the human should see ' +
+  'there in comment_project_task.'
+
 async function startBindingChat(
   binding: AgentBinding,
   prompt: string,
@@ -593,8 +600,12 @@ async function startBindingChat(
   let instructions = buildAgentSystemPrompt(agent)
   // A task that is visible on Linear / GitHub gets told how to talk there and
   // how code leaves the worktree (design.md §12).
-  if (binding.scopeKind === 'task' && taskHasSurfaces(Number(binding.scopeKey))) {
-    instructions += `\n\n${SURFACE_PROMPT}`
+  if (binding.scopeKind === 'task') {
+    // Human comments arrive as bare `[New comment on task #N from …]: …`
+    // messages (task-human-actions.ts); the how-to-answer rule lives here so it
+    // doesn't repeat in every comment's bubble.
+    instructions += `\n\n${TASK_COMMENT_PROMPT}`
+    if (taskHasSurfaces(Number(binding.scopeKey))) instructions += `\n\n${SURFACE_PROMPT}`
   }
 
   const stream = streamOfBinding(storage, binding)
