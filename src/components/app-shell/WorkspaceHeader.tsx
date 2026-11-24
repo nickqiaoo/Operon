@@ -7,14 +7,15 @@ import { WorkspaceTaskButton } from "@/components/editor/WorkspaceTaskButton"
 import { TERMINAL_CLI_LAUNCH } from "@/lib/terminal-clis"
 import { rememberChatProvider } from "@/lib/new-chat"
 import { useEditorStore } from "@/stores/editor-store"
-import { useProjectStore } from "@/stores/project-store"
+import { projectsOn, useProjectStore } from "@/stores/project-store"
 
 /**
  * The workspace header slot of SpecPage: breadcrumbs row + editor tab strip.
  * A Spec swaps this out for its own header; see SpecPage.
  */
 export const WorkspaceHeader = memo(function WorkspaceHeader() {
-  const projects = useProjectStore((state) => state.projects)
+  // The current workspace's machine: ids repeat across machines.
+  const projects = useProjectStore((state) => projectsOn(state, state.activeNodeId))
   const activeWorkspaceId = useProjectStore((state) => state.activeWorkspaceId)
   const tabs = useEditorStore((state) => state.tabs)
   const activeTabId = useEditorStore((state) => state.activeTabId)

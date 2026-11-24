@@ -1,9 +1,9 @@
 import { getChatDraft } from "@/lib/chat-drafts"
-import { providersQuery } from "@/lib/provider-queries"
+import { providersQueryFor } from "@/lib/provider-queries"
 import { queryClient } from "@/lib/query-client"
 import { useEditorStore } from "@/stores/editor-store"
 import { useNavigationStore } from "@/stores/navigation-store"
-import { useProjectStore } from "@/stores/project-store"
+import { projectsOn, useProjectStore } from "@/stores/project-store"
 import { useStreamingStore } from "@/stores/streaming-store"
 import { mainWorkspaceOf } from "@/lib/workspace-actions"
 import type { EditorTab } from "@/types/editor"
@@ -35,11 +35,15 @@ function lastChatProvider(): string | null {
   }
 }
 
-/** The last agent if it is still available, else the first available one. */
+/**
+ * The last agent if it is still available, else the first available one — on
+ * the machine of the current workspace, where the chat will run.
+ */
 async function resolveProvider(): Promise<string> {
   const last = lastChatProvider()
   try {
-    const providers = await queryClient.fetchQuery(providersQuery)
+    const nodeId = useProjectStore.getState().activeNodeId ?? undefined
+    const providers = await queryClient.fetchQuery(providersQueryFor(nodeId))
     const available = providers.filter((p) => p.available)
     return available.find((p) => p.id === last)?.id ?? available[0]?.id ?? last ?? FALLBACK_PROVIDER_ID
   } catch {
@@ -78,13 +82,16 @@ export async function startNewChat(): Promise<void> {
   navigation.showWorkbench()
 
   // Back to the project's main checkout (switching is synchronous, so the tab
-  // below opens there).
+  // below opens there). Stays on the current workspace's machine: project and
+  // workspace ids repeat across machines.
   const projects = useProjectStore.getState()
+  const nodeId = projects.activeNodeId
+  const tree = projectsOn(projects, nodeId)
   const project =
-    projects.projects.find((p) => p.id === projects.activeProjectId) ??
-    projects.projects.find((p) => p.workspaces.some((w) => w.id === projects.activeWorkspaceId))
+    tree.find((p) => p.id === projects.activeProjectId) ??
+    tree.find((p) => p.workspaces.some((w) => w.id === projects.activeWorkspaceId))
   const main = project ? mainWorkspaceOf(project) : undefined
-  if (project && main && main.id !== projects.activeWorkspaceId) projects.setActiveWorkspace(main.id, project.id)
+  if (project && main && main.id !== projects.activeWorkspaceId) projects.setActiveWorkspace(main.id, project.id, nodeId)
 
   await openBlankChat()
 }
@@ -94,12 +101,13 @@ export async function startNewChat(): Promise<void> {
  * first chat of a workspace is started, since the tab strip only offers "+"
  * once it has tabs.
  */
-export async function startNewChatInWorkspace(workspaceId: number, projectId: number): Promise<void> {
+export async function startNewChatInWorkspace(workspaceId: number, projectId: number, nodeId?: string): Promise<void> {
   const navigation = useNavigationStore.getState()
   for (const page of navigation.pages) navigation.closePage(page.kind)
   navigation.showWorkbench()
-  if (useProjectStore.getState().activeWorkspaceId !== workspaceId) {
-    useProjectStore.getState().setActiveWorkspace(workspaceId, projectId)
+  const state = useProjectStore.getState()
+  if (state.activeWorkspaceId !== workspaceId || state.activeNodeId !== (nodeId ?? null)) {
+    state.setActiveWorkspace(workspaceId, projectId, nodeId)
   }
   await openBlankChat()
 }

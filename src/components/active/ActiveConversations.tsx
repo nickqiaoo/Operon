@@ -24,7 +24,7 @@ import {
 import { cn } from "@/lib/utils"
 import { useChatPendingInputStore } from "@/stores/chat-pending-input-store"
 import { useChatPresenceStore } from "@/stores/chat-presence-store"
-import { LOCAL_NODE, chatKey, localChat, nodeChatIds, nodeEntries, parseWorkspaceBucketKey, workspaceBucketKey } from "@/lib/chat-ref"
+import { LOCAL_NODE, chatKey, chatRefFromTabId, chatRefOfTab, localChat, nodeChatIds, nodeEntries, parseWorkspaceBucketKey, sameChat, workspaceBucketKey } from "@/lib/chat-ref"
 import { useEditorStore } from "@/stores/editor-store"
 import { useInboxStore } from "@/stores/inbox-store"
 import { useNavigationStore } from "@/stores/navigation-store"
@@ -319,9 +319,12 @@ export function RecentConversations({ onOpenNotification, onOpenChat, onNavigate
  * the Recent list, read per row as a primitive so a turn starting or ending
  * re-renders that row only.
  */
-export function useChatAttention(chatId: number): ActiveGroup | null {
+/** `nodeId`: the chat's machine (undefined: this one). */
+export function useChatAttention(chatId: number, nodeId?: string): ActiveGroup | null {
+  const ref = nodeId ? { nodeId, chatId } : localChat(chatId)
   const tabId = useEditorStore((s) => {
-    const match = (tab: EditorTab) => tab.type === "chat" && !tab.isSideChat && chatIdOfTab(tab) === chatId
+    const match = (tab: EditorTab) => tab.type === "chat" && !tab.isSideChat &&
+      (nodeId ? sameChat(chatRefOfTab(tab) ?? chatRefFromTabId(tab.id), ref) : !tab.nodeId && chatIdOfTab(tab) === chatId)
     const current = s.tabs.find(match)
     if (current) return current.id
     for (const bucket of Object.values(s.workspaceStates)) {
@@ -330,12 +333,13 @@ export function useChatAttention(chatId: number): ActiveGroup | null {
     }
     return null
   })
-  const pending = useChatPendingInputStore((s) => s.pendingByChat.has(chatKey(localChat(chatId))))
-  const present = useChatPresenceStore((s) => s.runningChats.has(chatKey(localChat(chatId))))
+  const pending = useChatPendingInputStore((s) => s.pendingByChat.has(chatKey(ref)))
+  const present = useChatPresenceStore((s) => s.runningChats.has(chatKey(ref)))
   const streaming = useStreamingStore((s) => tabId != null && s.streamingTabIds.has(tabId))
   const unseen = useStreamingStore((s) => tabId != null && s.unseenTabIds.has(tabId))
   const { data: unread } = useInboxUnread()
-  const notification = unread?.find((n) => n.chatId === chatId && !isAssistantNotification(n))
+  // The inbox is this machine's.
+  const notification = nodeId ? undefined : unread?.find((n) => n.chatId === chatId && !isAssistantNotification(n))
   if (pending || notification?.severity === "action") return "needs"
   if (present || streaming) return "running"
   if (unseen || notification) return "done"

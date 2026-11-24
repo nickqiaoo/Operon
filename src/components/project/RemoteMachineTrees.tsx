@@ -1,12 +1,15 @@
 import { useEffect, useState, type ReactNode } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useIntl } from "react-intl"
-import { ChevronRight, Folder, FolderOpen, GitBranch, Monitor } from "lucide-react"
+import { ChevronRight, Folder, FolderOpen, Monitor } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { fileCitationsToText } from "@/lib/file-citation"
 import { subscribeEvents } from "@/lib/event-stream"
 import { useDelegationMachines } from "@/lib/delegation-queries"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { useProjectStore, type Project } from "@/stores/project-store"
+import { useProjectStore, type Project, type Workspace } from "@/stores/project-store"
+import { useChatPresenceStore } from "@/stores/chat-presence-store"
+import { chatHistoryKeys } from "@/lib/chat-queries"
+import { nodeChatIds } from "@/lib/chat-ref"
 import type { DelegationMachine } from "@shared/delegations"
 
 /**
@@ -16,8 +19,9 @@ import type { DelegationMachine } from "@shared/delegations"
  * terminal). With no other machine on the account, nothing here renders and
  * the sidebar looks as it always did.
  *
- * Remote trees list projects and workspaces only. Their conversations join the
- * tree once a remote chat list can be read the same way as this machine's.
+ * A remote workspace row is the same row as this machine's (`renderWorkspace`):
+ * its latest conversations, the pen for a new chat, folding. A machine shows
+ * only once its tree answered: offline or unreachable ones are left out.
  */
 
 /** Other machines of the account. Desktop only: the web shell already is one machine's UI. */
@@ -91,12 +95,15 @@ export function MachineHeader({ label, offline, foldable = true, open, onToggle,
   )
 }
 
-export function RemoteMachineTrees({ machines, activeNodeId, activeWorkspaceId, onSelectWorkspace }: {
+/** One workspace row of another machine, drawn by the sidebar the way it draws its own. */
+export type RenderRemoteWorkspace = (nodeId: string, workspace: Workspace, projectId: number, isActive: boolean) => ReactNode
+
+export function RemoteMachineTrees({ machines, activeNodeId, activeWorkspaceId, renderWorkspace }: {
   machines: DelegationMachine[]
   /** The current workspace's machine (null: this one). */
   activeNodeId: string | null
   activeWorkspaceId: number | null
-  onSelectWorkspace: (nodeId: string, workspaceId: number, projectId: number) => void
+  renderWorkspace: RenderRemoteWorkspace
 }) {
   const dropRemoteProjects = useProjectStore((s) => s.dropRemoteProjects)
   // Forget the tree of a machine that left the account.
@@ -110,12 +117,12 @@ export function RemoteMachineTrees({ machines, activeNodeId, activeWorkspaceId, 
 
   return (
     <>
-      {machines.map((machine) => (
+      {machines.filter((machine) => machine.online).map((machine) => (
         <RemoteMachineTree
           key={machine.nodeId}
           machine={machine}
           activeWorkspaceId={activeNodeId === machine.nodeId ? activeWorkspaceId : null}
-          onSelectWorkspace={onSelectWorkspace}
+          renderWorkspace={renderWorkspace}
         />
       ))}
     </>
@@ -124,10 +131,10 @@ export function RemoteMachineTrees({ machines, activeNodeId, activeWorkspaceId, 
 
 type ProjectTreeFrame = { type: "ready" } | { type: "tree_changed"; projectId: number }
 
-function RemoteMachineTree({ machine, activeWorkspaceId, onSelectWorkspace }: {
+function RemoteMachineTree({ machine, activeWorkspaceId, renderWorkspace }: {
   machine: DelegationMachine
   activeWorkspaceId: number | null
-  onSelectWorkspace: (nodeId: string, workspaceId: number, projectId: number) => void
+  renderWorkspace: RenderRemoteWorkspace
 }) {
   const intl = useIntl()
   const { nodeId, online } = machine
@@ -171,32 +178,32 @@ function RemoteMachineTree({ machine, activeWorkspaceId, onSelectWorkspace }: {
     }
   }, [nodeId, online, reachable, loadRemoteProjects])
 
+  // A turn starting or ending there moves its chat to the top of its workspace's
+  // rows, as this machine's do (ActiveConversations). Presence of another machine
+  // is followed while one of its chats is open; the lists also poll.
+  const queryClient = useQueryClient()
+  const runningKey = useChatPresenceStore((s) => [...nodeChatIds(s.runningChats, nodeId)].sort((a, b) => a - b).join(","))
+  useEffect(() => {
+    void queryClient.invalidateQueries({
+      predicate: (query) => query.queryKey[0] === chatHistoryKeys.allLists()[0] && query.queryKey.at(-1) === nodeId,
+    })
+  }, [queryClient, nodeId, runningKey])
+
   const projects = tree?.projects ?? []
-  const status = !online
-    ? intl.formatMessage({ id: "sidebar.machine.offline", defaultMessage: "Offline" })
-    : tree?.error != null
-      ? intl.formatMessage({ id: "sidebar.machine.unreachable", defaultMessage: "Unavailable" })
-      : null
+  // Only a machine that answered: one that is offline, still connecting, turned
+  // receiving off or runs an older version would be a row you cannot use.
+  if (!reachable) return null
 
   return (
     <div data-testid={`machine-tree-${nodeId}`} className={MACHINE_GROUP_GAP}>
       <MachineHeader
         label={machine.label}
-        offline={!online}
-        foldable={status == null}
         open={open}
         onToggle={() => setOpen(!open)}
-        trailing={status && <span className="shrink-0 text-[11px] font-normal text-muted-foreground">{status}</span>}
       />
-      {/* Offline or unreachable: the status beside the name says it all. */}
-      {open && status == null && (
+      {open && (
         <div>
-          {online && !tree?.loaded && (
-            <div className="px-6 py-1 text-xs text-muted-foreground">
-              {intl.formatMessage({ id: "sidebar.machine.loading", defaultMessage: "Loading…" })}
-            </div>
-          )}
-          {tree?.loaded && projects.length === 0 && tree.error == null && (
+          {projects.length === 0 && (
             <div className="px-6 py-1 text-xs text-muted-foreground">
               {intl.formatMessage({ id: "sidebar.machine.empty", defaultMessage: "No projects yet." })}
             </div>
@@ -204,9 +211,10 @@ function RemoteMachineTree({ machine, activeWorkspaceId, onSelectWorkspace }: {
           {projects.map((project) => (
             <RemoteProject
               key={project.id}
+              nodeId={nodeId}
               project={project}
               activeWorkspaceId={activeWorkspaceId}
-              onSelectWorkspace={(workspaceId) => onSelectWorkspace(nodeId, workspaceId, project.id)}
+              renderWorkspace={renderWorkspace}
             />
           ))}
         </div>
@@ -217,10 +225,11 @@ function RemoteMachineTree({ machine, activeWorkspaceId, onSelectWorkspace }: {
 
 const trimSlash = (p: string) => p.replace(/[\\/]+$/, "")
 
-function RemoteProject({ project, activeWorkspaceId, onSelectWorkspace }: {
+function RemoteProject({ nodeId, project, activeWorkspaceId, renderWorkspace }: {
+  nodeId: string
   project: Project
   activeWorkspaceId: number | null
-  onSelectWorkspace: (workspaceId: number) => void
+  renderWorkspace: RenderRemoteWorkspace
 }) {
   // Folding is kept per session: the persisted folded-ids are this machine's ids.
   const [open, setOpen] = useState(true)
@@ -247,27 +256,7 @@ function RemoteProject({ project, activeWorkspaceId, onSelectWorkspace }: {
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="pb-1">
-          {workspaces.map((workspace) => {
-            const active = workspace.id === activeWorkspaceId
-            return (
-              <button
-                key={workspace.id}
-                type="button"
-                onClick={() => onSelectWorkspace(workspace.id)}
-                aria-current={active ? "page" : undefined}
-                title={workspace.worktreePath}
-                className={cn(
-                  "flex w-full min-w-0 items-center gap-2 rounded-lg py-1 pl-5 pr-3 text-left transition-colors hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:py-2",
-                  active && "bg-row-selected hover:bg-row-selected",
-                )}
-              >
-                <GitBranch className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} aria-hidden />
-                <span className={cn("min-w-0 flex-1 truncate text-sm", active ? "font-semibold text-foreground" : "font-medium text-foreground/70")}>
-                  {fileCitationsToText(workspace.name)}
-                </span>
-              </button>
-            )
-          })}
+          {workspaces.map((workspace) => renderWorkspace(nodeId, workspace, project.id, workspace.id === activeWorkspaceId))}
           {workspaces.length === 0 && <div className="px-6 py-1 text-xs text-muted-foreground">No workspaces yet.</div>}
         </div>
       </CollapsibleContent>

@@ -8,7 +8,7 @@ import {
   Plus,
   Terminal as TerminalIcon,
 } from "lucide-react"
-import { useProjectStore } from "@/stores/project-store"
+import { findWorkspaceOn, projectsOn, useProjectStore } from "@/stores/project-store"
 import { useTabsStore } from "@/stores/tabs-store"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { browserScopeChatId } from "@/stores/browser-scope-store"
@@ -174,12 +174,8 @@ const PANEL_ORDER: Record<PanelId, TabType[]> = {
 
 /** Worktree path of the active workspace, read outside React. */
 export function activeWorkspaceRoot(): string | null {
-  const { projects, activeWorkspaceId } = useProjectStore.getState()
-  for (const project of projects) {
-    const workspace = project.workspaces.find((w) => w.id === activeWorkspaceId)
-    if (workspace != null) return workspace.worktreePath
-  }
-  return null
+  const state = useProjectStore.getState()
+  return findWorkspaceOn(state, state.activeNodeId, state.activeWorkspaceId)?.worktreePath ?? null
 }
 
 /** Entries this context can actually offer, in the panel's own order. */
@@ -292,7 +288,7 @@ export function useNewTab(panelId: PanelId) {
   )
 
   const activeWorkspaceId = useProjectStore((s) => s.activeWorkspaceId)
-  const projects = useProjectStore((s) => s.projects)
+  const projects = useProjectStore((s) => projectsOn(s, s.activeNodeId))
   const rootPath = useMemo(() => {
     for (const project of projects) {
       const workspace = project.workspaces.find(

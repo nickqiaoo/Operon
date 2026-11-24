@@ -3,7 +3,7 @@ import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@t
 import type { ChatStatus } from 'ai'
 import type { SubagentTranscript } from '@shared/background-tasks'
 import { api } from './api'
-import { onNode, useChatApi, useChatNodeId, useChatRef } from './chat-api-context'
+import { apiOn, onNode, useChatApi, useChatNodeId, useChatRef } from './chat-api-context'
 import { chatKey, type ChatRef } from './chat-ref'
 
 /**
@@ -129,13 +129,14 @@ const WORKSPACE_CHAT_PREVIEW_SIZE = 5
 const WORKSPACE_CHAT_PAGE_SIZE = 10
 
 /** Sidebar conversations, mounted only for expanded projects. */
-export function useWorkspaceLatestChats(workspaceId: number) {
+/** `nodeId`: the workspace's machine (undefined: this one); workspace ids repeat across machines. */
+export function useWorkspaceLatestChats(workspaceId: number, nodeId?: string) {
   const queryClient = useQueryClient()
-  const queryKey = chatHistoryKeys.workspaceLatest(workspaceId)
+  const queryKey = onNode(chatHistoryKeys.workspaceLatest(workspaceId), nodeId)
   const query = useInfiniteQuery({
     queryKey,
     initialPageParam: null as string | number | null,
-    queryFn: ({ pageParam, signal }) => api.workspaceChatHistoryPage(
+    queryFn: ({ pageParam, signal }) => apiOn(nodeId).workspaceChatHistoryPage(
       workspaceId,
       pageParam === null ? WORKSPACE_CHAT_PREVIEW_SIZE : WORKSPACE_CHAT_PAGE_SIZE,
       pageParam,
@@ -150,12 +151,12 @@ export function useWorkspaceLatestChats(workspaceId: number) {
 
   const showLess = useCallback(() => {
     queryClient.setQueryData<WorkspaceLatestData>(
-      chatHistoryKeys.workspaceLatest(workspaceId),
+      onNode(chatHistoryKeys.workspaceLatest(workspaceId), nodeId),
       (data) => data && data.pages.length > 1
         ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) }
         : data,
     )
-  }, [queryClient, workspaceId])
+  }, [queryClient, workspaceId, nodeId])
 
   // "Show more" is for this look at the list only: folding the workspace
   // unmounts the list, and the pages it loaded stay in the cache — so the next

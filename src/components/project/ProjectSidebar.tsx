@@ -39,7 +39,7 @@ import { startNewChat, startNewChatInWorkspace } from "@/lib/new-chat"
 import { useRailFlyout } from "./use-rail-flyout"
 import { ChannelList } from "@/components/channel/ChannelList"
 import { projectSidebarEntries } from "./workspace-groups"
-import { localChat } from "@/lib/chat-ref"
+import { chatRefFromTabId, chatRefOf, chatRefOfTab, chatTabId, localChat, sameChat, sameNode, workspaceBucketKey } from "@/lib/chat-ref"
 import { MachineHeader, RemoteMachineTrees, useOtherMachines, useThisMachineLabel } from "./RemoteMachineTrees"
 
 type GitWorktreeEntry = {
@@ -235,21 +235,32 @@ const ProjectItem = memo(function ProjectItem({
  * flag (a boolean), so folding one workspace re-renders just this entry rather
  * than every project in the tree.
  */
-const WorkspaceEntry = memo(function WorkspaceEntry({ workspace, projectId, isActive, stats, onSelectWorkspace, onNewChatInWorkspace, onOpenChat }: {
+export const WorkspaceEntry = memo(function WorkspaceEntry({ workspace, projectId, nodeId, isActive, stats, onSelectWorkspace, onNewChatInWorkspace, onOpenChat }: {
   workspace: Workspace
   projectId: number
+  /** The workspace's machine (undefined: this one). */
+  nodeId?: string
   isActive: boolean
   stats?: WorkspaceDiffStat
   onSelectWorkspace: ProjectItemProps["onSelectWorkspace"]
   onNewChatInWorkspace: ProjectItemProps["onNewChatInWorkspace"]
   onOpenChat: ProjectItemProps["onOpenChat"]
 }) {
-  const collapsed = useProjectStore((s) => s.collapsedWorkspaceIds.includes(workspace.id))
-  const setWorkspaceCollapsed = useProjectStore((s) => s.setWorkspaceCollapsed)
+  // Folding is persisted by workspace id, which is this machine's; another
+  // machine's workspaces fold for the session only.
+  const storedCollapsed = useProjectStore((s) => s.collapsedWorkspaceIds.includes(workspace.id))
+  const setStoredCollapsed = useProjectStore((s) => s.setWorkspaceCollapsed)
+  const [remoteCollapsed, setRemoteCollapsed] = useState(false)
+  const collapsed = nodeId ? remoteCollapsed : storedCollapsed
+  const setWorkspaceCollapsed = useCallback((id: number, value: boolean) => {
+    if (nodeId) setRemoteCollapsed(value)
+    else setStoredCollapsed(id, value)
+  }, [nodeId, setStoredCollapsed])
   return (
     <>
       <WorkspaceRow
         workspaceId={workspace.id}
+        nodeId={nodeId}
         label={workspace.name}
         title={workspace.worktreePath}
         isActive={isActive}
@@ -271,7 +282,7 @@ const WorkspaceEntry = memo(function WorkspaceEntry({ workspace, projectId, isAc
           onNewChatInWorkspace(workspace.id, projectId)
         }}
       />
-      {!collapsed && <WorkspaceChats workspaceId={workspace.id} onOpenChat={onOpenChat} />}
+      {!collapsed && <WorkspaceChats workspaceId={workspace.id} nodeId={nodeId} onOpenChat={onOpenChat} />}
     </>
   )
 })
@@ -307,17 +318,20 @@ const countChatTabs = (tabs: EditorTab[] | undefined, ids: Set<string>) =>
  * numbers, so a turn starting or ending re-renders that row instead of the whole
  * sidebar (~12ms in dev, right as the reply finishes).
  */
-function useWorkspaceChatActivity(workspaceId: number) {
+function useWorkspaceChatActivity(workspaceId: number, nodeId?: string) {
   const tabs = useEditorStore((s) =>
-    s.currentWorkspaceId === workspaceId ? s.tabs : s.workspaceStates[String(workspaceId)]?.tabs
+    s.currentWorkspaceId === workspaceId && sameNode(s.currentNodeId, nodeId)
+      ? s.tabs
+      : s.workspaceStates[workspaceBucketKey(workspaceId, nodeId)]?.tabs
   )
   const streaming = useStreamingStore((s) => countChatTabs(tabs, s.streamingTabIds))
   const unseen = useStreamingStore((s) => countChatTabs(tabs, s.unseenTabIds))
   return { streaming, unseen }
 }
 
-function WorkspaceRow({ workspaceId, label, title, isActive, expanded, stats, onSelect, onNewChat }: {
+function WorkspaceRow({ workspaceId, nodeId, label, title, isActive, expanded, stats, onSelect, onNewChat }: {
   workspaceId: number
+  nodeId?: string
   label: string
   title: string
   isActive: boolean
@@ -327,7 +341,7 @@ function WorkspaceRow({ workspaceId, label, title, isActive, expanded, stats, on
   onSelect: () => void
   onNewChat: () => void
 }) {
-  const { streaming, unseen } = useWorkspaceChatActivity(workspaceId)
+  const { streaming, unseen } = useWorkspaceChatActivity(workspaceId, nodeId)
   // A saved chat on screen is highlighted in its own row below; filling this
   // one too stacked two selected rows into one block. Bold is enough here.
   const chatOnScreen = useEditorStore((s) => {
@@ -344,7 +358,7 @@ function WorkspaceRow({ workspaceId, label, title, isActive, expanded, stats, on
       onClick={onSelect}
       aria-current={isActive ? 'page' : undefined}
       aria-expanded={expanded}
-      data-testid={`workspace-row-${workspaceId}`}
+      data-testid={nodeId ? `workspace-row-${nodeId}-${workspaceId}` : `workspace-row-${workspaceId}`}
       title={title}
       className={cn(
         'flex w-full min-w-0 items-center gap-2 rounded-lg py-1 pl-5 pr-3 text-left transition-colors hover:bg-row-hover group-hover/workspace-row:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:py-2',
@@ -369,7 +383,7 @@ function WorkspaceRow({ workspaceId, label, title, isActive, expanded, stats, on
     <Button
       variant="ghost"
       size="icon"
-      data-testid={`workspace-new-chat-${workspaceId}`}
+      data-testid={nodeId ? `workspace-new-chat-${nodeId}-${workspaceId}` : `workspace-new-chat-${workspaceId}`}
       className={cn(
         "absolute right-2 top-1/2 size-5 -translate-y-1/2 rounded-md bg-transparent text-muted-foreground opacity-0 pointer-events-none transition-opacity hover:bg-accent-hover hover:text-foreground",
         "group-hover/workspace-row:pointer-events-auto group-hover/workspace-row:opacity-100",
@@ -393,30 +407,34 @@ type OpenTreeChat = (chat: ChatHistoryListItem, workspaceId: number) => void
 const treeRowClassName = "group/chat-row flex h-7 w-full min-w-0 items-center gap-2 rounded-lg pl-8 pr-2 text-left transition-colors hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:h-9"
 
 /** The chat on screen right now, as a boolean so only its row and the one it left re-render. */
-function useIsCurrentChat(chatId: number) {
+function useIsCurrentChat(chatId: number, nodeId?: string) {
   const onWorkbench = useNavigationStore((s) => s.main.kind === "workbench")
   const current = useEditorStore((s) => {
     const tab = s.tabs.find((t) => t.id === s.activeTabId)
-    return tab?.type === "chat" && chatIdOfTab(tab) === chatId
+    if (tab?.type !== "chat") return false
+    if (!nodeId) return !tab.nodeId && chatIdOfTab(tab) === chatId
+    return sameChat(chatRefOfTab(tab) ?? chatRefFromTabId(tab.id), chatRefOf(chatId, nodeId))
   })
   return onWorkbench && current
 }
 
-const ChatRow = memo(function ChatRow({ chat, workspaceId, onOpen }: {
+const ChatRow = memo(function ChatRow({ chat, workspaceId, nodeId, onOpen }: {
   chat: ChatHistoryListItem
   workspaceId: number
+  nodeId?: string
   onOpen: OpenTreeChat
 }) {
   const intl = useIntl()
-  const attention = useChatAttention(chat.id)
-  const current = useIsCurrentChat(chat.id)
-  const hasChildren = useHasChatChildren(chat.id)
+  const attention = useChatAttention(chat.id, nodeId)
+  const current = useIsCurrentChat(chat.id, nodeId)
+  // Agents and sub-tasks are this machine's (another machine's join in step 4).
+  const hasChildren = useHasChatChildren(chat.id) && !nodeId
   const title = fileCitationsToText(chat.title) || "New chat"
   const wantsYou = attention === "needs" || attention === "done"
   const row = (
     <button
       type="button"
-      data-testid={`sidebar-chat-${chat.id}`}
+      data-testid={nodeId ? `sidebar-chat-${nodeId}-${chat.id}` : `sidebar-chat-${chat.id}`}
       aria-current={current ? "page" : undefined}
       onClick={() => onOpen(chat, workspaceId)}
       title={title}
@@ -596,20 +614,22 @@ function AgentRow({ agent, parentWorkspaceId, current }: {
 }
 
 /** A workspace's latest conversations under its row, newest first. */
-function WorkspaceChats({ workspaceId, onOpenChat }: {
+function WorkspaceChats({ workspaceId, nodeId, onOpenChat }: {
   workspaceId: number
+  nodeId?: string
   onOpenChat: OpenTreeChat
 }) {
   const intl = useIntl()
-  const { chats: latest, hasMore, expanded, isFetching, loadMore, showLess } = useWorkspaceLatestChats(workspaceId)
+  const { chats: latest, hasMore, expanded, isFetching, loadMore, showLess } = useWorkspaceLatestChats(workspaceId, nodeId)
   // A sub-task working in this (shared) workspace shows under its parent's session instead.
+  // Sub-tasks are this machine's Board's.
   const nested = useTaskChildChatIds()
-  const chats = useMemo(() => latest.filter((chat) => !nested.has(chat.id)), [latest, nested])
+  const chats = useMemo(() => nodeId ? latest : latest.filter((chat) => !nested.has(chat.id)), [latest, nested, nodeId])
   if (chats.length === 0) return null
   return (
-    <div role="group" data-testid={`workspace-chats-${workspaceId}`}>
+    <div role="group" data-testid={nodeId ? `workspace-chats-${nodeId}-${workspaceId}` : `workspace-chats-${workspaceId}`}>
       {chats.map((chat) => (
-        <ChatRow key={chat.id} chat={chat} workspaceId={workspaceId} onOpen={onOpenChat} />
+        <ChatRow key={chat.id} chat={chat} workspaceId={workspaceId} nodeId={nodeId} onOpen={onOpenChat} />
       ))}
       {(hasMore || expanded) && (
         <button
@@ -919,8 +939,35 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
 
   // Another machine's workspace: that machine becomes the workbench's.
   const handleSelectRemoteWorkspace = useCallback((nodeId: string, workspaceId: number, projectId: number) => {
+    const { currentWorkspaceId, currentNodeId, tabs: currentTabs, workspaceStates } = useEditorStore.getState()
+    const tabs = workspaceId === currentWorkspaceId && currentNodeId === nodeId
+      ? currentTabs
+      : workspaceStates[workspaceBucketKey(workspaceId, nodeId)]?.tabs ?? []
+    const chatTabIds = tabs.filter((t) => t.type === "chat").map((t) => t.id)
+    if (chatTabIds.length > 0) clearUnseen(chatTabIds)
     setActiveWorkspace(workspaceId, projectId, nodeId)
     showWorkbench()
+    closeAfterNavigate()
+  }, [clearUnseen, setActiveWorkspace, showWorkbench, closeAfterNavigate])
+
+  const handleNewChatInRemoteWorkspace = useCallback((nodeId: string, workspaceId: number, projectId: number) => {
+    void startNewChatInWorkspace(workspaceId, projectId, nodeId)
+    closeAfterNavigate()
+  }, [closeAfterNavigate])
+
+  // Another machine's chat opens in its workspace there, like a local one does.
+  const handleOpenRemoteChat = useCallback((nodeId: string, chat: ChatHistoryListItem, workspaceId: number, projectId: number) => {
+    const ref = { nodeId, chatId: chat.id }
+    const editor = useEditorStore.getState()
+    const existing = editor.findChatTab(ref)
+    const targetWorkspace = existing?.workspaceId ?? workspaceId
+    const projects = useProjectStore.getState()
+    if (projects.activeWorkspaceId !== targetWorkspace || projects.activeNodeId !== nodeId) {
+      setActiveWorkspace(targetWorkspace, targetWorkspace === workspaceId ? projectId : undefined, nodeId)
+    }
+    showWorkbench()
+    const tabId = useEditorStore.getState().openChatTab(existing?.tabId ?? chatTabId(ref), chat.title || "Chat")
+    useEditorStore.getState().setTabChatId(tabId, chat.id)
     closeAfterNavigate()
   }, [setActiveWorkspace, showWorkbench, closeAfterNavigate])
 
@@ -1208,7 +1255,18 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
                   machines={otherMachines}
                   activeNodeId={activeNodeId}
                   activeWorkspaceId={assistantActive || boardActive || channelsActive || activeSpecId != null ? null : activeWorkspaceId}
-                  onSelectWorkspace={handleSelectRemoteWorkspace}
+                  renderWorkspace={(nodeId, workspace, projectId, isActive) => (
+                    <WorkspaceEntry
+                      key={workspace.id}
+                      workspace={workspace}
+                      projectId={projectId}
+                      nodeId={nodeId}
+                      isActive={isActive}
+                      onSelectWorkspace={(workspaceId, id) => handleSelectRemoteWorkspace(nodeId, workspaceId, id)}
+                      onNewChatInWorkspace={(workspaceId, id) => handleNewChatInRemoteWorkspace(nodeId, workspaceId, id)}
+                      onOpenChat={(chat, workspaceId) => handleOpenRemoteChat(nodeId, chat, workspaceId, projectId)}
+                    />
+                  )}
                 />
               )}
               {/* Below the tree, every conversation in play across projects. */}

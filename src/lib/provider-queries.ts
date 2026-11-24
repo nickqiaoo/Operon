@@ -91,7 +91,8 @@ export const providersQuery = queryOptions({
   staleTime: THIRTY_SECONDS,
 })
 
-function providersQueryFor(chatNodeId: string | undefined) {
+/** The providers of one machine (`undefined`: this one). */
+export function providersQueryFor(chatNodeId: string | undefined) {
   if (!chatNodeId) return providersQuery
   return queryOptions({
     queryKey: providerKeys.list(chatNodeId),
