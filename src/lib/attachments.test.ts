@@ -6,6 +6,12 @@ vi.mock('./api-client', () => ({
   getBaseUrl: async () => 'http://server/api',
   getBaseUrlSync: () => 'http://server/api',
   withApiTokenQuery: (url: string) => url,
+  localTransport: {
+    baseUrl: async () => 'http://server/api',
+    baseUrlSync: () => 'http://server/api',
+    authHeaders: () => ({}),
+    withTokenQuery: (url: string) => url,
+  },
 }))
 
 const STORED = { hash: 'a', url: '/api/attachments/a', mediaType: 'image/png', sizeBytes: 1 }

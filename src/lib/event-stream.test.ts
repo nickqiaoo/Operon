@@ -1,16 +1,35 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-type Handle = { url: () => Promise<string>; emit: (frame: unknown) => void; fail: (error: unknown) => void; closed: boolean }
+type Handle = {
+  url: () => Promise<string>
+  headers?: () => Record<string, string>
+  emit: (frame: unknown) => void
+  fail: (error: unknown) => void
+  closed: boolean
+}
 const handles: Handle[] = []
 
 vi.mock('./sse', () => ({
-  subscribeSse: ({ url, onEvent, onError }: { url: () => Promise<string>; onEvent: (e: unknown) => void; onError?: (e: unknown) => void }) => {
-    const handle: Handle = { url, emit: onEvent, fail: (error) => onError?.(error), closed: false }
+  subscribeSse: ({ url, headers, onEvent, onError }: {
+    url: () => Promise<string>
+    headers?: () => Record<string, string>
+    onEvent: (e: unknown) => void
+    onError?: (e: unknown) => void
+  }) => {
+    const handle: Handle = { url, headers, emit: onEvent, fail: (error) => onError?.(error), closed: false }
     handles.push(handle)
     return { close: () => { handle.closed = true } }
   },
 }))
-vi.mock('./api', () => ({ api: { eventStreamUrl: async (channels: readonly string[]) => `/events?ch=${channels.join(',')}` } }))
+vi.mock('./api', () => ({
+  api: { eventStreamUrl: async (channels: readonly string[]) => `/events?ch=${channels.join(',')}` },
+  apiFor: (nodeId: string) => ({
+    eventStreamUrl: async (channels: readonly string[]) => `/remote/${nodeId}/events?ch=${channels.join(',')}`,
+  }),
+}))
+vi.mock('./api-client', () => ({
+  transportFor: (nodeId: string) => ({ authHeaders: () => ({ Authorization: `Bearer local-for-${nodeId}` }) }),
+}))
 
 const { subscribeEvents, resetEventStreamForTests } = await import('./event-stream')
 
@@ -103,5 +122,63 @@ describe('shared event stream', () => {
     vi.runAllTimers()
     open()[0].fail(new Error('dropped'))
     expect(errors.sort()).toEqual(['inbox', 'live-status'])
+  })
+})
+
+describe('one connection per machine', () => {
+  it("opens another machine's channels on their own connection, through the relay", async () => {
+    subscribeEvents('live-status', { onEvent: () => {} })
+    subscribeEvents('live-status', { onEvent: () => {} }, 'node-b')
+    subscribeEvents('external-agents', { onEvent: () => {} }, 'node-b')
+    vi.runAllTimers()
+
+    const urls = await Promise.all(open().map((h) => h.url()))
+    expect(urls.sort()).toEqual(['/events?ch=live-status', '/remote/node-b/events?ch=external-agents,live-status'])
+    const remote = open().find((h) => h.headers)
+    expect(remote?.headers?.()).toEqual({ Authorization: 'Bearer local-for-node-b' })
+    // This machine's connection keeps its plain shape (no extra headers).
+    expect(open().filter((h) => !h.headers)).toHaveLength(1)
+  })
+
+  it('delivers a frame only to the machine it came from', async () => {
+    const local: unknown[] = []
+    const remote: unknown[] = []
+    subscribeEvents('live-status', { onEvent: (data) => local.push(data) })
+    subscribeEvents('live-status', { onEvent: (data) => remote.push(data) }, 'node-b')
+    vi.runAllTimers()
+
+    const remoteHandle = open().find((h) => h.headers)!
+    const localHandle = open().find((h) => !h.headers)!
+    remoteHandle.emit({ ch: 'live-status', data: 'from b' })
+    localHandle.emit({ ch: 'live-status', data: 'from here' })
+    expect(local).toEqual(['from here'])
+    expect(remote).toEqual(['from b'])
+  })
+
+  it("closes a machine's connection when its last listener leaves, without touching this one", () => {
+    subscribeEvents('live-status', { onEvent: () => {} })
+    const remote = subscribeEvents('live-status', { onEvent: () => {} }, 'node-b')
+    vi.runAllTimers()
+    expect(open()).toHaveLength(2)
+
+    remote.close()
+    vi.runAllTimers()
+    expect(open()).toHaveLength(1)
+    expect(open()[0].headers).toBeUndefined()
+
+    // Listening again opens a fresh connection to it.
+    subscribeEvents('live-status', { onEvent: () => {} }, 'node-b')
+    vi.runAllTimers()
+    expect(open()).toHaveLength(2)
+  })
+
+  it("reports a failure only to that machine's subscribers", () => {
+    const errors: string[] = []
+    subscribeEvents('live-status', { onEvent: () => {}, onError: () => errors.push('local') })
+    subscribeEvents('live-status', { onEvent: () => {}, onError: () => errors.push('remote') }, 'node-b')
+    vi.runAllTimers()
+
+    open().find((h) => h.headers)!.fail(new Error('relay down'))
+    expect(errors).toEqual(['remote'])
   })
 })

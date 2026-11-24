@@ -3,15 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // Mocked rather than driven through fetch: what matters here is the fan-out from
 // one stream to per-chat listeners, not SSE framing (covered in sse.test.ts).
 const sseHandles: Array<{
+  nodeId: string | undefined
   emit: (frame: unknown) => void
   fail: () => void
   closed: boolean
 }> = []
 
 vi.mock('./event-stream', () => ({
-  subscribeEvents: (channel: string, { onEvent, onError }: { onEvent: (e: unknown) => void; onError?: () => void }) => {
+  subscribeEvents: (channel: string, { onEvent, onError }: { onEvent: (e: unknown) => void; onError?: () => void }, nodeId?: string) => {
     expect(channel).toBe('live-status')
-    const handle = { emit: onEvent, fail: () => onError?.(), closed: false }
+    const handle = { nodeId, emit: onEvent, fail: () => onError?.(), closed: false }
     sseHandles.push(handle)
     return { close: () => { handle.closed = true } }
   },
@@ -19,6 +20,9 @@ vi.mock('./event-stream', () => ({
 
 const { subscribeChatPresence, watchPendingInput } = await import('./live-turn-events')
 const { useChatPendingInputStore } = await import('@/stores/chat-pending-input-store')
+const { useChatPresenceStore } = await import('@/stores/chat-presence-store')
+const { useChatBackgroundTaskStore } = await import('@/stores/chat-background-task-store')
+const { useChatPromptSuggestionStore } = await import('@/stores/chat-prompt-suggestion-store')
 const { chatKey } = await import('./chat-ref')
 
 type Status = { chatId: number; active: boolean; turnId: string | null; startedAt: number | null }
@@ -29,6 +33,11 @@ beforeEach(() => {
 })
 
 const live = () => sseHandles.filter((h) => !h.closed)
+const liveOn = (nodeId: string | undefined) => {
+  const handle = live().find((h) => h.nodeId === nodeId)
+  if (!handle) throw new Error(`no live stream for ${nodeId ?? 'this machine'}`)
+  return handle
+}
 
 describe('subscribeChatPresence', () => {
   it('answers immediately with idle, matching the snapshot the per-chat stream used to send', () => {
@@ -148,5 +157,101 @@ describe('watchPendingInput', () => {
     live()[0].emit({ type: 'sync', statuses: [] })
     expect(pendingOf(60)).toBeUndefined()
     release()
+  })
+})
+
+describe('several machines', () => {
+  const NODE = 'node-b'
+  const ask = (approvalId: string) => ({ approvalId, toolName: 'Bash', requestedAt: 1, userFacing: true })
+  const task = (id: string) => ({ id, description: id, status: 'running' })
+
+  it("keeps the same chat id on two machines apart", () => {
+    const local: Status[] = []
+    const remote: Status[] = []
+    const offLocal = subscribeChatPresence({ chatId: 5 }, { onStatus: (s) => local.push(s) })
+    const offRemote = subscribeChatPresence({ nodeId: NODE, chatId: 5 }, { onStatus: (s) => remote.push(s) })
+    expect(live().map((h) => h.nodeId)).toEqual([undefined, NODE])
+    local.length = 0
+    remote.length = 0
+
+    liveOn(NODE).emit({ type: 'presence', status: running(5) })
+    expect(remote.map((s) => s.active)).toEqual([true])
+    expect(local).toEqual([])
+    const running5 = useChatPresenceStore.getState().runningChats
+    expect(running5.has(chatKey({ nodeId: NODE, chatId: 5 }))).toBe(true)
+    expect(running5.has(chatKey({ chatId: 5 }))).toBe(false)
+
+    offLocal()
+    offRemote()
+  })
+
+  it("writes a machine's sync into the stores without touching the other machine's entries", () => {
+    const releaseLocal = watchPendingInput()
+    const releaseRemote = watchPendingInput(NODE)
+    liveOn(undefined).emit({
+      type: 'sync',
+      statuses: [running(1)],
+      pendingInput: [{ chatId: 1, pending: [ask('local')] }],
+      backgroundTasks: [{ chatId: 1, tasks: [task('local')] }],
+      promptSuggestions: [{ chatId: 1, text: 'local next' }],
+    })
+    liveOn(NODE).emit({
+      type: 'sync',
+      statuses: [running(1)],
+      pendingInput: [{ chatId: 1, pending: [ask('remote')] }],
+      backgroundTasks: [{ chatId: 1, tasks: [task('remote')] }],
+      promptSuggestions: [{ chatId: 1, text: 'remote next' }],
+    })
+
+    const here = chatKey({ chatId: 1 })
+    const there = chatKey({ nodeId: NODE, chatId: 1 })
+    expect(useChatPendingInputStore.getState().pendingByChat.get(here)).toEqual([ask('local')])
+    expect(useChatPendingInputStore.getState().pendingByChat.get(there)).toEqual([ask('remote')])
+    expect(useChatBackgroundTaskStore.getState().tasksByChat.get(there)).toEqual([task('remote')])
+    expect(useChatPromptSuggestionStore.getState().suggestionByChat.get(here)).toBe('local next')
+
+    // The other machine's next sync empties only its own entries.
+    liveOn(NODE).emit({ type: 'sync', statuses: [] })
+    expect(useChatPendingInputStore.getState().pendingByChat.has(there)).toBe(false)
+    expect(useChatPendingInputStore.getState().pendingByChat.get(here)).toEqual([ask('local')])
+    expect(useChatPresenceStore.getState().runningChats.has(here)).toBe(true)
+    expect(useChatBackgroundTaskStore.getState().tasksByChat.has(here)).toBe(true)
+    expect(useChatPromptSuggestionStore.getState().suggestionByChat.has(there)).toBe(false)
+
+    releaseRemote()
+    releaseLocal()
+  })
+
+  it("forgets a machine's chats when nothing watches it any more, and leaves this machine's", () => {
+    const releaseLocal = watchPendingInput()
+    const releaseRemote = watchPendingInput(NODE)
+    liveOn(undefined).emit({ type: 'pending-input', chatId: 2, pending: [ask('a')] })
+    liveOn(NODE).emit({ type: 'pending-input', chatId: 2, pending: [ask('b')] })
+    liveOn(NODE).emit({ type: 'presence', status: running(3) })
+
+    releaseRemote()
+    expect(live().map((h) => h.nodeId)).toEqual([undefined])
+    const pending = useChatPendingInputStore.getState().pendingByChat
+    expect(pending.has(chatKey({ nodeId: NODE, chatId: 2 }))).toBe(false)
+    expect(pending.get(chatKey({ chatId: 2 }))).toEqual([ask('a')])
+    expect(useChatPresenceStore.getState().runningChats.has(chatKey({ nodeId: NODE, chatId: 3 }))).toBe(false)
+
+    releaseLocal()
+  })
+
+  it("starts a re-watched machine from its own fresh snapshot", () => {
+    const first = watchPendingInput(NODE)
+    const chat: Status[] = []
+    liveOn(NODE).emit({ type: 'presence', status: running(4) })
+    first()
+
+    const second = watchPendingInput(NODE)
+    const off = subscribeChatPresence({ nodeId: NODE, chatId: 4 }, { onStatus: (s) => chat.push(s) })
+    // The old snapshot was dropped with the stream: idle until the new sync says otherwise.
+    expect(chat.map((s) => s.active)).toEqual([false])
+    liveOn(NODE).emit({ type: 'sync', statuses: [running(4)] })
+    expect(chat.map((s) => s.active)).toEqual([false, true])
+    off()
+    second()
   })
 })

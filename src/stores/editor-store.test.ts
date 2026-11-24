@@ -1,13 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { aiSessionCleanup } = vi.hoisted(() => ({
-  aiSessionCleanup: vi.fn(() => Promise.resolve({ success: true })),
-}))
+const { aiSessionCleanup, remoteSessionCleanup, apiFor } = vi.hoisted(() => {
+  const remoteSessionCleanup = vi.fn((_nodeId: string, _chatId: number) => Promise.resolve({ success: true }))
+  return {
+    aiSessionCleanup: vi.fn(() => Promise.resolve({ success: true })),
+    remoteSessionCleanup,
+    apiFor: vi.fn((nodeId: string) => ({ aiSessionCleanup: (chatId: number) => remoteSessionCleanup(nodeId, chatId) })),
+  }
+})
 
 vi.mock("@/lib/api", () => ({
   api: {
     aiSessionCleanup,
   },
+  apiFor,
 }))
 
 vi.mock("@/lib/analytics", () => ({
@@ -28,11 +34,13 @@ const chatTab = (id: string, chatId: number) => ({
 
 beforeEach(() => {
   aiSessionCleanup.mockClear()
+  remoteSessionCleanup.mockClear()
   useEditorStore.setState({
     tabs: [],
     activeTabId: "",
     currentWorkspaceId: null,
     currentProjectId: null,
+    currentNodeId: null,
     workspaceStates: {},
   })
 })
@@ -285,5 +293,99 @@ describe("draft chats", () => {
     expect(state.tabs.map((t) => t.id)).toEqual(["chat:other", "chat:draft"])
     expect(state.activeTabId).toBe("chat:draft")
     expect(state.workspaceStates["1"].tabs.map((t) => t.id)).toEqual(["chat:keep"])
+  })
+})
+
+describe("workspaces on several machines", () => {
+  const NODE = "node-b"
+  const remoteChatTab = (id: string, chatId: number) => ({ ...chatTab(id, chatId), nodeId: NODE })
+
+  it("parks and restores tabs per machine, even for the same workspace id", () => {
+    const store = useEditorStore.getState()
+    store.setWorkspace(3, 1)
+    useEditorStore.setState({ tabs: [chatTab("chat:1", 1)], activeTabId: "chat:1" })
+
+    store.setWorkspace(3, 1, NODE)
+    expect(useEditorStore.getState().tabs).toEqual([])
+    expect(useEditorStore.getState().currentNodeId).toBe(NODE)
+    useEditorStore.setState({ tabs: [remoteChatTab(`chat:${NODE}:1`, 1)], activeTabId: `chat:${NODE}:1` })
+
+    store.setWorkspace(3, 1)
+    expect(useEditorStore.getState().tabs.map((t) => t.id)).toEqual(["chat:1"])
+    expect(Object.keys(useEditorStore.getState().workspaceStates).sort()).toEqual(["3", "global", `${NODE}:3`])
+    expect(useEditorStore.getState().workspaceStates[`${NODE}:3`].tabs.map((t) => t.id)).toEqual([`chat:${NODE}:1`])
+
+    store.setWorkspace(3, 1, NODE)
+    expect(useEditorStore.getState().tabs.map((t) => t.id)).toEqual([`chat:${NODE}:1`])
+    expect(useEditorStore.getState().activeTabId).toBe(`chat:${NODE}:1`)
+  })
+
+  it("drops the machine when there is no workspace", () => {
+    useEditorStore.getState().setWorkspace(null, null, NODE)
+    expect(useEditorStore.getState().currentNodeId).toBeNull()
+  })
+
+  it("gives a new chat the current workspace's machine", () => {
+    useEditorStore.getState().setWorkspace(3, 1, NODE)
+    const id = useEditorStore.getState().createChatTab("codex")
+    expect(useEditorStore.getState().tabs.find((t) => t.id === id)?.nodeId).toBe(NODE)
+
+    useEditorStore.getState().setWorkspace(3, 1)
+    const local = useEditorStore.getState().createChatTab("codex")
+    expect(useEditorStore.getState().tabs.find((t) => t.id === local)?.nodeId).toBeUndefined()
+  })
+
+  it("opens a remote chat by its tab id as that machine's chat, not this machine's same id", () => {
+    useEditorStore.setState({ tabs: [chatTab("chat:7", 7)], activeTabId: "chat:7" })
+
+    const id = useEditorStore.getState().openChatTab(`chat:${NODE}:7`, "Remote")
+
+    expect(id).toBe(`chat:${NODE}:7`)
+    const tabs = useEditorStore.getState().tabs
+    expect(tabs).toHaveLength(2)
+    expect(tabs[1]).toMatchObject({ chatId: 7, nodeId: NODE })
+  })
+
+  it("finds a chat in the bucket of its own machine", () => {
+    useEditorStore.setState({
+      tabs: [chatTab("chat:7", 7)],
+      currentWorkspaceId: 3,
+      workspaceStates: { [`${NODE}:3`]: { tabs: [remoteChatTab(`chat:${NODE}:7`, 7)], activeTabId: `chat:${NODE}:7` } },
+    })
+
+    expect(useEditorStore.getState().findChatTab({ chatId: 7 })).toEqual({ workspaceId: 3, tabId: "chat:7" })
+    expect(useEditorStore.getState().findChatTab({ nodeId: NODE, chatId: 7 })).toEqual({
+      workspaceId: 3,
+      nodeId: NODE,
+      tabId: `chat:${NODE}:7`,
+    })
+  })
+
+  it("moves a draft within the current machine", () => {
+    useEditorStore.getState().setWorkspace(3, 1, NODE)
+    const id = useEditorStore.getState().createChatTab("codex")
+    useEditorStore.getState().moveTabToWorkspace(id, 4)
+    expect(useEditorStore.getState().workspaceStates[`${NODE}:4`].tabs.map((t) => t.id)).toEqual([id])
+    expect(useEditorStore.getState().workspaceStates["4"]).toBeUndefined()
+  })
+
+  it("cleans up a closed remote chat on its own machine", () => {
+    useEditorStore.setState({ tabs: [remoteChatTab(`chat:${NODE}:42`, 42)], activeTabId: `chat:${NODE}:42` })
+
+    useEditorStore.getState().closeTab(`chat:${NODE}:42`)
+
+    expect(remoteSessionCleanup).toHaveBeenCalledWith(NODE, 42)
+    expect(aiSessionCleanup).not.toHaveBeenCalled()
+  })
+
+  it("does not count this machine's chat with the same id as another reference", () => {
+    useEditorStore.setState({
+      tabs: [remoteChatTab(`chat:${NODE}:42`, 42), chatTab("chat:42", 42)],
+      activeTabId: `chat:${NODE}:42`,
+    })
+
+    useEditorStore.getState().closeTab(`chat:${NODE}:42`)
+
+    expect(remoteSessionCleanup).toHaveBeenCalledWith(NODE, 42)
   })
 })
