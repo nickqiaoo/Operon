@@ -2,6 +2,7 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import { replaceEqualDeep } from "@tanstack/react-query"
 import { api, apiFor } from "@/lib/api"
+import { ApiError } from "@/lib/api-client"
 import { trackEvent } from "@/lib/analytics"
 import { getSelectedNodeId } from "@/lib/web-auth"
 
@@ -114,7 +115,19 @@ export interface RemoteProjectTree {
   projects: Project[]
   /** Set while the machine can't be reached; `projects` then holds the last tree seen. */
   error: string | null
+  /**
+   * With `error`: whether it may pass by itself (the machine asleep, a network
+   * blip, Broker timing out) and is worth trying again on a timer. A refusal —
+   * no delegation key, receiving turned off, an older version — is not.
+   */
+  retryable?: boolean
   loaded: boolean
+}
+
+/** A failed remote request that may succeed later without anyone changing anything. */
+export function isTransientRemoteError(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return true
+  return error.status >= 500 || error.code === "node_offline" || error.code === "node_unreachable"
 }
 
 interface ProjectStore {
@@ -350,6 +363,7 @@ export const useProjectStore = create<ProjectStore>()(
               [nodeId]: {
                 projects: state.remoteProjects[nodeId]?.projects ?? [],
                 error: error instanceof Error ? error.message : String(error),
+                retryable: isTransientRemoteError(error),
                 loaded: true,
               },
             },

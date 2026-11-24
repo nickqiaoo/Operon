@@ -179,7 +179,12 @@ export function transportFor(nodeId: string | undefined): ApiTransport {
 }
 
 export class ApiError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(
+    public readonly status: number,
+    message: string,
+    /** A machine-readable code when the body carries one (`node_offline`, `delegation_key_missing`). */
+    public readonly code?: string,
+  ) {
     super(message)
     this.name = 'ApiError'
   }
@@ -215,7 +220,7 @@ export async function requestVia<T>(transport: ApiTransport, path: string, optio
   })
   if (!res.ok) {
     const err = asRecord(await res.json().catch(() => null))
-    throw new ApiError(res.status, errorMessage(err, `${res.status} ${res.statusText}`))
+    throw new ApiError(res.status, errorMessage(err, `${res.status} ${res.statusText}`), errorCode(err))
   }
   return res.json() as Promise<T>
 }
@@ -232,6 +237,12 @@ export function errorMessage(body: Record<string, unknown> | null, fallback?: st
     (fallback?.trim() ? fallback : undefined) ??
     'Request failed'
   )
+}
+
+/** `code`, or an `error` that is a code (`node_offline`) rather than a sentence. */
+function errorCode(body: Record<string, unknown> | null): string | undefined {
+  const code = stringValue(body?.code) ?? stringValue(body?.error)
+  return code && /^[a-z][a-z0-9_]*$/.test(code) ? code : undefined
 }
 
 function stringValue(value: unknown): string | undefined {

@@ -17,7 +17,8 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/lib/analytics", () => ({ trackEvent: vi.fn() }))
 vi.mock("@/lib/web-auth", () => ({ getSelectedNodeId: () => null }))
 
-import { findWorkspaceOn, projectsOn, pruneRemoteFoldKeys, remoteFoldKey, useProjectStore } from "./project-store"
+import { findWorkspaceOn, isTransientRemoteError, projectsOn, pruneRemoteFoldKeys, remoteFoldKey, useProjectStore } from "./project-store"
+import { ApiError } from "@/lib/api-client"
 
 const tree = [
   {
@@ -179,6 +180,20 @@ describe("other machines' trees", () => {
     expect(entry.error).toBe("relay down")
     expect(entry.loaded).toBe(true)
     expect(entry.projects.map((p) => p.id)).toEqual([1])
+  })
+
+  it("marks a failure the machine may get over as worth retrying, and a refusal as not", async () => {
+    const failWith = async (error: unknown) => {
+      remoteProjectList.mockRejectedValueOnce(error)
+      await useProjectStore.getState().loadRemoteProjects(NODE)
+      return useProjectStore.getState().remoteProjects[NODE].retryable
+    }
+    expect(await failWith(new TypeError("Failed to fetch"))).toBe(true)
+    expect(await failWith(new ApiError(503, "Could not reach the machine", "node_unreachable"))).toBe(true)
+    expect(await failWith(new ApiError(524, "timeout"))).toBe(true)
+    expect(await failWith(new ApiError(409, "no key", "delegation_key_missing"))).toBe(false)
+    expect(await failWith(new ApiError(403, "receiving is off"))).toBe(false)
+    expect(isTransientRemoteError(new ApiError(404, "older version"))).toBe(false)
   })
 
   it("forgets a machine that left the list", async () => {

@@ -35,8 +35,13 @@ export function useOtherMachines(): DelegationMachine[] {
 
 const NO_MACHINES: DelegationMachine[] = []
 
-/** How often a listed machine whose tree did not load is tried again. */
-const REMOTE_TREE_RETRY_MS = 30_000
+/**
+ * How long to wait before trying a listed machine whose tree did not load
+ * again: 30s, 1min, 2min, then every 5min.
+ */
+export function remoteTreeRetryDelay(attempt: number): number {
+  return Math.min(30_000 * 2 ** attempt, 5 * 60_000)
+}
 
 /** Space above each machine after the first: the same in every group. */
 export const MACHINE_GROUP_GAP = "pt-3"
@@ -146,20 +151,39 @@ function RemoteMachineTree({ machine, activeWorkspaceId, renderWorkspace }: {
   const loadRemoteProjects = useProjectStore((s) => s.loadRemoteProjects)
   const reachable = tree?.loaded === true && tree.error == null
   const failed = tree?.loaded === true && tree.error != null
+  const retryable = failed && tree.retryable === true
 
   // Read the tree when the machine comes online (and again each time it does).
+  // Only machines Broker lists as online get here: an offline one is never asked.
   useEffect(() => {
     if (!online) return
     void loadRemoteProjects(nodeId)
   }, [nodeId, online, loadRemoteProjects])
 
-  // A machine Broker lists as online but that did not answer (asleep, network
-  // blip, receiving turned off) is hidden; try it again now and then so it
-  // comes back by itself once it answers.
+  // A machine Broker lists as online but that did not answer is hidden. When
+  // that may pass by itself (asleep, a network blip, Broker timing out), try it
+  // again, waiting longer each time. A refusal (no delegation key, receiving
+  // turned off, an older version) is not retried on a timer: only when Broker
+  // reports it coming online again (above) or the window comes back into focus.
+  useEffect(() => {
+    if (!online || !retryable) return
+    let attempt = 0
+    let timer: ReturnType<typeof setTimeout>
+    const next = () => {
+      timer = setTimeout(() => {
+        attempt += 1
+        void loadRemoteProjects(nodeId).then(next)
+      }, remoteTreeRetryDelay(attempt))
+    }
+    next()
+    return () => clearTimeout(timer)
+  }, [nodeId, online, retryable, loadRemoteProjects])
+
   useEffect(() => {
     if (!online || !failed) return
-    const timer = setInterval(() => void loadRemoteProjects(nodeId), REMOTE_TREE_RETRY_MS)
-    return () => clearInterval(timer)
+    const retry = () => void loadRemoteProjects(nodeId)
+    window.addEventListener("focus", retry)
+    return () => window.removeEventListener("focus", retry)
   }, [nodeId, online, failed, loadRemoteProjects])
 
   // Then follow it the way this machine's tree follows its own server. Only
