@@ -158,9 +158,11 @@ export function ExternalAgentToolRenderer({
   const description = live?.description ?? parsed?.description ?? (args.description as string) ?? ''
 
   const childId = live?.childChatId ?? parsed?.childChatId
-  const childKey = childId != null ? chatKey({ nodeId, chatId: childId }) : undefined
+  // An agent started on another machine lives there: its chat id, tab and pending input are that machine's.
+  const childNodeId = live?.remote?.nodeId ?? nodeId
+  const childKey = childId != null ? chatKey({ nodeId: childNodeId, chatId: childId }) : undefined
   const pending = useChatPendingInputStore((s) => (childKey != null ? s.pendingByChat.get(childKey) : undefined))
-  const targetTabId = childId ? chatTabId({ nodeId, chatId: childId }) : notificationInfo?.childChatId
+  const targetTabId = childId ? chatTabId({ nodeId: childNodeId, chatId: childId }) : notificationInfo?.childChatId
   const tabExists = targetTabId ? tabs.some((t) => t.id === targetTabId) : false
   const canClick = !!targetTabId
 
@@ -168,7 +170,7 @@ export function ExternalAgentToolRenderer({
     // The usual case now that children don't open a tab when they start: open it
     // with the child's own model and mode.
     if (live) {
-      void openChildChat({ childChatId: live.childChatId, nodeId, title: description, providerId: live.providerId, modelId: live.modelId, modeId: live.modeId, workspaceId: live.workspaceId })
+      void openChildChat({ childChatId: live.childChatId, nodeId: childNodeId, title: description, providerId: live.providerId, modelId: live.modelId, modeId: live.modeId, workspaceId: live.workspaceId })
       return
     }
     if (!targetTabId) return

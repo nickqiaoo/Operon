@@ -4,13 +4,16 @@ import { z } from 'zod'
 import type { AgentInput } from '@operon/agent-runtime'
 import {
   DELEGATION_ID, DELEGATION_NODE_ID, DELEGATION_PROVIDER_ID, decodeWire, encodeWire,
-  type DelegationControl, type DelegationTurnRequest,
+  type DelegatedAgentEvent, type DelegatedAgentStarted, type DelegationControl, type DelegationTurnRequest,
 } from '@shared/delegations'
 import { DELEGATION_SOURCE_HEADER, DELEGATION_SOURCE_LABEL_HEADER, DELEGATION_TUNNEL_HEADER, REMOTE_TUNNEL_HEADER } from '@shared/e2ee/protocol'
 import type { DelegationHost } from '../services/delegation-host.js'
 import { DelegationHttpError, delegationRequest, listDelegationNodes } from '../services/delegation-transport.js'
 import { remoteProviderModels } from '../services/remote-agent-session.js'
-import { createExternalAgent } from '../services/external-agent.js'
+import {
+  createExternalAgent, externalAgentView, getExternalAgentStatus, sendExternalAgent, stopExternalAgent,
+} from '../services/external-agent.js'
+import { receiveAgentEvent } from '../services/remote-agents.js'
 import { trustedDelegationTunnel } from '../services/delegation-tunnel.js'
 import { getChatStorage } from '../services/ai/state.js'
 
@@ -32,6 +35,25 @@ const control = z.discriminatedUnion('type', [
   z.object({ type: z.literal('set'), patch: sessionOptions.omit({ resume: true, serviceTier: true })
     .extend({ serviceTier: z.literal('fast').nullable().optional() }) }),
   z.object({ type: z.enum(['steer', 'followup']), input: z.unknown(), id: z.string().max(200).optional() }),
+])
+const positiveId = z.number().int().positive()
+const agentCreate = z.object({
+  parentChatId: positiveId, providerId, model: setting, effort: setting.optional(),
+  description: z.string().trim().min(1).max(300), prompt: z.string().trim().min(1).max(100_000), workspaceId: positiveId,
+})
+const agentCall = z.object({
+  parentChatId: positiveId, prompt: z.string().trim().min(1).max(100_000).optional(),
+  mode: z.enum(['auto', 'steer', 'followup']).optional(),
+})
+const turnStatus = z.enum(['running', 'queued'])
+const agentEvent = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('turn'), childChatId: positiveId, turnId: z.string().min(1).max(200), status: turnStatus }),
+  z.object({
+    type: z.literal('result'), childChatId: positiveId, turnId: z.string().min(1).max(200),
+    status: z.enum(['completed', 'cancelled', 'failed']), error: z.string().max(20_000).optional(),
+    dispatched: z.boolean(), prompt: z.string().max(20_000), result: z.string().max(40_000),
+    workspace: z.object({ id: positiveId, branch: z.string().max(500), worktreePath: z.string().max(4_000) }).optional(),
+  }),
 ])
 const launch = z.object({
   providerId, model: setting, effort: setting.optional(),
@@ -91,6 +113,49 @@ export function delegationRoutes(host: DelegationHost) {
     const from = source(c)
     const request = control.parse(decodeWire(await c.req.text())) as DelegationControl
     return c.json(await host.control(from.id, sessionId.parse(c.req.param('id')), request))
+  })
+
+  // External agents another machine's conversation starts here. The agent is an
+  // ordinary one of this machine; its owner is (source machine, parent chat id).
+  app.post('/agents', async (c) => {
+    const from = source(c)
+    const input = agentCreate.parse(await c.req.json())
+    const started = await createExternalAgent({
+      parent: { remoteParent: { nodeId: from.id, ...(from.label ? { label: from.label } : {}), chatId: input.parentChatId }, workspaceId: input.workspaceId },
+      providerId: input.providerId, model: input.model, effort: input.effort, description: input.description, prompt: input.prompt,
+    })
+    const view = 'chat_id' in started ? externalAgentView(started.chat_id) : undefined
+    if (!view || !('turn_id' in started)) throw new DelegationHttpError(500, 'The agent did not start')
+    const answer: DelegatedAgentStarted = {
+      childChatId: view.childChatId, workspaceId: input.workspaceId, providerId: view.providerId,
+      ...(view.modelId ? { modelId: view.modelId } : {}), ...(view.modeId ? { modeId: view.modeId } : {}),
+      turnId: started.turn_id, status: started.status === 'queued' ? 'queued' : 'running',
+      ...(started.delivery ? { delivery: started.delivery } : {}),
+      ...('warning' in started && typeof started.warning === 'string' ? { warning: started.warning } : {}),
+    }
+    return c.json(answer)
+  })
+  const ownerOf = (c: Context, parentChatId: number) => ({ nodeId: source(c).id, chatId: parentChatId })
+  const agentIdOf = (c: Context) => `ext-${positiveId.parse(Number(c.req.param('childChatId')))}`
+  app.post('/agents/:childChatId/send', async (c) => {
+    const input = agentCall.parse(await c.req.json())
+    if (!input.prompt) throw new DelegationHttpError(400, 'prompt is required')
+    return c.json(await sendExternalAgent(ownerOf(c, input.parentChatId), agentIdOf(c), input.prompt, input.mode ?? 'auto'))
+  })
+  app.post('/agents/:childChatId/stop', async (c) => {
+    const input = agentCall.parse(await c.req.json())
+    return c.json(stopExternalAgent(ownerOf(c, input.parentChatId), agentIdOf(c)))
+  })
+  app.post('/agents/:childChatId/status', async (c) => {
+    const input = agentCall.parse(await c.req.json())
+    return c.json(getExternalAgentStatus(ownerOf(c, input.parentChatId), agentIdOf(c)))
+  })
+  // A turn of an agent this machine's conversation started on the source machine.
+  // Reaches here even while this machine serves no others (see app.ts).
+  app.post('/agent-events', async (c) => {
+    const from = source(c)
+    receiveAgentEvent(from.id, agentEvent.parse(await c.req.json()) as DelegatedAgentEvent)
+    return c.json({ ok: true })
   })
 
   // ── This machine's own UI ───────────────────────────────────────────────

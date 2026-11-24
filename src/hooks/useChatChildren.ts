@@ -26,9 +26,11 @@ export function useChatChildren(chat: ChatRef | undefined): ChatChild[] {
       chatId,
       externalAgents: [...agents.values()].filter((agent) => isOnNode(agent, nodeId)),
       pendingByChat: nodeEntries(pendingByChat, nodeKeyOf(nodeId)),
+      pendingOn: (remote) => nodeEntries(pendingByChat, nodeKeyOf(remote)),
       taskChildren: nodeId ? [] : projects.flatMap((p) => p.taskChildren ?? []),
     })
-    return nodeId ? children.map((child) => ({ ...child, nodeId })) : children
+    // Each child on its own machine: the parent's, unless it was started on another.
+    return nodeId ? children.map((child) => ({ ...child, nodeId: child.nodeId ?? nodeId })) : children
   }, [chatId, nodeId, agents, pendingByChat, projects])
 }
 

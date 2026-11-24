@@ -319,6 +319,11 @@ export interface RemoteE2EEMiddlewareOptions {
    * is refused, whatever its path.
    */
   acceptsMachines?: () => boolean
+  /**
+   * Paths another machine may call even then — answers to what this machine
+   * asked of it; the route itself checks it did ask.
+   */
+  alwaysFromMachines?: (path: string) => boolean
 }
 
 export function createRemoteE2EEMiddleware(options: RemoteE2EEMiddlewareOptions = {}): MiddlewareHandler {
@@ -332,7 +337,7 @@ export function createRemoteE2EEMiddleware(options: RemoteE2EEMiddlewareOptions 
         !nodeDelegationRoute(c.req.method, c.req.path))) {
       return c.json({ error: 'delegation_scope_denied' }, 403)
     }
-    if (source && !options.acceptsMachines?.()) {
+    if (source && !options.acceptsMachines?.() && !options.alwaysFromMachines?.(c.req.path)) {
       return c.json({ error: 'delegations_disabled', message: 'This machine is not accepting requests from other machines' }, 403)
     }
     // WebSocket messages have their own ordered frame wrapper. The HTTP

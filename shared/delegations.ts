@@ -86,6 +86,85 @@ export interface IncomingDelegation {
   updatedAt: number
 }
 
+// ── External agents across machines ─────────────────────────────────────────
+//
+// A conversation on one machine (the origin) starts an external agent on
+// another (the target). The agent's conversation is an ordinary external agent
+// of the target: its chat, workspace, turns and approvals are all there. The
+// origin keeps a record of it for its parent conversation (the Agents card,
+// `external_agent_send/stop/status`), and the target reports each turn back.
+
+/** On the target: the conversation on another machine that started this agent. */
+export interface RemoteAgentParent {
+  /** The origin's Broker node id (stamped by Broker, never taken from a request body). */
+  nodeId: string
+  label?: string
+  /** The parent conversation, a chat id on the origin. */
+  chatId: number
+}
+
+/** POST /api/delegations/agents (origin → target) */
+export interface DelegatedAgentCreate {
+  parentChatId: number
+  providerId: string
+  model: string
+  effort?: string
+  description: string
+  prompt: string
+  workspaceId: number
+}
+
+/** What the target answers: its own ids, which the origin maps to its record. */
+export interface DelegatedAgentStarted {
+  childChatId: number
+  workspaceId: number
+  providerId: string
+  modelId?: string
+  modeId?: string
+  turnId: string
+  status: 'running' | 'queued'
+  delivery?: string
+  warning?: string
+}
+
+/** POST /api/delegations/agents/:childChatId/(send|stop|status) — who is asking, on the origin. */
+export interface DelegatedAgentCall {
+  parentChatId: number
+  prompt?: string
+  mode?: 'auto' | 'steer' | 'followup'
+}
+
+/**
+ * POST /api/delegations/agent-events (target → origin): a turn of the agent
+ * started, or finished with its result. Accepted even while the origin does not
+ * serve other machines, but only for agents it started there.
+ */
+export type DelegatedAgentEvent =
+  | { type: 'turn'; childChatId: number; turnId: string; status: 'running' | 'queued' }
+  | {
+      type: 'result'
+      childChatId: number
+      turnId: string
+      status: 'completed' | 'cancelled' | 'failed'
+      error?: string
+      /** The turn's prompt came from the parent agent, not from someone typing in the agent's chat. */
+      dispatched: boolean
+      prompt: string
+      result: string
+      /** Set when the agent works in a workspace of its own on the target. */
+      workspace?: { id: number; branch: string; worktreePath: string }
+    }
+
+/** The one path another machine may call here while this machine serves no others. */
+export const DELEGATED_AGENT_EVENTS_PATH = '/api/delegations/agent-events'
+
+/** An origin's id for an agent it started on another machine: `ext-r<first 8 of node>-<child chat id>`. */
+export const REMOTE_AGENT_ID = /^ext-r([0-9a-f]{8})-(\d+)$/
+
+export function remoteAgentId(nodeId: string, childChatId: number): string {
+  return `ext-r${nodeId.slice(0, 8)}-${childChatId}`
+}
+
 const NODE_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
 
 /**

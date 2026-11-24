@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { useProjectStore, Project, Workspace, WorkspaceTask, WorkspaceDiffStat } from "@/stores/project-store"
+import { projectsOn, useProjectStore, Project, Workspace, WorkspaceTask, WorkspaceDiffStat } from "@/stores/project-store"
 import { useWorkspaceDiffStats } from "@/hooks/useWorkspaceDiffStats"
 import { isWorkspaceView, useAppShellStore } from "@/stores/app-shell-store"
 import { useEditorStore } from "@/stores/editor-store"
@@ -562,10 +562,11 @@ function AgentRow({ agent, parentWorkspaceId, current }: {
   current: boolean
 }) {
   const intl = useIntl()
-  const ownWorkspace = agent.workspaceId != null && agent.workspaceId !== parentWorkspaceId ? agent.workspaceId : undefined
+  const ownWorkspace = agent.workspaceId != null && (agent.nodeId != null || agent.workspaceId !== parentWorkspaceId) ? agent.workspaceId : undefined
+  // A remote agent's workspace id is its machine's.
   const workspace = useProjectStore((s) => {
     if (ownWorkspace == null) return undefined
-    for (const project of s.projects) {
+    for (const project of projectsOn(s, agent.nodeId)) {
       const found = project.workspaces.find((w) => w.id === ownWorkspace)
       if (found) return found
     }

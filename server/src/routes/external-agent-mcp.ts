@@ -10,6 +10,7 @@ import { serveMcpOverHono, withCodexElicitationFallback } from './mcp-http.js'
 import { resolveMcpCallerChat } from './mcp-caller.js'
 import { getSaasConfig } from '../gateway/saas/config.js'
 import { delegationRequest, listDelegationNodes } from '../services/delegation-transport.js'
+import { isRemoteAgentId, remoteAgentStatus, sendRemoteAgent, stopRemoteAgent } from '../services/remote-agents.js'
 import { DELEGATION_NODE_ID } from '@shared/delegations'
 
 import { SUPPORTED_EXTERNAL_AGENT_IDS } from '@shared/external-agent'
@@ -127,9 +128,15 @@ export function buildExternalAgentMcpServer(availableAgents: string[], parentCha
         return json(await createChatWorkspace(storage, parentChatId, { name: requiredText(args, 'name'), ...(base ? { base } : {}) }))
       }
       const id = requiredText(args, 'agent_id')
-      if (name === 'external_agent_send') return json(await sendExternalAgent(parentChatId, id, requiredText(args, 'prompt'), args.delivery === 'steer' || args.delivery === 'followup' ? args.delivery : 'auto'))
-      if (name === 'external_agent_status') return json(getExternalAgentStatus(parentChatId, id))
-      if (name === 'external_agent_stop') return json(stopExternalAgent(parentChatId, id))
+      const delivery = args.delivery === 'steer' || args.delivery === 'followup' ? args.delivery : 'auto'
+      // An agent started on another machine: the same calls, made there.
+      const remoteAgent = isRemoteAgentId(id)
+      if (name === 'external_agent_send') {
+        const prompt = requiredText(args, 'prompt')
+        return json(remoteAgent ? await sendRemoteAgent(parentChatId, id, prompt, delivery) : await sendExternalAgent(parentChatId, id, prompt, delivery))
+      }
+      if (name === 'external_agent_status') return json(remoteAgent ? await remoteAgentStatus(parentChatId, id) : getExternalAgentStatus(parentChatId, id))
+      if (name === 'external_agent_stop') return json(remoteAgent ? await stopRemoteAgent(parentChatId, id) : stopExternalAgent(parentChatId, id))
       throw new Error(`Unknown tool: ${name}`)
     } catch (error) {
       return { content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }], isError: true }

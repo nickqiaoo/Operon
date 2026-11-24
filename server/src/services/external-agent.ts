@@ -9,9 +9,9 @@ import { getProviderModels } from './ai/providers.js'
 import { assistantAgentMode, subagentMode } from './agents/subagent-mode.js'
 import { enqueueExternalAgentResult } from './external-agent-notifications.js'
 import { listPendingApprovals } from './ai/chat-pending-input.js'
-import type { DelegationWorkspace, RemoteExecutionRef } from '@shared/delegations'
-import { delegationRequest, listDelegationNodes } from './delegation-transport.js'
-import { remoteProviderModels } from './remote-agent-session.js'
+import type { RemoteAgentParent } from '@shared/delegations'
+import { externalAgentResultMessage } from './external-agent-result.js'
+import { listRemoteAgents, onRemoteAgentChange, reportToParentMachine, startRemoteAgent } from './remote-agents.js'
 
 const listeners = new Set<(event: ExternalAgentFrame) => void>()
 const activeTurns = new Map<number, string>()
@@ -21,6 +21,9 @@ function publish(event: ExternalAgentFrame): void {
     try { listener(event) } catch (error) { console.warn('[external-agent] subscriber failed', error) }
   }
 }
+
+// Agents this machine's conversations started on other machines join the same feed.
+onRemoteAgentChange((agent, created) => publish({ type: created ? 'created' : 'updated', agent }))
 
 export function subscribeExternalAgents(listener: (event: ExternalAgentFrame) => void): () => void {
   listeners.add(listener)
@@ -33,26 +36,30 @@ export function externalAgentView(childChatId: number): ExternalAgentView | unde
   if (!binding || !meta?.providerId) return undefined
   const last = binding.lastTurn
   const pending = last?.status === 'running' || last?.status === 'queued'
-  const remote = meta.metadata?.remoteExecution
   return {
     ...binding, childChatId, modelId: meta.model, modeId: meta.metadata?.modeId, providerId: meta.providerId, workspaceId: meta.workspaceId,
     turnId: last?.turnId,
     status: pending && !activeTurns.has(childChatId) ? 'interrupted' : last?.status ?? 'idle',
     error: last?.error,
     updatedAt: meta.updatedAt,
-    ...(remote ? { remote: { nodeId: remote.nodeId, machine: remote.machine, workspace: remote.workspace } } : {}),
   }
 }
 
+/** This machine's external agents, and those its conversations started on other machines. */
 export function listExternalAgents(parentChatId?: number): ExternalAgentView[] {
-  return (getChatStorage()?.listChatEntries({ tp: 'subagent' }) ?? [])
+  const local = (getChatStorage()?.listChatEntries({ tp: 'subagent' }) ?? [])
     .filter((entry) => entry.metadata?.externalAgent &&
       (parentChatId === undefined || entry.metadata.externalAgent.parentChatId === parentChatId))
     .flatMap((entry) => externalAgentView(entry.id) ?? [])
+  // A remote parent's id is a chat id there: it never matches one of this machine's.
+  return [...local, ...listRemoteAgents(parentChatId)]
 }
 
-/** Who started an external agent: a parent conversation's id, or the personal assistant. */
-export type ExternalAgentOwner = number | 'assistant'
+/**
+ * Who started an external agent: a parent conversation's id, the personal
+ * assistant, or a conversation on another machine of the account.
+ */
+export type ExternalAgentOwner = number | 'assistant' | Pick<RemoteAgentParent, 'nodeId' | 'chatId'>
 
 /** What the personal assistant is told when one of its conversations finishes a turn. */
 export interface AssistantAgentResult {
@@ -73,8 +80,11 @@ export function setAssistantAgentResultSink(sink: ((result: AssistantAgentResult
   assistantResultSink = sink
 }
 
-const ownedBy = (view: ExternalAgentView, owner: ExternalAgentOwner): boolean =>
-  owner === 'assistant' ? view.assistantActivityId != null : !view.assistantActivityId && view.parentChatId === owner
+const ownedBy = (view: ExternalAgentView, owner: ExternalAgentOwner): boolean => {
+  if (owner === 'assistant') return view.assistantActivityId != null
+  if (typeof owner === 'object') return view.remoteParent?.nodeId === owner.nodeId && view.remoteParent.chatId === owner.chatId
+  return !view.assistantActivityId && !view.remoteParent && view.parentChatId === owner
+}
 
 export function ownedExternalAgent(owner: ExternalAgentOwner, agentId: string): ExternalAgentView {
   const match = /^ext-(\d+)$/.exec(agentId)
@@ -127,36 +137,41 @@ export async function createExternalAgent(params: {
   /** Reasoning effort; unset runs at the agent's own level. */
   effort?: string
   /**
-   * Run on another machine of the account, in one of its workspaces. The
-   * conversation is still a child here, in the parent's workspace; only its agent
-   * session runs there.
+   * Run on another machine of the account, in one of its workspaces: the
+   * conversation is created there (see remote-agents.ts), this machine keeps a record.
    */
   remote?: { nodeId: string; workspaceId?: number }
+} | {
+  /** Started from a conversation on another machine, in a workspace of this one. */
+  parent: { remoteParent: RemoteAgentParent; workspaceId: number }
+  providerId: string; model: string; description: string; prompt: string
+  effort?: string
+  remote?: undefined
 }) {
-  const storage = getChatStorage()
   const { parent } = params
+  if (params.remote) {
+    if (!('chatId' in parent)) throw new Error('Only a conversation can start an agent on another machine')
+    return startRemoteAgent({
+      parentChatId: parent.chatId, nodeId: params.remote.nodeId, workspaceId: params.remote.workspaceId,
+      providerId: params.providerId, model: params.model, effort: params.effort,
+      description: params.description, prompt: params.prompt,
+    })
+  }
+  const storage = getChatStorage()
   const parentWorkspaceId = 'chatId' in parent ? storage?.getChatMeta(parent.chatId)?.workspaceId : undefined
-  const workspaceId = params.remote
-    ? 'chatId' in parent ? parentWorkspaceId : parent.workspaceId
-    : 'chatId' in parent ? parent.workspaceId ?? parentWorkspaceId : parent.workspaceId
+  const workspaceId = 'chatId' in parent ? parent.workspaceId ?? parentWorkspaceId : parent.workspaceId
   if (!storage || !workspaceId) throw new Error('External agents require an existing workspace conversation')
+  if ('remoteParent' in parent && !getProjectStorage()?.getWorkspace(workspaceId)) throw new Error(`There is no workspace ${workspaceId}.`)
   // Elsewhere than the parent's own: only a workspace of the same project.
-  const elsewhere = !params.remote && 'chatId' in parent && workspaceId !== parentWorkspaceId
+  const elsewhere = 'chatId' in parent && workspaceId !== parentWorkspaceId
     ? otherWorkspace(parentWorkspaceId, workspaceId)
     : undefined
   const parentChatId = 'chatId' in parent ? parent.chatId : 0
-  const owner: ExternalAgentOwner = 'chatId' in parent ? parent.chatId : 'assistant'
-  const remoteExecution = params.remote ? await resolveRemoteExecution(params.providerId, params.remote) : undefined
-  const needsModels = params.model === 'default' || !!params.effort || !!remoteExecution
-  const models = needsModels
-    ? remoteExecution
-      ? await remoteProviderModels(remoteExecution.nodeId, params.providerId) as unknown as ProviderModels
-      : await getProviderModels(params.providerId)
-    : undefined
+  const owner: ExternalAgentOwner = 'chatId' in parent ? parent.chatId
+    : 'remoteParent' in parent ? { nodeId: parent.remoteParent.nodeId, chatId: parent.remoteParent.chatId } : 'assistant'
+  const needsModels = params.model === 'default' || !!params.effort
+  const models = needsModels ? await getProviderModels(params.providerId) : undefined
   const modelId = params.model === 'default' ? models?.currentModelId || undefined : params.model
-  if (remoteExecution && modelId && models?.models?.length && !models.models.some((model) => model.modelId === modelId)) {
-    throw new Error(`Models of ${params.providerId} on ${remoteExecution.machine}: ${models.models.map((model) => model.modelId).join(', ')}`)
-  }
   if (params.effort) {
     const levels = models?.configOptions?.find((option) => option.category === 'thought_level')?.options.map((option) => option.value) ?? []
     if (!levels.includes(params.effort)) {
@@ -170,41 +185,19 @@ export async function createExternalAgent(params: {
     title: `Agent: ${params.description}`, workspaceId,
     providerId: params.providerId, model: modelId,
     ...(params.effort ? { thinkingLevel: params.effort } : {}),
-    updatedAt: Date.now(), metadata: { modeId, ...(remoteExecution ? { remoteExecution } : {}) },
+    updatedAt: Date.now(), metadata: { modeId },
   })
   const agentId = `ext-${chatId}`
-  storage.updateChatMetadata(chatId, { modeId, ...(remoteExecution ? { remoteExecution } : {}), externalAgent: {
+  storage.updateChatMetadata(chatId, { modeId, externalAgent: {
     agentId, parentChatId, description: params.description, model: params.model,
     ...('assistantActivityId' in parent ? { assistantActivityId: parent.assistantActivityId } : {}),
+    ...('remoteParent' in parent ? { remoteParent: parent.remoteParent } : {}),
   } })
   const result = await sendExternalAgent(owner, agentId, params.prompt)
   const view = externalAgentView(chatId)
   if (view) publish({ type: 'created', agent: view })
-  if (remoteExecution) return { ...result, machine: remoteExecution.machine, workspace: remoteExecution.workspace }
   // Its changes are not in the parent's worktree: say where they are.
   return elsewhere ? { ...result, workspace_id: workspaceId, branch: elsewhere.branchName, worktree_path: elsewhere.worktreePath } : result
-}
-
-type ProviderModels = Awaited<ReturnType<typeof getProviderModels>>
-
-async function resolveRemoteExecution(providerId: string, remote: { nodeId: string; workspaceId?: number }): Promise<RemoteExecutionRef> {
-  const [machines, catalog] = await Promise.all([
-    listDelegationNodes(),
-    delegationRequest<{ workspaces: DelegationWorkspace[] }>(remote.nodeId,
-      `/api/delegations/catalog?provider=${encodeURIComponent(providerId)}&models=0`),
-  ])
-  const machine = machines.find(({ nodeId, current }) => nodeId === remote.nodeId && !current)
-  if (!machine) throw new Error('That machine is not on this account')
-  const { workspaces } = catalog
-  if (!workspaces.length) throw new Error(`${machine.label} has no workspaces`)
-  const workspace = remote.workspaceId === undefined && workspaces.length === 1
-    ? workspaces[0]
-    : workspaces.find(({ id }) => id === remote.workspaceId)
-  if (!workspace) {
-    throw new Error(`Choose a workspace on ${machine.label}: ${workspaces.map(({ id, project, name }) => `${id} (${project} / ${name})`).join(', ')}`)
-  }
-  return { nodeId: machine.nodeId, machine: machine.label || machine.nodeId, workspaceId: workspace.id,
-    workspace: `${workspace.project} / ${workspace.name}`, sessionId: randomUUID() }
 }
 
 function otherWorkspace(parentWorkspaceId: number | undefined, workspaceId: number) {
@@ -242,7 +235,6 @@ export function getExternalAgentStatus(owner: ExternalAgentOwner, agentId: strin
 function textOf(message?: UIMessage): string {
   return message?.parts.filter((part) => part.type === 'text').map((part) => part.text).join('\n') ?? ''
 }
-const escape = (value: string) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 
 function deliverResult(view: ExternalAgentView, event: ChatTurnFinished): void {
   const history = getChatStorage()?.getChatEntry(view.childChatId)?.messages as UIMessage[] | undefined
@@ -257,40 +249,38 @@ function deliverResult(view: ExternalAgentView, event: ChatTurnFinished): void {
     assistantResultSink?.({ view, event, dispatched, result, final })
     return
   }
+  if (view.remoteParent) {
+    // The parent is on another machine: it gets the turn as data and says it in its own words.
+    const own = view.workspaceId != null ? getProjectStorage()?.getWorkspace(view.workspaceId) : undefined
+    reportToParentMachine(view.remoteParent, {
+      type: 'result', childChatId: view.childChatId, turnId: event.turnId,
+      status: event.status === 'completed' || event.status === 'cancelled' ? event.status : 'failed',
+      ...(event.error ? { error: event.error } : {}),
+      dispatched, prompt: textOf(event.prompt).slice(0, 8_000), result,
+      ...(own ? { workspace: { id: own.id, branch: own.branchName, worktreePath: own.worktreePath } } : {}),
+    })
+    return
+  }
   const parent = getChatStorage()?.getChatMeta(view.parentChatId)
   if (!parent) return
-  const source = dispatched ? 'parent agent' : 'user in child chat'
   // Working in a workspace of its own: its changes are there, not in the parent's worktree.
   const workspace = view.workspaceId != null && view.workspaceId !== parent.workspaceId
     ? getProjectStorage()?.getWorkspace(view.workspaceId)
     : undefined
-  const where = workspace
-    ? `<workspace-id>${workspace.id}</workspace-id>\n<branch>${escape(workspace.branchName)}</branch>\n<worktree-path>${escape(workspace.worktreePath)}</worktree-path>\n`
-    : ''
-  const text = `[External Agent Result]\n<external-agent-result>
-<task-id>${event.turnId}</task-id>
-<agent-id>${view.agentId}</agent-id>
-<agent-type>${escape(view.providerId)}</agent-type>
-<description>${escape(view.description)}</description>
-<child-chat-id>chat:${view.childChatId}</child-chat-id>
-<db-chat-id>${view.childChatId}</db-chat-id>
-<status>${event.status}</status>
-${where}<prompt-source>${source}</prompt-source>
-<prompt>${escape(textOf(event.prompt).slice(0, 8_000))}</prompt>
-<result>${escape(event.status === 'completed' ? result : event.error ?? event.status)}</result>
-</external-agent-result>
-${!dispatched ? 'The user is talking to this agent directly; this is for your information. Do not act on it unless the user asks. No reply is needed: end your turn without saying anything.' : event.status === 'cancelled' ? 'The user stopped this turn. Do not restart it automatically; wait for further instructions.' : 'Use this result to continue. If the agent is asking the user something, tell the user the question and that they can answer in the agent\'s tab, then end your turn. Do not answer it on the user\'s behalf or send the agent a reply the user did not give. To follow up with this same agent, call external_agent_send with its agent_id.'}`
-  const message: UIMessage = { id: `external-result-${event.turnId}`, role: 'user',
-    parts: [{ type: 'text', text }], metadata: { externalAgentResult: {
-      agentId: view.agentId, turnId: event.turnId, childChatId: view.childChatId, status: event.status,
-    } } }
-  enqueueExternalAgentResult(view.parentChatId, message)
+  enqueueExternalAgentResult(view.parentChatId, externalAgentResultMessage({
+    agentId: view.agentId, providerId: view.providerId, description: view.description, childChatId: view.childChatId,
+    turnId: event.turnId, status: event.status, error: event.error, dispatched,
+    prompt: textOf(event.prompt), result,
+    ...(workspace ? { workspace: { id: workspace.id, branch: workspace.branchName, worktreePath: workspace.worktreePath } } : {}),
+  }, `external-result-${event.turnId}`))
 }
 
 onChatTurnStarted((payload) => {
   if (!payload.chatId || !payload.requestId || !externalAgentView(payload.chatId)) return
   activeTurns.set(payload.chatId, payload.requestId)
   updateTurn(payload.chatId, { turnId: payload.requestId, status: 'running' })
+  const parent = externalAgentView(payload.chatId)?.remoteParent
+  if (parent) reportToParentMachine(parent, { type: 'turn', childChatId: payload.chatId, turnId: payload.requestId, status: 'running' })
 })
 
 onChatTurnFinished((event) => {

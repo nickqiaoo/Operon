@@ -26,9 +26,12 @@ export interface ChatChild {
   key: string
   agentId: string
   childChatId: number
-  /** The machine the child chat lives on (its parent's); absent for this machine. */
+  /**
+   * The machine the child chat lives on: its parent's, or — for an agent started
+   * on another machine — that one. Absent for this machine.
+   */
   nodeId?: string
-  /** Runs on another machine of the account. */
+  /** Started on another machine of the account, and lives there. */
   remote?: ExternalAgentView['remote']
   providerId: string
   modelId?: string
@@ -49,6 +52,8 @@ export interface ChatChildrenInput {
   chatId: number
   externalAgents: Iterable<ExternalAgentView>
   pendingByChat: ReadonlyMap<number, PendingInputSummary[]>
+  /** Pending input of another machine's chats, for agents that live there. */
+  pendingOn?: (nodeId: string) => ReadonlyMap<number, PendingInputSummary[]>
   /** Board sub-tasks whose parent task's agent runs in this chat (they nest like external agents). */
   taskChildren?: Iterable<TaskChildSession>
 }
@@ -83,13 +88,14 @@ export function buildChatChildren(input: ChatChildrenInput): ChatChild[] {
   for (const view of input.externalAgents) {
     // The assistant's agents have parentChatId 0, so they never match a real chat.
     if (view.parentChatId !== input.chatId || view.assistantActivityId) continue
-    const pending = input.pendingByChat.get(view.childChatId) ?? []
+    const pendingByChat = view.remote ? input.pendingOn?.(view.remote.nodeId) : input.pendingByChat
+    const pending = pendingByChat?.get(view.childChatId) ?? []
     const state = childState(view, pending)
     children.push({
       key: view.agentId,
       agentId: view.agentId,
       childChatId: view.childChatId,
-      remote: view.remote,
+      ...(view.remote ? { nodeId: view.remote.nodeId, remote: view.remote } : {}),
       providerId: view.providerId,
       modelId: view.modelId,
       modeId: view.modeId,

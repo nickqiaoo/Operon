@@ -110,6 +110,8 @@ import { createApiTokenMiddleware } from './services/api-token.js'
 import type { RemoteE2EEMode } from '@shared/e2ee/protocol'
 import { delegationRoutes } from './routes/delegations.js'
 import { remoteMachineRoutes } from './routes/remote-machines.js'
+import { initRemoteAgents } from './services/remote-agents.js'
+import { DELEGATED_AGENT_EVENTS_PATH } from '@shared/delegations'
 import { DelegationHost } from './services/delegation-host.js'
 
 export interface AppDeps {
@@ -133,6 +135,7 @@ export interface AppDeps {
 }
 
 let stopDelegations: (() => void) | undefined
+let stopRemoteAgents: (() => void) | undefined
 
 export async function createApp(deps: AppDeps) {
   initProviderConfigService(deps.storage)
@@ -291,7 +294,13 @@ export async function createApp(deps: AppDeps) {
   const delegationHost = new DelegationHost(deps.storage)
   stopDelegations = delegationHost.init()
   app.use('/api/*', createApiTokenMiddleware())
-  app.use('/api/*', createRemoteE2EEMiddleware({ acceptsMachines: () => delegationHost.accepting() }))
+  stopRemoteAgents?.()
+  stopRemoteAgents = initRemoteAgents(deps.storage)
+  app.use('/api/*', createRemoteE2EEMiddleware({
+    acceptsMachines: () => delegationHost.accepting(),
+    // The results of agents this machine's conversations started elsewhere.
+    alwaysFromMachines: (path) => path === DELEGATED_AGENT_EVENTS_PATH,
+  }))
 
   app.onError((err, c) => {
     console.error('Server error:', err)

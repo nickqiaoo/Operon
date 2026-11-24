@@ -74,7 +74,8 @@ export function useActiveConversations({ includeInfo = false }: { includeInfo?: 
       // These lists are this machine's conversations.
       if (!isOnNode(agent, undefined)) continue
       // The assistant's agents have parentChatId 0: no lead row to fold them into.
-      if (agent.parentChatId > 0 && !agent.assistantActivityId) parents.set(agent.childChatId, agent.parentChatId)
+      // One started on another machine lives there: its chat id is not one of these.
+      if (agent.parentChatId > 0 && !agent.assistantActivityId && !agent.remote) parents.set(agent.childChatId, agent.parentChatId)
     }
     // A board sub-task's session folds into its parent task's session the same way.
     for (const project of projects) {
