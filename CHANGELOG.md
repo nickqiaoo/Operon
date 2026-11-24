@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [1.5.39] - 2026-11-24
+
+### Added
+
+- Channel agents can create Taskboard tasks on request, and `#Task N` references show links to tasks in the channel's project.
+
+### Changed
+
+- Task descriptions can be selected and copied. Use Edit to make changes, then save or cancel them explicitly.
+- The project sidebar updates when the server creates or removes a workspace.
+
+### Fixed
+
+- Opening a workspace restores task tabs only for tasks in progress.
+- Channel agents no longer reuse a workspace from a task assignment or get pending reminders for messages they have already read in a tool response.
+
 ## [1.5.38] - 2026-11-23
 
 ### Added
