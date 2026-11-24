@@ -12,7 +12,8 @@ import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { projectsOn, useProjectStore, Project, Workspace, WorkspaceTask, WorkspaceDiffStat } from "@/stores/project-store"
+import { projectsOn, remoteFoldKey, useProjectStore, Project, Workspace, WorkspaceTask, WorkspaceDiffStat } from "@/stores/project-store"
+import { useRemoteWorkspaceDiffStat } from "@/lib/git-queries"
 import { useWorkspaceDiffStats } from "@/hooks/useWorkspaceDiffStats"
 import { isWorkspaceView, useAppShellStore } from "@/stores/app-shell-store"
 import { useEditorStore } from "@/stores/editor-store"
@@ -246,16 +247,21 @@ export const WorkspaceEntry = memo(function WorkspaceEntry({ workspace, projectI
   onNewChatInWorkspace: ProjectItemProps["onNewChatInWorkspace"]
   onOpenChat: ProjectItemProps["onOpenChat"]
 }) {
-  // Folding is persisted by workspace id, which is this machine's; another
-  // machine's workspaces fold for the session only.
-  const storedCollapsed = useProjectStore((s) => s.collapsedWorkspaceIds.includes(workspace.id))
+  // Folding is persisted by workspace id on this machine, and by
+  // `<nodeId>:<workspaceId>` on another (ids are only unique per machine).
+  const collapsed = useProjectStore((s) =>
+    nodeId
+      ? s.collapsedRemoteKeys.includes(remoteFoldKey("workspace", nodeId, workspace.id))
+      : s.collapsedWorkspaceIds.includes(workspace.id))
   const setStoredCollapsed = useProjectStore((s) => s.setWorkspaceCollapsed)
-  const [remoteCollapsed, setRemoteCollapsed] = useState(false)
-  const collapsed = nodeId ? remoteCollapsed : storedCollapsed
+  const setRemoteCollapsed = useProjectStore((s) => s.setRemoteCollapsed)
   const setWorkspaceCollapsed = useCallback((id: number, value: boolean) => {
-    if (nodeId) setRemoteCollapsed(value)
+    if (nodeId) setRemoteCollapsed(remoteFoldKey("workspace", nodeId, id), value)
     else setStoredCollapsed(id, value)
-  }, [nodeId, setStoredCollapsed])
+  }, [nodeId, setStoredCollapsed, setRemoteCollapsed])
+  // This machine's +N/-N come in as `stats`; another machine's are read here.
+  const { data: remoteStats } = useRemoteWorkspaceDiffStat(nodeId, workspace.worktreePath)
+  const rowStats = nodeId ? remoteStats ?? undefined : stats
   return (
     <>
       <WorkspaceRow
@@ -265,7 +271,7 @@ export const WorkspaceEntry = memo(function WorkspaceEntry({ workspace, projectI
         title={workspace.worktreePath}
         isActive={isActive}
         expanded={!collapsed}
-        stats={stats}
+        stats={rowStats}
         onSelect={() => {
           // A click on the workspace you are in folds / unfolds its conversations;
           // on another one it goes there, unfolding it if it was folded.

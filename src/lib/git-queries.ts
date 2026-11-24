@@ -43,6 +43,34 @@ export const gitKeys = {
   branches: (root: string) => ['git', root, 'branches'] as const,
   // One commit's changed files with their patches (parent → commit), as the phone renders them.
   commitFiles: (root: string, sha: string) => ['git', root, 'commit-files', sha] as const,
+  // The working tree's +N/-N against HEAD, for a sidebar workspace row.
+  diffStat: (root: string) => ['git', root, 'diff-stat'] as const,
+}
+
+/**
+ * Another machine's workspace row +N/-N (this machine's come from
+ * `useWorkspaceDiffStats`, which reads every row at once). Working tree against
+ * HEAD: what the agent changed and nobody committed yet. A worktree that is
+ * gone or not a repo shows no count. `nodeId` undefined: disabled.
+ */
+export function useRemoteWorkspaceDiffStat(nodeId: string | undefined, root: string | undefined) {
+  return useQuery({
+    queryKey: onNode(gitKeys.diffStat(root ?? ''), nodeId),
+    queryFn: async () => {
+      try {
+        const files = await apiOn(nodeId).gitDiffRange(root ?? '', 'HEAD', null)
+        return files.reduce(
+          (sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }),
+          { additions: 0, deletions: 0 },
+        )
+      } catch {
+        return null
+      }
+    },
+    enabled: !!nodeId && !!root,
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  })
 }
 
 /**

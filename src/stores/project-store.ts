@@ -134,6 +134,12 @@ interface ProjectStore {
   collapsedProjectIds: number[]
   /** Local sidebar preference: workspaces whose conversations are folded away. */
   collapsedWorkspaceIds: number[]
+  /**
+   * The same preferences for other machines' trees, as {@link remoteFoldKey}s:
+   * their ids are only unique per machine. Kept across launches; a machine's
+   * keys are pruned when its tree loads.
+   */
+  collapsedRemoteKeys: string[]
   /** Local display preference, independent of task status and archiving. */
   hiddenSpecIds: number[]
   /** Explicitly shown specs can appear even without a workspace. */
@@ -163,6 +169,7 @@ interface ProjectStore {
   setProjectPinned: (id: number, pinned: boolean) => Promise<void>
   setProjectCollapsed: (id: number, collapsed: boolean) => void
   setWorkspaceCollapsed: (id: number, collapsed: boolean) => void
+  setRemoteCollapsed: (key: string, collapsed: boolean) => void
   setSpecHidden: (taskId: number, hidden: boolean) => void
   setWorkspaceTaskArchived: (taskId: number, archivedAt: number | null) => void
   setActiveProject: (id: number | null) => void
@@ -179,6 +186,23 @@ interface ProjectStore {
 }
 
 const NO_PROJECTS: Project[] = []
+
+/** A fold preference in another machine's tree: the machine group, a project or a workspace. */
+export function remoteFoldKey(kind: "machine" | "project" | "workspace", nodeId: string, id?: number): string {
+  return kind === "machine" ? `m:${nodeId}` : `${kind === "project" ? "p" : "w"}:${nodeId}:${id}`
+}
+
+/** Drop one machine's project / workspace keys its fresh tree no longer has. Same array when nothing goes. */
+export function pruneRemoteFoldKeys(keys: string[], nodeId: string, projects: Project[]): string[] {
+  const live = new Set<string>()
+  for (const project of projects) {
+    live.add(remoteFoldKey("project", nodeId, project.id))
+    for (const workspace of project.workspaces) live.add(remoteFoldKey("workspace", nodeId, workspace.id))
+  }
+  const ownPrefixes = [`p:${nodeId}:`, `w:${nodeId}:`]
+  const next = keys.filter((key) => !ownPrefixes.some((prefix) => key.startsWith(prefix)) || live.has(key))
+  return next.length === keys.length ? keys : next
+}
 
 /** The project tree of one machine (`nodeId` null / undefined: this one). */
 export function projectsOn(
@@ -212,6 +236,7 @@ export const useProjectStore = create<ProjectStore>()(
       remoteProjects: {},
       collapsedProjectIds: [],
       collapsedWorkspaceIds: [],
+      collapsedRemoteKeys: [],
       hiddenSpecIds: [],
       shownSpecIds: [],
       projectsLoaded: false,
@@ -227,6 +252,7 @@ export const useProjectStore = create<ProjectStore>()(
           remoteProjects: {},
           collapsedProjectIds: [],
           collapsedWorkspaceIds: [],
+          collapsedRemoteKeys: [],
           hiddenSpecIds: [],
           shownSpecIds: [],
           projectsLoaded: false,
@@ -307,6 +333,7 @@ export const useProjectStore = create<ProjectStore>()(
           const { projects } = await apiFor(nodeId).projectListWithWorkspaces()
           const fresh = projects.map(({ workspaces, ...project }) => ({ ...project, workspaces }))
           set((state) => ({
+            collapsedRemoteKeys: pruneRemoteFoldKeys(state.collapsedRemoteKeys, nodeId, fresh),
             remoteProjects: {
               ...state.remoteProjects,
               [nodeId]: {
@@ -401,6 +428,18 @@ export const useProjectStore = create<ProjectStore>()(
               : [...state.collapsedWorkspaceIds, id]
             : state.collapsedWorkspaceIds.filter((workspaceId) => workspaceId !== id),
         }))
+      },
+
+      setRemoteCollapsed: (key, collapsed) => {
+        set((state) => {
+          const has = state.collapsedRemoteKeys.includes(key)
+          if (has === collapsed) return state
+          return {
+            collapsedRemoteKeys: collapsed
+              ? [...state.collapsedRemoteKeys, key]
+              : state.collapsedRemoteKeys.filter((k) => k !== key),
+          }
+        })
       },
 
       setSpecHidden: (taskId, hidden) => {
@@ -541,6 +580,7 @@ export const useProjectStore = create<ProjectStore>()(
         activeWorkspaceId: state.activeWorkspaceId,
         collapsedProjectIds: state.collapsedProjectIds,
         collapsedWorkspaceIds: state.collapsedWorkspaceIds,
+        collapsedRemoteKeys: state.collapsedRemoteKeys,
         hiddenSpecIds: state.hiddenSpecIds,
         shownSpecIds: state.shownSpecIds,
         cacheNodeId: state.cacheNodeId,
@@ -558,6 +598,7 @@ export const useProjectStore = create<ProjectStore>()(
           projects: stale ? [] : saved.projects ?? [],
           collapsedProjectIds: stale ? [] : saved.collapsedProjectIds ?? [],
           collapsedWorkspaceIds: stale ? [] : saved.collapsedWorkspaceIds ?? [],
+          collapsedRemoteKeys: stale ? [] : saved.collapsedRemoteKeys ?? [],
           hiddenSpecIds: stale ? [] : saved.hiddenSpecIds ?? [],
           shownSpecIds: stale ? [] : saved.shownSpecIds ?? [],
         }

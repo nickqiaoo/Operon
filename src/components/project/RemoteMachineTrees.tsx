@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react"
+import { useCallback, useEffect, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useIntl } from "react-intl"
 import { ChevronRight, Folder, FolderOpen, Monitor } from "lucide-react"
@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 import { subscribeEvents } from "@/lib/event-stream"
 import { useDelegationMachines } from "@/lib/delegation-queries"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { useProjectStore, type Project, type Workspace } from "@/stores/project-store"
+import { remoteFoldKey, useProjectStore, type Project, type Workspace } from "@/stores/project-store"
 import { useChatPresenceStore } from "@/stores/chat-presence-store"
 import { chatHistoryKeys } from "@/lib/chat-queries"
 import { nodeChatIds } from "@/lib/chat-ref"
@@ -138,7 +138,7 @@ function RemoteMachineTree({ machine, activeWorkspaceId, renderWorkspace }: {
 }) {
   const intl = useIntl()
   const { nodeId, online } = machine
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useRemoteFold(remoteFoldKey("machine", nodeId))
   const tree = useProjectStore((s) => s.remoteProjects[nodeId])
   const loadRemoteProjects = useProjectStore((s) => s.loadRemoteProjects)
   const reachable = tree?.loaded === true && tree.error == null
@@ -183,9 +183,12 @@ function RemoteMachineTree({ machine, activeWorkspaceId, renderWorkspace }: {
   // is followed while one of its chats is open; the lists also poll.
   const queryClient = useQueryClient()
   const runningKey = useChatPresenceStore((s) => [...nodeChatIds(s.runningChats, nodeId)].sort((a, b) => a - b).join(","))
+  // It is also when an agent's edits land, so the rows' +N/-N are read again.
   useEffect(() => {
     void queryClient.invalidateQueries({
-      predicate: (query) => query.queryKey[0] === chatHistoryKeys.allLists()[0] && query.queryKey.at(-1) === nodeId,
+      predicate: (query) =>
+        query.queryKey.at(-1) === nodeId
+        && (query.queryKey[0] === chatHistoryKeys.allLists()[0] || (query.queryKey[0] === "git" && query.queryKey[2] === "diff-stat")),
     })
   }, [queryClient, nodeId, runningKey])
 
@@ -225,14 +228,21 @@ function RemoteMachineTree({ machine, activeWorkspaceId, renderWorkspace }: {
 
 const trimSlash = (p: string) => p.replace(/[\\/]+$/, "")
 
+/** Open / set-open for a persisted fold in another machine's tree (open unless folded). */
+function useRemoteFold(key: string): [boolean, (open: boolean) => void] {
+  const folded = useProjectStore((s) => s.collapsedRemoteKeys.includes(key))
+  const setRemoteCollapsed = useProjectStore((s) => s.setRemoteCollapsed)
+  const setOpen = useCallback((open: boolean) => setRemoteCollapsed(key, !open), [key, setRemoteCollapsed])
+  return [!folded, setOpen]
+}
+
 function RemoteProject({ nodeId, project, activeWorkspaceId, renderWorkspace }: {
   nodeId: string
   project: Project
   activeWorkspaceId: number | null
   renderWorkspace: RenderRemoteWorkspace
 }) {
-  // Folding is kept per session: the persisted folded-ids are this machine's ids.
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useRemoteFold(remoteFoldKey("project", nodeId, project.id))
   const ProjectIcon = open ? FolderOpen : Folder
   const containsActive = project.workspaces.some((w) => w.id === activeWorkspaceId)
   const workspaces = [...project.workspaces].sort(
