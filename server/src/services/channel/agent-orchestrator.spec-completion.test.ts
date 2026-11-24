@@ -23,7 +23,7 @@ import { startIntegration } from '../spec/review-run.js'
 
 vi.mock('../ai.js', () => ({ abortChat: vi.fn(), startChat: vi.fn(), startServerChat: vi.fn() }))
 vi.mock('./binding-reset.js', () => ({ resetBinding: vi.fn() }))
-vi.mock('../channel-bus.js', () => ({ emitChannelEvent: vi.fn(), emitProjectEvent: vi.fn(), publishChannelUnread: vi.fn(), registerChannelAttention: vi.fn() }))
+vi.mock('../channel-bus.js', () => ({ emitChannelEvent: vi.fn(), emitProjectEvent: vi.fn(), emitProjectTreeEvent: vi.fn(), publishChannelUnread: vi.fn(), registerChannelAttention: vi.fn() }))
 vi.mock('../task-events.js', () => ({ broadcastTask: vi.fn() }))
 vi.mock('../message-router.js', () => ({ deliverToBinding: vi.fn() }))
 vi.mock('../binding-driver.js', () => ({

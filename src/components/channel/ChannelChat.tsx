@@ -5,6 +5,7 @@ import { AgentAvatar } from '@/components/icons/AgentAvatar'
 import { MentionPicker, detectMentionToken, useMentionMatches, useMentionState } from './MentionPicker'
 import type { Agent } from '@/types/channel'
 import { useChannelStore } from '@/stores/channel-store'
+import { taskNumbersIn } from '@/lib/task-mentions'
 import { useTaskStore } from '@/stores/task-store'
 import type { TaskListItem } from '@/types/task'
 import { useChannel } from '@/hooks/useChannel'
@@ -144,19 +145,37 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
     void loadMembers(channelId)
   }, [channelId, loadMembers])
 
-  // Tasks captured from this channel's messages, keyed by message. The store holds
-  // the board's tasks, which the page around this keeps loaded for every project.
+  // Tasks shown under each message: the ones captured from it, then the ones its
+  // text links as `#Task N` in this channel's project (an agent reporting a task it
+  // created or updated). The store holds the board's tasks, which the page around
+  // this keeps loaded for every project.
   const tasks = useTaskStore((s) => s.tasks)
+  const projectId = channel?.projectId ?? null
   const tasksByMessage = useMemo(() => {
     const map = new Map<number, TaskListItem[]>()
+    const byNumber = new Map<number, TaskListItem>()
     for (const t of tasks) {
-      if (t.sourceChannelId !== channelId || t.sourceMessageId == null || t.archivedAt != null) continue
+      if (t.archivedAt != null) continue
+      if (t.projectId === projectId) byNumber.set(t.number, t)
+      if (t.sourceChannelId !== channelId || t.sourceMessageId == null) continue
       const list = map.get(t.sourceMessageId) ?? []
       list.push(t)
       map.set(t.sourceMessageId, list)
     }
+    if (byNumber.size === 0) return map
+    for (const msg of messages) {
+      if (msg.senderType === 'system') continue
+      for (const number of taskNumbersIn(msg.content)) {
+        const task = byNumber.get(number)
+        if (!task) continue
+        const list = map.get(msg.id) ?? []
+        if (list.some((t) => t.id === task.id)) continue
+        list.push(task)
+        map.set(msg.id, list)
+      }
+    }
     return map
-  }, [tasks, channelId])
+  }, [tasks, channelId, projectId, messages])
 
   // Auto-scroll: initial load goes to bottom; new tail messages only auto-scroll
   // when the user is near the bottom; prepended history must not be counted as

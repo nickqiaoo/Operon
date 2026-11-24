@@ -27,6 +27,7 @@ import { useUpdateNotifications } from "@/hooks/useUpdateNotifications"
 import { useTrayCommands } from "@/hooks/useTrayCommands"
 import { useInboxStream } from "@/hooks/useInboxStream"
 import { useTaskStream } from "@/hooks/useTaskStream"
+import { useProjectTreeStream } from "@/hooks/useProjectTreeStream"
 import { useNativePushNotifications, type PushTarget } from "@/hooks/useNativePushNotifications"
 import type { Notification } from "@/types/notification"
 import { useEditorStore } from "@/stores/editor-store"
@@ -64,6 +65,7 @@ const logOpenWorkspaceError = (error: unknown) => console.error('Could not open 
 
 export default function App() {
   useTaskStream()
+  useProjectTreeStream()
   useWorkspaceStoreSync(DESKTOP_WORKSPACE_SYNC)
   const iosWorkbench = nativePlatform() === "ios"
 

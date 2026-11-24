@@ -174,6 +174,7 @@ describe('HTTP MCP routes', () => {
     expect(taskboardTools).toEqual(expect.arrayContaining([
       'list_project_tasks',
       'get_project_task',
+      'create_project_task',
       'start_spec',
       'answer_spec_questions',
       'submit_pull_request',
@@ -185,7 +186,6 @@ describe('HTTP MCP routes', () => {
       'list_tasks',
       'get_task',
       'create_task',
-      'create_project_task',
       'create_spec_task',
       'write_artifact',
       'sediment_change',

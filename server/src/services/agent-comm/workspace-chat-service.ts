@@ -13,7 +13,7 @@ import type {
 import { publishChannelMessage } from '../channel-bus.js'
 import { injectIntoChat } from '../ai.js'
 import { formatChannelMessage as formatMessage, fromShortId, toShortId } from './channel-message-format.js'
-import { nudgeActivePeers, selectHeldMessages } from '../channel/peer-awareness.js'
+import { cancelPeerNudge, nudgeActivePeers, selectHeldMessages } from '../channel/peer-awareness.js'
 import { markReadIn, threadTarget, unreadIn, type SessionStream } from '../channel/session-stream.js'
 import { storeLocalImages } from '../channel/channel-attachments.js'
 import {
@@ -151,6 +151,9 @@ export class WorkspaceChatService implements AgentMessageSurface {
       if (held.length > 0) {
         // Showing them is reading them, exactly like check_messages.
         markReadIn(this.storage, agentId, stream, held[held.length - 1].id)
+        // A nudge still waiting out its debounce would point at messages this
+        // result already shows.
+        if (gateBinding) cancelPeerNudge(gateBinding.id)
         console.log(
           `[workspace-chat] send held agent=${agentId} target=${target} unread=[${held.map((m) => m.id).join(',')}]`,
         )

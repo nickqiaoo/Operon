@@ -14,6 +14,7 @@ import { useInboxStore } from "@/stores/inbox-store"
 import { useSessionPanelStore } from "@/stores/session-panel-store"
 import { useInboxStream } from "@/hooks/useInboxStream"
 import { useTaskStream } from "@/hooks/useTaskStream"
+import { useProjectTreeStream } from "@/hooks/useProjectTreeStream"
 import type { Notification } from "@/types/notification"
 import { useProjectStore } from "@/stores/project-store"
 import { useEditorStore } from "@/stores/editor-store"
@@ -73,6 +74,7 @@ function readSavedTab(): MobileTab {
  */
 export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boolean }) {
   useTaskStream()
+  useProjectTreeStream()
   const [entry] = useState<{ tab: MobileTab; chatTabId?: string }>(() => {
     if (resumeWorkbench) {
       const { main } = useNavigationStore.getState()

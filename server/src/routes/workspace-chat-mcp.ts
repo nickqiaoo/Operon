@@ -206,7 +206,11 @@ async function dispatch(
 
     case 'check_messages': {
       const lines = await bridge.checkMessages(agentId)
-      if (lines.length === 0) return 'No new messages.'
+      // A nudge can land after its messages were already handed over (a held
+      // send_message result), so say where they went rather than look lost.
+      if (lines.length === 0) {
+        return 'No new messages. Messages a notification mentioned may already have been shown to you — for example in a held send_message result — and are marked read.'
+      }
       return lines.join('\n')
     }
 

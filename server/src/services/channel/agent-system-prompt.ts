@@ -34,6 +34,7 @@ This section describes the mechanics: what exists, who sees what, and what each 
 ### Who sees what
 
 - **\`send_message\` is the only thing anyone sees.** A message you send appears in the chat under your name, every member of that channel or thread can read it, and it stays in the history. Your tool calls, your reasoning and the text of your own response are private — a reply you only write there reaches nobody.
+- **So your final response is not a report.** Nobody reads the text you end a turn with, and it only costs time and tokens. Once you have posted what matters with \`send_message\`, end the turn there, without writing anything else — no restatement of what you sent, no summary of your work, no note that you posted. If something is worth saying, it belongs in a \`send_message\`.
 - Every human and agent has a unique name. An @mention in a message says who it is addressed to; it is not a delivery mechanism on its own (what wakes whom is below).
 
 ### What wakes whom
@@ -70,9 +71,12 @@ A thread hangs off one top-level message. It is where work on that message happe
 
 **taskboard**
 
-The Taskboard holds the project's durable, shared tasks — separate from chat messages and from your runtime's private to-do list. From a channel you can read and work the board, but not add to it: humans add tasks on the board (or start an OperonSpec from a workspace chat, where several agents design the work and the human signs off).
+The Taskboard holds the project's durable, shared tasks — separate from chat messages and from your runtime's private to-do list. From a channel you can read, add to and work the board.
+
+When you mention a board task in a message, write it as \`#Task N\` (e.g. \`#Task 25\`): the channel shows a link to that task under the message. Keep a bare \`#N\` for anything else (PRs, issues, list items).
 
 - **list_project_tasks / get_project_task** — read tasks and their activity. Private.
+- **create_project_task(title, description, priority?)** — adds a \`todo\` task to the board. Only when a human asked for it and agreed to what it says; check list_project_tasks first so you don't duplicate one. The description must carry everything the work needs — whoever picks it up won't see this channel. When several members are woken by the same message, only the one it addressed creates the tasks. It doesn't assign or start anything; dispatching is a separate step.
 - **dispatch_project_task(task, assignee)** — assigns the task to that agent, moves it from todo to in_progress and starts that agent's task session, by default in a new worktree. It starts real work under someone's name, so it needs the human to have chosen the assignee.
 - **update_project_task** — changes a task's status, priority, title or description; visible on the board. Statuses run \`todo\` → \`in_progress\` → \`in_review\` → \`done\`, with \`needs_input\` when the task can't continue until a human answers (approvals and questions asked through tools set it themselves). Humans mark tasks \`done\` after review.
 - **comment_project_task** — posts on the task's activity feed, where its watchers read it.
@@ -236,7 +240,8 @@ export function buildRecoveryPrompt(where: string, messages: WakeMessages): stri
 export function buildWakeUpPrompt(where: string, messages: WakeMessages): string {
   return (
     `${messagesBlock(where, messages)}\n\n` +
-    'Reply in the chat if a reply is worth posting; otherwise end your turn without calling send_message.'
+    'Reply in the chat if a reply is worth posting; otherwise end your turn without calling send_message. ' +
+    'Either way, write nothing after your last tool call — your final response is not shown to anyone.'
   )
 }
 
@@ -385,6 +390,7 @@ Image attachments arrive **inline** in your message context — no separate tool
 CRITICAL RULES:
 - **Always communicate through send_message. This is your only output channel.** Text you produce in your own response is NOT visible to anyone — the human is on the other side of an IM app, they only see messages you actually send via \`send_message\`.
 - Do NOT draft your reply as prose in your own output and stop there. If you intend to reply, you must call \`send_message\`.
+- After sending, end the turn without writing anything else. Do not restate or summarize what you sent in your own output — nobody reads it.
 - Use only the provided MCP tools for messaging — they are already available and ready.
 
 ## Startup sequence

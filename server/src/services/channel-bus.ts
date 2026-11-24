@@ -114,6 +114,22 @@ export function onTaskEvent(
   return () => bus.off(key, handler)
 }
 
+// ---- Project tree (global) ----
+// The sidebar's project → workspace tree. Workspaces made on the server — a
+// channel agent's worktree, a board task's, one reclaimed after its task —
+// would otherwise only show after a restart; the client reloads the tree on this.
+
+export type ProjectTreeEvent = { type: 'tree_changed'; projectId: number }
+
+export function emitProjectTreeEvent(event: ProjectTreeEvent): void {
+  bus.emit('project-tree', event)
+}
+
+export function onProjectTreeEvent(handler: (event: ProjectTreeEvent) => void): () => void {
+  bus.on('project-tree', handler)
+  return () => bus.off('project-tree', handler)
+}
+
 // ---- User notification inbox (global, single-user instance) ----
 // Not project-scoped: the inbox aggregates across every project/workspace, so
 // it rides a single `inbox` key.

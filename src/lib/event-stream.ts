@@ -18,7 +18,7 @@
 import { api } from './api'
 import { subscribeSse, type SseSubscription } from './sse'
 
-export type EventChannel = 'live-status' | 'workflow' | 'external-agents' | 'tasks' | 'inbox'
+export type EventChannel = 'live-status' | 'workflow' | 'external-agents' | 'tasks' | 'inbox' | 'projects'
 
 interface Listener {
   onEvent: (data: unknown) => void

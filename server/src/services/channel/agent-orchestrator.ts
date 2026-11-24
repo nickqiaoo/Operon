@@ -238,8 +238,11 @@ async function provisionWorkspaceForBinding(agentId: number, projectId: number):
 
   // Reuse from any other binding of (agent, project) — there might already
   // be a workspace registered in the workspaces table even if this binding
-  // didn't pick it up yet.
-  const peers = storage.listBindings({ agentId, projectId })
+  // didn't pick it up yet. Task bindings don't count: their workspace belongs to
+  // the task (its own throwaway worktree, or — in 'shared' mode — whichever
+  // workspace the user ran it in, often main), never the agent's permanent one.
+  // Reusing it put the agent's channel sessions straight into main.
+  const peers = storage.listBindings({ agentId, projectId }).filter((b) => b.scopeKind !== 'task')
   const existingWs = peers.find((b) => b.workspaceId != null)?.workspaceId
   if (existingWs != null) return existingWs
 

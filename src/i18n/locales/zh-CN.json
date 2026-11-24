@@ -315,6 +315,8 @@
   "task.detail.archivedBadge": "已归档",
   "task.detail.description": "描述",
   "task.detail.addDescription": "添加描述…",
+  "task.detail.editDescription": "编辑",
+  "task.detail.descriptionSaveHint": "⌘↵ 保存 · Esc 取消",
   "task.detail.subtasks": "子任务",
   "task.detail.subtaskPlaceholder": "子任务标题…",
   "task.detail.addSubtask": "+ 添加子任务",

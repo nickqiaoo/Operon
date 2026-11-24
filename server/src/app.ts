@@ -305,12 +305,14 @@ export async function createApp(deps: AppDeps) {
   const tasks = taskRoutes(deps.storage)
   const inbox = notificationRoutes(deps.storage)
   const externalAgents = externalAgentRoutes()
+  const projects = projectRoutes(deps.storage)
   app.route('/api/events', eventRoutes({
     'live-status': () => ai.request('/chat/live-status'),
     workflow: (query) => ai.request(`/workflow/feed?limit=${encodeURIComponent(query.get('limit') ?? '30')}`),
     'external-agents': () => externalAgents.request('/feed'),
     tasks: () => tasks.request('/stream'),
     inbox: () => inbox.request('/stream'),
+    projects: () => projects.request('/stream'),
   }))
   app.route('/api/ai', ai)
   app.route('/api/terminal', terminalRoutes(upgradeWebSocket))
@@ -327,7 +329,7 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/cronjobs', cronjobRoutes(deps.storage))
   app.route('/api/skills', skillRoutes())
   app.route('/api/canvas-workflows', canvasWorkflowRoutes(deps.storage))
-  app.route('/api/projects', projectRoutes(deps.storage))
+  app.route('/api/projects', projects)
   app.route('/api/agents', agentRoutes(deps.storage))
   app.route('/api/agent-bindings', agentBindingRoutes(deps.storage))
   app.route('/api/channels', channelRoutes(deps.storage))

@@ -21,6 +21,7 @@ import {
   Ban,
   Eye,
   EyeOff,
+  Pencil,
 } from 'lucide-react'
 import { LinearIcon } from '@/components/icons/LinearIcon'
 import { GithubIcon } from '@/components/icons/GithubIcon'
@@ -251,6 +252,16 @@ export function TaskDetailView({
     }
   }
 
+  const startEditDesc = () => {
+    setDescDraft(detail.description)
+    setEditingDesc(true)
+  }
+
+  const cancelDesc = () => {
+    setDescDraft(detail.description)
+    setEditingDesc(false)
+  }
+
   const saveDesc = () => {
     setEditingDesc(false)
     if (descDraft !== detail.description) {
@@ -369,54 +380,82 @@ export function TaskDetailView({
 
           {/* Description */}
           <div>
-            <div className="heading-section mb-1.5">
-              <FormattedMessage id="task.detail.description" defaultMessage="Description" />
+            <div className="mb-1.5 flex h-6 items-center justify-between gap-2">
+              <div className="heading-section">
+                <FormattedMessage id="task.detail.description" defaultMessage="Description" />
+              </div>
+              {/* Editing is explicit: clicking the text only selects it, so a drag to
+                  copy a line never turns the description into a textarea. */}
+              {!editingDesc && detail.description && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={startEditDesc}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  <FormattedMessage id="task.detail.editDescription" defaultMessage="Edit" />
+                </Button>
+              )}
             </div>
             {editingDesc ? (
-              <textarea
-                autoFocus
-                value={descDraft}
-                onChange={(e) => setDescDraft(e.target.value)}
-                onBlur={saveDesc}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    setDescDraft(detail.description)
-                    setEditingDesc(false)
-                  }
-                }}
-                {...descImages.inputProps}
-                placeholder={intl.formatMessage({ id: 'task.new.descriptionPlaceholder', defaultMessage: 'Add a description… (markdown supported, paste or drop images)' })}
-                // Edits in place: same box and text as the read view, a faint fill
-                // the only sign of editing, and it grows with the text instead of
-                // scrolling inside a bordered box. The ref sizes it where
-                // field-sizing is missing (older WebKit).
-                ref={autoGrow}
-                onInput={(e) => autoGrow(e.currentTarget)}
-                className="-mx-2 block w-[calc(100%+1rem)] min-h-24 resize-none overflow-hidden rounded-lg border-0 bg-row-hover px-2 py-1.5 text-sm leading-relaxed text-foreground shadow-none outline-none field-sizing-content placeholder:text-muted-foreground/60 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
-              />
-            ) : (
+              <div>
+                <textarea
+                  autoFocus
+                  value={descDraft}
+                  onChange={(e) => setDescDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      cancelDesc()
+                    } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
+                      e.preventDefault()
+                      saveDesc()
+                    }
+                  }}
+                  {...descImages.inputProps}
+                  placeholder={intl.formatMessage({ id: 'task.new.descriptionPlaceholder', defaultMessage: 'Add a description… (markdown supported, paste or drop images)' })}
+                  // Edits in place: same box and text as the read view, a faint fill
+                  // the only sign of editing, and it grows with the text instead of
+                  // scrolling inside a bordered box. The ref sizes it where
+                  // field-sizing is missing (older WebKit).
+                  ref={autoGrow}
+                  onInput={(e) => autoGrow(e.currentTarget)}
+                  className="-mx-2 block w-[calc(100%+1rem)] min-h-24 resize-none overflow-hidden rounded-lg border-0 bg-row-hover px-2 py-1.5 text-sm leading-relaxed text-foreground shadow-none outline-none field-sizing-content placeholder:text-muted-foreground/60 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+                />
+                <div className="mt-2 flex items-center justify-end gap-2">
+                  <span className="mr-auto text-xs text-muted-foreground/60">
+                    <FormattedMessage id="task.detail.descriptionSaveHint" defaultMessage="⌘↵ to save · Esc to cancel" />
+                  </span>
+                  <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={cancelDesc}>
+                    <FormattedMessage id="common.cancel" defaultMessage="Cancel" />
+                  </Button>
+                  <Button size="sm" variant="secondary" className="h-7 gap-1.5 text-xs" onClick={saveDesc}>
+                    <Check className="h-3.5 w-3.5" />
+                    <FormattedMessage id="common.save" defaultMessage="Save" />
+                  </Button>
+                </div>
+              </div>
+            ) : detail.description ? (
               <div
-                onClick={() => {
-                  setDescDraft(detail.description)
-                  setEditingDesc(true)
-                }}
                 onDrop={descImages.inputProps.onDrop}
                 onDragOver={descImages.inputProps.onDragOver}
-                className={cn(
-                  'text-sm cursor-text rounded-lg transition-colors',
-                  // Bleeds sideways only, so the text lines up with the heading
-                  // and the hover fill never reaches up into it.
-                  detail.description
-                    ? 'text-foreground -mx-2 px-2 py-1.5 hover:bg-row-hover'
-                    : 'min-h-10 border border-dashed border-border/50 px-3 py-2.5 hover:border-border/60 hover:bg-row-hover'
-                )}
+                // Bleeds sideways only, so the text lines up with the heading.
+                className="-mx-2 rounded-lg px-2 py-1.5 text-sm text-foreground"
               >
-                {detail.description ? (
-                  <MarkdownRenderer content={detail.description} githubLinks />
-                ) : (
-                  <span className="text-muted-foreground/40"><FormattedMessage id="task.detail.addDescription" defaultMessage="Add a description…" /></span>
-                )}
+                <MarkdownRenderer content={detail.description} githubLinks />
               </div>
+            ) : (
+              // Nothing to select yet, so the empty placeholder still opens the editor.
+              <button
+                type="button"
+                onClick={startEditDesc}
+                onDrop={descImages.inputProps.onDrop}
+                onDragOver={descImages.inputProps.onDragOver}
+                className="block min-h-10 w-full cursor-text rounded-lg border border-dashed border-border/50 px-3 py-2.5 text-left text-sm transition-colors hover:border-border/60 hover:bg-row-hover"
+              >
+                <span className="text-muted-foreground/40"><FormattedMessage id="task.detail.addDescription" defaultMessage="Add a description…" /></span>
+              </button>
             )}
             {(detail.attachments.length > 0 || descImages.items.length > 0) && (
               <div className={cn('flex flex-wrap items-start gap-2', 'mt-3')}>

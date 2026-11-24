@@ -35,8 +35,13 @@ describe('the board from a chat', () => {
     expect(result.structured).toEqual({ kind: 'created-task', taskId: 71, taskNumber: 8, title: 'Add divide' })
   })
 
-  it('refuses a channel session, and an empty title', () => {
-    expect(new TaskBoardService(storage, 5).createTask({ title: 'x' }, 2).isError).toBe(true)
+  it('creates from a channel session too', () => {
+    const result = new TaskBoardService(storage, 5).createTask({ title: 'From channel' }, 2)
+    expect(result.isError).toBeFalsy()
+    expect(taskCreate).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses an empty title', () => {
     expect(new TaskBoardService(storage, 5, 40).createTask({ title: '  ' }, 2).isError).toBe(true)
     expect(taskCreate).not.toHaveBeenCalled()
   })

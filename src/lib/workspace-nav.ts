@@ -14,7 +14,7 @@ const reloadedFor = new Set<number>()
 /** One reload at a time: a snapshot naming several new workspaces asks for the tree once. */
 let reloading: Promise<void> | null = null
 
-function reloadTree(): Promise<void> {
+export function reloadTree(): Promise<void> {
   reloading ??= useProjectStore.getState().loadProjects().finally(() => { reloading = null })
   return reloading
 }

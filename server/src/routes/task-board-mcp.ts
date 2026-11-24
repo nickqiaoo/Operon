@@ -400,12 +400,10 @@ function buildTaskBoardMcpServer(board: TaskBoardService, agentId: number): Serv
     { capabilities: { tools: {} } },
   )
 
-  // Listed everywhere except plain task creation, which a channel must not have.
-  // A spec is not a pre-armed "mode": a chat becomes one when its agent calls
-  // start_spec, and every spec tool validates its own context at call time
-  // (start_spec needs a workspace chat).
-  const tools = board.isDirectChat ? TOOLS : TOOLS.filter((tool) => tool.name !== TASKBOARD_TOOLS.createProjectTask)
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }))
+  // Listed everywhere. A spec is not a pre-armed "mode": a chat becomes one when
+  // its agent calls start_spec, and every spec tool validates its own context at
+  // call time (start_spec needs a workspace chat).
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }))
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { name, arguments: args } = req.params

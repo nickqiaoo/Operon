@@ -228,18 +228,12 @@ export class TaskBoardService {
     return pageTaskText(lines.join('\n'), detail.number, page)
   }
 
-  /** A direct workspace chat — the only board session allowed to create plain tasks. */
-  get isDirectChat(): boolean {
-    return this.sourceChatId != null
-  }
-
   listAgents(): string {
     return formatAssignableAgents(this.storage)
   }
 
-  /** Channels only work on tasks people created; a chat creates one at the user's word. */
+  /** Adds a todo task at the user's word — from a workspace chat or a channel. */
   createTask(input: { title: string; description?: string; priority?: TaskPriority }, agentId: number): ToolResult {
-    if (!this.isDirectChat) return toolError('Tasks can only be created from a direct workspace chat.')
     const title = input.title.trim()
     if (!title) return toolError('The title is empty.')
     const task = this.storage.taskCreate({

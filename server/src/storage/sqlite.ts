@@ -1,5 +1,5 @@
 import { broadcastTask } from '../services/task-events.js'
-import { emitChannelEvent, workingAgentIds } from '../services/channel-bus.js'
+import { emitChannelEvent, emitProjectTreeEvent, workingAgentIds } from '../services/channel-bus.js'
 import fs from 'fs'
 import Database from 'better-sqlite3'
 import type {
@@ -1679,6 +1679,7 @@ export class SqliteStorage
     const result = this.db.prepare(
       'INSERT INTO workspaces (project_id, name, branch_name, worktree_path, origin_chat_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).run(projectId, input.name, input.branchName, input.worktreePath, input.originChatId ?? null, now, now)
+    emitProjectTreeEvent({ type: 'tree_changed', projectId })
     return {
       id: Number(result.lastInsertRowid),
       projectId,
@@ -1706,7 +1707,9 @@ export class SqliteStorage
   }
 
   deleteWorkspace(id: number): void {
+    const row = this.db.prepare('SELECT project_id FROM workspaces WHERE id = ?').get(id) as { project_id: number } | undefined
     this.db.prepare('DELETE FROM workspaces WHERE id = ?').run(id)
+    if (row) emitProjectTreeEvent({ type: 'tree_changed', projectId: row.project_id })
   }
 
   // ---- Channel: Agents ----

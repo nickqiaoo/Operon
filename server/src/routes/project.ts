@@ -5,9 +5,32 @@ import type { Task } from '../types/task.js'
 import { specChatRef } from '../services/spec/chats.js'
 import { RewindService } from '../services/rewind/index.js'
 import { provisionAutoWorkspace } from '../services/workspace-provision.js'
+import { streamSSE } from 'hono/streaming'
+import { onProjectTreeEvent } from '../services/channel-bus.js'
 
 export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStorageAdapter & ChatStorageAdapter & TaskStorageAdapter) {
   const router = new Hono()
+
+  // ---- Project tree changes (SSE), served on /api/events as `projects` ----
+  // Registered first so 'stream' is never parsed as a project id. Opens with
+  // `ready`: a client reconnecting may have missed changes and reloads on it.
+  router.get('/stream', (c) => {
+    return streamSSE(c, async (stream) => {
+      let closed = false
+      stream.onAbort(() => {
+        closed = true
+      })
+      await stream.writeSSE({ data: JSON.stringify({ type: 'ready' }) }).catch(() => {})
+      const unsub = onProjectTreeEvent((event) => {
+        if (closed) return
+        stream.writeSSE({ data: JSON.stringify(event) }).catch(() => {})
+      })
+      while (!closed) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 1000))
+      }
+      unsub()
+    })
+  })
 
   // A project's workspaces, each with the board task whose agent runs in it, so
   // the sidebar can show a spec's ticket worktrees under the spec.
@@ -194,6 +217,10 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
     const sessions = storage
       .listBindings({ scopeKind: 'task', projectId: workspace.projectId })
       .filter((binding) => binding.workspaceId === id && binding.activeChatId != null)
+      // Only tasks still under way. A finished task keeps its binding (and, in
+      // 'shared' mode, its workspace is often main), so without this every
+      // launch reopened tabs for long-done tasks the user had closed.
+      .filter((binding) => storage.taskGet(Number(binding.scopeKey))?.status === 'in_progress')
       .map((binding) => {
         const chatId = binding.activeChatId!
         const meta = storage.getChatMeta(chatId)
