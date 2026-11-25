@@ -18,7 +18,9 @@ import type {
 } from '@/types/skill'
 import type { CanvasWorkflow, CanvasWorkflowListItem, CanvasWorkflowRun, CreateCanvasWorkflowInput, UpdateCanvasWorkflowInput } from '@/types/canvas-workflow'
 import type { FileUIPart, UIMessage } from 'ai'
-import type { DelegationMachine, DelegationWorkspace, IncomingDelegation } from '@shared/delegations'
+import type {
+  DelegationMachine, DelegationWorkspace, IncomingDelegation, MachinePairingCode, MachinePairingCodeStatus, MachinePeer,
+} from '@shared/delegations'
 import type { DetailedContextUsage } from '@/types/context-usage'
 import type { ClaudeRateLimits, CodexRateLimits } from '@/components/editor/utils/chatMetadata'
 import type { CodexGoal } from '@/types/goal'
@@ -424,6 +426,15 @@ export function createApi(transport: ApiTransport) {
       }) => post<{ agent_id: string; chat_id: number }>(`/delegations/local/chats/${chatId}/agents`, input),
       delegationSettings: () => get<{ enabled: boolean; recent: IncomingDelegation[] }>('/delegations/local/settings'),
       setDelegationSettings: (enabled: boolean) => post<{ enabled: boolean; recent: IncomingDelegation[] }>('/delegations/local/settings', { enabled }),
+      /** Machines this one is paired with (and those it revoked). */
+      machinePeers: () => get<{ peers: MachinePeer[] }>('/delegations/local/peers'),
+      /** Show a new pairing code, replacing any shown before. */
+      startMachinePairing: () => post<MachinePairingCode>('/delegations/local/pair/code', {}),
+      machinePairingStatus: () => get<MachinePairingCodeStatus>('/delegations/local/pair/code'),
+      cancelMachinePairing: () => del<{ ok: true }>('/delegations/local/pair/code'),
+      /** Enter the code another machine shows. */
+      joinMachinePairing: (code: string) => post<{ peer: MachinePeer }>('/delegations/local/pair/join', { code }),
+      revokeMachinePeer: (nodeId: string) => post<{ peer: MachinePeer }>(`/delegations/local/peers/${encodeURIComponent(nodeId)}/revoke`, {}),
       // --- Git (HTTP) ---
       gitStatus: httpClient.gitStatus,
       gitDiff: httpClient.gitDiff,

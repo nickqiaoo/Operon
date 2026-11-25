@@ -101,8 +101,8 @@ function DispatchForm({ chatId, close }: { chatId: number; close: () => void }) 
                     : 'This machine'}
                 </SelectItem>
                 {machines.data?.machines.filter((item) => !item.current).map((item) => (
-                  <SelectItem key={item.nodeId} value={item.nodeId} disabled={!item.online}>
-                    {item.label || item.nodeId}{item.online ? '' : ' · Offline'}
+                  <SelectItem key={item.nodeId} value={item.nodeId} disabled={!item.online || item.paired === false}>
+                    {item.label || item.nodeId}{item.paired === false ? ' · Not paired' : item.online ? '' : ' · Offline'}
                   </SelectItem>
                 ))}
               </SelectContent>

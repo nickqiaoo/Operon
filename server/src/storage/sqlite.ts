@@ -25,6 +25,9 @@ import type {
   ListChatEntriesQuery,
   MemoryMaintenanceStorageAdapter,
   MobilePairingStorageAdapter,
+  MachinePeerStorageAdapter,
+  MachinePeerRow,
+  MachinePeerWrite,
   ProjectStorageAdapter,
   StorageAdapter,
   TaskStorageAdapter,
@@ -342,7 +345,7 @@ interface WorkflowRunIndexDbRow {
 const ASSISTANT_EXTRACTED_KEY = 'memory:assistant_extracted_until'
 
 export class SqliteStorage
-  implements StorageAdapter, ChatStorageAdapter, CronjobStorageAdapter, CheckpointStorageAdapter, CanvasWorkflowStorageAdapter, ProjectStorageAdapter, ChannelStorageAdapter, TaskStorageAdapter, NotificationStorageAdapter, AssistantStorageAdapter, IMStorageAdapter, AgentBindingStorageAdapter, MemoryMaintenanceStorageAdapter, MobilePairingStorageAdapter {
+  implements StorageAdapter, ChatStorageAdapter, CronjobStorageAdapter, CheckpointStorageAdapter, CanvasWorkflowStorageAdapter, ProjectStorageAdapter, ChannelStorageAdapter, TaskStorageAdapter, NotificationStorageAdapter, AssistantStorageAdapter, IMStorageAdapter, AgentBindingStorageAdapter, MemoryMaintenanceStorageAdapter, MobilePairingStorageAdapter, MachinePeerStorageAdapter {
   private db: Database.Database
   private readonly taskChangeListeners = new Set<TaskChangeListener>()
 
@@ -3985,8 +3988,70 @@ export class SqliteStorage
       .run(ts, desktopId, mobileDeviceId)
   }
 
+  // ---- Machine peers ----
+
+  getMachinePeer(nodeId: string): MachinePeerRow | null {
+    const row = this.db.prepare('SELECT * FROM machine_peers WHERE node_id = ?').get(nodeId) as Record<string, unknown> | undefined
+    return row ? rowToMachinePeer(row) : null
+  }
+
+  listMachinePeers(): MachinePeerRow[] {
+    const rows = this.db.prepare('SELECT * FROM machine_peers ORDER BY changed_at DESC').all() as Array<Record<string, unknown>>
+    return rows.map(rowToMachinePeer)
+  }
+
+  upsertMachinePeer(input: MachinePeerWrite): MachinePeerRow {
+    this.db
+      .prepare(
+        `INSERT INTO machine_peers
+         (node_id, public_key, fingerprint, label, status, source, introduced_by, changed_at, created_at, last_seen_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+         ON CONFLICT(node_id) DO UPDATE SET
+           public_key = excluded.public_key,
+           fingerprint = excluded.fingerprint,
+           label = excluded.label,
+           status = excluded.status,
+           source = excluded.source,
+           introduced_by = excluded.introduced_by,
+           changed_at = excluded.changed_at`
+      )
+      .run(
+        input.nodeId,
+        Buffer.from(input.publicKey),
+        input.fingerprint,
+        input.label,
+        input.status,
+        input.source,
+        input.introducedBy,
+        input.changedAt,
+        Date.now(),
+      )
+    return this.getMachinePeer(input.nodeId)!
+  }
+
+  touchMachinePeer(nodeId: string, ts: number): void {
+    this.db.prepare('UPDATE machine_peers SET last_seen_at = ? WHERE node_id = ?').run(ts, nodeId)
+  }
+
   close(): void {
     this.db.close()
+  }
+}
+
+function rowToMachinePeer(row: Record<string, unknown>): MachinePeerRow {
+  const blob = row.public_key as Buffer | Uint8Array
+  return {
+    id: row.id as number,
+    nodeId: row.node_id as string,
+    publicKey: new Uint8Array(blob),
+    fingerprint: row.fingerprint as string,
+    label: (row.label as string | null) ?? null,
+    status: row.status as MachinePeerRow['status'],
+    source: row.source as MachinePeerRow['source'],
+    introducedBy: (row.introduced_by as string | null) ?? null,
+    changedAt: row.changed_at as number,
+    createdAt: row.created_at as number,
+    lastSeenAt: (row.last_seen_at as number | null) ?? null,
   }
 }
 

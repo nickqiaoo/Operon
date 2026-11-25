@@ -1,18 +1,22 @@
 import { BROKER_URL } from '../gateway/saas/broker.js'
 import { getSaasConfig } from '../gateway/saas/config.js'
-import { DELEGATION_NODE_ID, type DelegationMachine } from '@shared/delegations'
+import crypto from 'node:crypto'
+import { DELEGATION_NODE_ID, MACHINE_PAIR_CLAIM_PATH, type DelegationMachine } from '@shared/delegations'
 import { deriveDelegationKeys, open, seal, type RemoteDirectionKeys } from '@shared/e2ee/crypto'
 import {
   E2EE_CONTEXT_HEADER, E2EE_DEVICE_HEADER, E2EE_FRAMING_HEADER, E2EE_HEADER, E2EE_INNER_CONTENT_TYPE_HEADER,
-  E2EE_KEY_HEADER, E2EE_PROOF_HEADER, REMOTE_E2EE_VERSION,
-  base64ToBytes, decodeStreamFrame, requestAad, responseContext, responseFrameAad, utf8,
+  E2EE_KEY_HEADER, E2EE_PROOF_HEADER, E2EE_TIME_HEADER, REMOTE_E2EE_VERSION, WEBSOCKET_NONCE_PARAM, WEBSOCKET_TIME_PARAM,
+  decodeStreamFrame, requestAad, responseContext, responseFrameAad, utf8, webSocketSession,
 } from '@shared/e2ee/protocol'
 import { getDelegationKeypair } from './mobile/identity.js'
+import { isTrustedPeer, trustedPeerKey } from './machine-peers.js'
 
 /**
- * Machine-to-machine requests through Broker. Broker is the trust anchor: it
- * authenticates both machines by their node tokens and hands each the other's
- * registered delegation key, which then encrypts the request and the response.
+ * Machine-to-machine requests through Broker. Broker authenticates both
+ * machines by their node tokens and routes between them, but is not trusted
+ * with keys: each request is sealed with keys derived from the other machine's
+ * delegation key as pinned when the two paired (machine-peers.ts). A machine
+ * not paired with this one cannot be reached.
  */
 
 export class DelegationHttpError extends Error {
@@ -22,7 +26,6 @@ export class DelegationHttpError extends Error {
 const REQUEST_TIMEOUT_MS = 40_000
 /** Broker sends an SSE keepalive every 15s; a stream silent for this long is dead. */
 const STREAM_IDLE_MS = 60_000
-const PEER_KEY_TTL_MS = 10 * 60_000
 
 function localNode() {
   const config = getSaasConfig()
@@ -59,25 +62,45 @@ export async function listDelegationNodes(): Promise<DelegationMachine[]> {
   const text = await readText(response)
   if (!response.ok) throw errorFromBody(response.status, text)
   const nodes = JSON.parse(text) as Array<Omit<DelegationMachine, 'current'>>
-  return nodes.map((node) => ({ nodeId: node.nodeId, label: node.label, online: node.online, current: node.nodeId === nodeId }))
+  return nodes.map((node) => ({
+    nodeId: node.nodeId, label: node.label, online: node.online, current: node.nodeId === nodeId,
+    ...(node.nodeId === nodeId ? {} : { paired: isTrustedPeer(node.nodeId) }),
+  }))
 }
 
-// A peer's key changes only when that machine reinstalls; refetching it on every
-// request doubled the Broker round trips of each call.
-const peerKeys = new Map<string, { keys: RemoteDirectionKeys; at: number }>()
+/** Keyed by the pinned key too, so re-pairing with a new key is picked up at once. */
+const peerKeys = new Map<string, RemoteDirectionKeys>()
 
-async function keysFor(target: string): Promise<RemoteDirectionKeys> {
-  const cached = peerKeys.get(target)
-  if (cached && Date.now() - cached.at < PEER_KEY_TTL_MS) return cached.keys
-  const { nodeId, nodeToken } = localNode()
-  const response = await brokerFetch(nodeToken, `/agent/delegation-nodes?nodeId=${target}`, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
-  const text = await readText(response)
-  if (!response.ok) throw errorFromBody(response.status, text)
-  const peer = base64ToBytes((JSON.parse(text) as { publicKey?: string }).publicKey ?? '')
-  if (peer.length !== 32) throw new DelegationHttpError(502, 'Broker returned an invalid delegation public key')
-  const keys = deriveDelegationKeys(getDelegationKeypair().privateKey, peer, nodeId, target)
-  peerKeys.set(target, { keys, at: Date.now() })
+function keysFor(target: string, nodeId: string): RemoteDirectionKeys {
+  const peer = trustedPeerKey(target)
+  if (!peer) {
+    throw new DelegationHttpError(403, 'This machine is not paired with that one. Pair them in Settings → Remote first.', 'machine_not_paired')
+  }
+  const cacheKey = `${target}:${peer.fingerprint}`
+  let keys = peerKeys.get(cacheKey)
+  if (!keys) {
+    keys = deriveDelegationKeys(getDelegationKeypair().privateKey, peer.publicKey, nodeId, target)
+    peerKeys.set(cacheKey, keys)
+  }
   return keys
+}
+
+/**
+ * The one request between machines that is not sealed by this transport: a
+ * pairing claim, made before the two share a key. Its body carries its own
+ * envelope, sealed under the pairing code.
+ */
+export async function pairingClaimRequest<T>(target: string, body: unknown): Promise<{ status: number; body: T | null }> {
+  const { userId, nodeId, nodeToken } = localNode()
+  if (!DELEGATION_NODE_ID.test(target) || nodeId === target) throw new DelegationHttpError(400, 'Select another machine')
+  const response = await brokerFetch(nodeToken, `/u/${encodeURIComponent(userId)}/n/${target}${MACHINE_PAIR_CLAIM_PATH}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  })
+  const text = await readText(response)
+  let parsed: T | null = null
+  try { parsed = JSON.parse(text) as T } catch { /* broker or proxy error */ }
+  return { status: response.status, body: parsed }
 }
 
 interface OpenedResponse {
@@ -107,7 +130,7 @@ interface SendOptions {
 async function send(target: string, options: SendOptions): Promise<OpenedResponse> {
   const { userId, nodeId: deviceId, nodeToken } = localNode()
   if (!DELEGATION_NODE_ID.test(target) || deviceId === target) throw new DelegationHttpError(400, 'Select another machine')
-  const keys = await keysFor(target)
+  const keys = keysFor(target, deviceId)
   const keyId = getDelegationKeypair().fingerprint
   const method = options.method.toUpperCase()
   const { apiPath } = options
@@ -116,10 +139,11 @@ async function send(target: string, options: SendOptions): Promise<OpenedRespons
   const hasBody = method !== 'GET' && method !== 'HEAD'
   const innerContentType = hasBody ? options.contentType ?? '' : ''
   const plaintext = typeof options.body === 'string' ? utf8(options.body) : options.body ?? new Uint8Array()
-  const envelope = seal(hasBody ? plaintext : new Uint8Array(), keys.request, requestAad({ method, apiPath, deviceId, keyId, innerContentType }))
+  const time = Date.now()
+  const envelope = seal(hasBody ? plaintext : new Uint8Array(), keys.request, requestAad({ method, apiPath, deviceId, keyId, innerContentType, time }))
   const context = responseContext({ method, apiPath, requestNonce: envelope.nonce })
   const headers = new Headers({ [E2EE_HEADER]: REMOTE_E2EE_VERSION, [E2EE_DEVICE_HEADER]: deviceId, [E2EE_KEY_HEADER]: keyId,
-    [E2EE_INNER_CONTENT_TYPE_HEADER]: innerContentType })
+    [E2EE_INNER_CONTENT_TYPE_HEADER]: innerContentType, [E2EE_TIME_HEADER]: String(time) })
   const payload = JSON.stringify(envelope)
   if (hasBody) headers.set('Content-Type', 'application/json')
   else headers.set(E2EE_PROOF_HEADER, payload)
@@ -132,7 +156,6 @@ async function send(target: string, options: SendOptions): Promise<OpenedRespons
   })
   if (response.headers.get(E2EE_HEADER) !== REMOTE_E2EE_VERSION) {
     const text = await readText(response)
-    if (response.status === 403 && text.includes('e2ee_')) peerKeys.delete(target)
     throw response.ok ? new DelegationHttpError(502, 'The machine returned an unencrypted response') : errorFromBody(response.status, text)
   }
   const framing = response.headers.get(E2EE_FRAMING_HEADER)
@@ -283,14 +306,20 @@ export async function delegationSocket(target: string, apiPath: string): Promise
   deviceId: string
   keyId: string
   keys: RemoteDirectionKeys
+  /** Bound into every frame's AAD (`webSocketFrameAad`). */
+  session: string
 }> {
   const { userId, nodeId: deviceId, nodeToken } = localNode()
   if (!DELEGATION_NODE_ID.test(target) || deviceId === target) throw new DelegationHttpError(400, 'Select another machine')
-  const keys = await keysFor(target)
+  const keys = keysFor(target, deviceId)
   const keyId = getDelegationKeypair().fingerprint
+  const time = Date.now()
+  const nonce = crypto.randomBytes(16).toString('base64url')
   const url = new URL(`${BROKER_URL.replace(/^http/, 'ws')}/u/${encodeURIComponent(userId)}/n/${target}${apiPath}`)
   url.searchParams.set('e2ee', REMOTE_E2EE_VERSION)
   url.searchParams.set('deviceId', deviceId)
   url.searchParams.set('keyId', keyId)
-  return { url: url.toString(), protocol: `operon.bearer.${nodeToken}`, deviceId, keyId, keys }
+  url.searchParams.set(WEBSOCKET_TIME_PARAM, String(time))
+  url.searchParams.set(WEBSOCKET_NONCE_PARAM, nonce)
+  return { url: url.toString(), protocol: `operon.bearer.${nodeToken}`, deviceId, keyId, keys, session: webSocketSession(time, nonce) }
 }

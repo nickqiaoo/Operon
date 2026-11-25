@@ -15,6 +15,15 @@ export const DELEGATION_SOURCE_HEADER = 'X-Operon-Delegation-Source'
 export const DELEGATION_PUBLIC_KEY_HEADER = 'X-Operon-Delegation-Public-Key'
 export const DELEGATION_SOURCE_LABEL_HEADER = 'X-Operon-Delegation-Source-Label'
 export const DELEGATION_TUNNEL_HEADER = 'X-Operon-Delegation-Tunnel'
+/**
+ * When the request was sealed (ms since epoch), bound into its AAD. With the
+ * envelope nonce it lets the receiver refuse a replayed request: too old, or a
+ * nonce it already saw inside the window. Required between machines; phones and
+ * the web client that predate it still send v1 requests without one.
+ */
+export const E2EE_TIME_HEADER = 'X-Operon-E2EE-Time'
+/** How far a request's time may be from the receiver's clock, either way. */
+export const E2EE_FRESHNESS_MS = 5 * 60_000
 
 export type RemoteE2EEMode = 'off' | 'required'
 export type EncryptedResponseFraming = 'ndjson' | 'sse'
@@ -82,11 +91,13 @@ export function requestAad(input: {
   deviceId: string
   keyId: string
   innerContentType: string
+  /** `E2EE_TIME_HEADER`; absent only for v1 requests. */
+  time?: number
 }): Uint8Array {
-  return utf8(
-    `operon.remote.request.v1\n${input.method.toUpperCase()}\n${input.apiPath}`
-    + `\n${input.deviceId}\n${input.keyId}\n${input.innerContentType}`,
-  )
+  const fields = `${input.method.toUpperCase()}\n${input.apiPath}\n${input.deviceId}\n${input.keyId}\n${input.innerContentType}`
+  return utf8(input.time === undefined
+    ? `operon.remote.request.v1\n${fields}`
+    : `operon.remote.request.v2\n${fields}\n${input.time}`)
 }
 
 export function responseFrameAad(input: {
@@ -120,8 +131,25 @@ export function webSocketFrameAad(input: {
   deviceId: string
   keyId: string
   seq: number
+  /**
+   * `webSocketSession` of this connection. Frames of one connection then do
+   * not open on another, so a recorded connection cannot be replayed. Absent
+   * only for v1 connections.
+   */
+  session?: string
 }): Uint8Array {
-  return utf8(`operon.remote.websocket.v1\n${input.direction}\n${input.deviceId}\n${input.keyId}\n${input.seq}`)
+  const fields = `${input.direction}\n${input.deviceId}\n${input.keyId}`
+  return utf8(input.session === undefined
+    ? `operon.remote.websocket.v1\n${fields}\n${input.seq}`
+    : `operon.remote.websocket.v2\n${fields}\n${input.session}\n${input.seq}`)
+}
+
+/** Query parameters a v2 WebSocket opens with: when, and a nonce for this connection. */
+export const WEBSOCKET_TIME_PARAM = 'ts'
+export const WEBSOCKET_NONCE_PARAM = 'cn'
+
+export function webSocketSession(time: number, nonce: string): string {
+  return `${time}.${nonce}`
 }
 
 export function apiPathFromBrokerUrl(url: string): string {

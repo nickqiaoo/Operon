@@ -49,8 +49,9 @@ The agent's conversation lives on that machine, in that workspace; its files are
 not in this conversation's workspace, and you cannot read them from here. To
 review what it changed, ask it (with `external_agent_send`) to show the diff.
 Everything else is the same as on this machine: its tab, follow-ups, status, stop
-and results. The target must allow it in its Remote settings and be online for a
-turn to run; a result that finishes while this machine is offline arrives when it
+and results. The target must be paired with this machine (`paired: true` in
+`external_agent_list_targets`; otherwise ask the user to pair them in Settings →
+Remote), allow it in its Remote settings, and be online for a turn to run; a result that finishes while this machine is offline arrives when it
 is back.
 
 ## Continue the same child

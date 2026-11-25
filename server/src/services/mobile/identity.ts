@@ -87,8 +87,10 @@ let delegationKeys: { privateKey: Uint8Array; publicKey: Uint8Array; fingerprint
 /**
  * The key this machine uses to talk to its other machines (remote external agents).
  * Derived from the desktop key, so it needs no storage of its own, but never equal
- * to it: the desktop key is the one phones pair with, and the delegation key's
- * public half is published to Broker, which vouches for it to the other machines.
+ * to it: the desktop key is the one phones pair with. The other machines learn
+ * the delegation key's public half when they pair with this one (machine-pairing.ts)
+ * and pin it. It is also registered with Broker, which only checks that both
+ * machines have one; no machine takes Broker's word for it.
  */
 export function getDelegationKeypair(): { privateKey: Uint8Array; publicKey: Uint8Array; fingerprint: string } {
   if (delegationKeys) return delegationKeys

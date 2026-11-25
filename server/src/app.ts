@@ -111,8 +111,10 @@ import type { RemoteE2EEMode } from '@shared/e2ee/protocol'
 import { delegationRoutes } from './routes/delegations.js'
 import { remoteMachineRoutes } from './routes/remote-machines.js'
 import { initRemoteAgents } from './services/remote-agents.js'
-import { DELEGATED_AGENT_EVENTS_PATH } from '@shared/delegations'
+import { DELEGATED_AGENT_EVENTS_PATH, MACHINE_PEER_SYNC_PATH } from '@shared/delegations'
 import { DelegationHost } from './services/delegation-host.js'
+import { initMachinePeers } from './services/machine-peers.js'
+import { initMachinePairing, startPeerSync } from './services/machine-pairing.js'
 
 export interface AppDeps {
   storage: StorageAdapter & ChatStorageAdapter & CronjobStorageAdapter & CanvasWorkflowStorageAdapter & ProjectStorageAdapter & ChannelStorageAdapter & TaskStorageAdapter & NotificationStorageAdapter & AssistantStorageAdapter & CheckpointStorageAdapter & IMStorageAdapter & AgentBindingStorageAdapter & MemoryMaintenanceStorageAdapter
@@ -135,6 +137,7 @@ export interface AppDeps {
 }
 
 let stopDelegations: (() => void) | undefined
+let stopPeerSync: (() => void) | undefined
 let stopRemoteAgents: (() => void) | undefined
 
 export async function createApp(deps: AppDeps) {
@@ -249,6 +252,22 @@ export async function createApp(deps: AppDeps) {
       deps.onDevicePaired?.(pairing)
     },
   })
+  initMachinePeers(deps.storage as unknown as import('./storage/interface.js').MachinePeerStorageAdapter)
+  initMachinePairing({
+    // Another machine can now reach this one (if it serves others), so, like a
+    // new phone, it is something to look at in the inbox.
+    onPaired: (peer) => {
+      notify(deps.storage, {
+        kind: 'device_paired',
+        severity: 'action',
+        sourceKey: `machine:${peer.nodeId}`,
+        title: 'Machine paired',
+        body: `${peer.label || 'Another machine'} is now paired with this machine. Fingerprint ${peer.fingerprint}. Revoke it in Settings → Remote if this was not you.`,
+      })
+    },
+  })
+  stopPeerSync?.()
+  stopPeerSync = startPeerSync()
   seedLegacyIMTokens(deps.storage)
 
   const app = new Hono()
@@ -298,8 +317,9 @@ export async function createApp(deps: AppDeps) {
   stopRemoteAgents = initRemoteAgents(deps.storage)
   app.use('/api/*', createRemoteE2EEMiddleware({
     acceptsMachines: () => delegationHost.accepting(),
-    // The results of agents this machine's conversations started elsewhere.
-    alwaysFromMachines: (path) => path === DELEGATED_AGENT_EVENTS_PATH,
+    // The results of agents this machine's conversations started elsewhere,
+    // and what the machines paired with this one know of the others.
+    alwaysFromMachines: (path) => path === DELEGATED_AGENT_EVENTS_PATH || path === MACHINE_PEER_SYNC_PATH,
   }))
 
   app.onError((err, c) => {

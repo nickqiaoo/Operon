@@ -8,11 +8,12 @@ import type { MobilePairingStorageAdapter } from '../storage/interface.js'
 import type { MobilePairingRow, MobilePairingSummary } from '../types/mobile.js'
 import { BROKER_URL } from '../gateway/saas/broker.js'
 import { getSaasConfig } from '../gateway/saas/config.js'
-import { DELEGATION_NODE_ID, nodeDelegationRoute } from '@shared/delegations'
+import { DELEGATION_NODE_ID, MACHINE_PAIR_CLAIM_PATH, nodeDelegationRoute } from '@shared/delegations'
 import { deriveDelegationKeys } from '@shared/e2ee/crypto'
 import { trustedDelegationTunnel } from './delegation-tunnel.js'
+import { touchPeer, trustedPeerKey } from './machine-peers.js'
+import { parseE2EETime, remoteReplayGuard } from './replay-guard.js'
 import {
-  DELEGATION_PUBLIC_KEY_HEADER,
   DELEGATION_SOURCE_HEADER,
   DELEGATION_TUNNEL_HEADER,
   E2EE_DEVICE_HEADER,
@@ -22,6 +23,7 @@ import {
   E2EE_INNER_CONTENT_TYPE_HEADER,
   E2EE_KEY_HEADER,
   E2EE_PROOF_HEADER,
+  E2EE_TIME_HEADER,
   PAIRING_HEADER,
   REMOTE_E2EE_VERSION,
   REMOTE_TUNNEL_HEADER,
@@ -337,6 +339,12 @@ export function createRemoteE2EEMiddleware(options: RemoteE2EEMiddlewareOptions 
         !nodeDelegationRoute(c.req.method, c.req.path))) {
       return c.json({ error: 'delegation_scope_denied' }, 403)
     }
+    // A pairing claim comes from a machine that shares no key with this one yet;
+    // its body is sealed under the pairing code, which the route checks.
+    if (source && c.req.method === 'POST' && c.req.path === MACHINE_PAIR_CLAIM_PATH) {
+      await next()
+      return
+    }
     if (source && !options.acceptsMachines?.() && !options.alwaysFromMachines?.(c.req.path)) {
       return c.json({ error: 'delegations_disabled', message: 'This machine is not accepting requests from other machines' }, 403)
     }
@@ -376,11 +384,19 @@ export function createRemoteE2EEMiddleware(options: RemoteE2EEMiddlewareOptions 
       c.res = c.json({ error: 'e2ee_invalid', message: 'Missing E2EE device identity' }, 400)
       return
     }
+    // Phones and web clients that predate request times still send untimed (v1)
+    // requests; another machine always times its requests.
+    const time = parseE2EETime(c.req.header(E2EE_TIME_HEADER))
+    if (source && time === undefined) {
+      return c.json({ error: 'e2ee_time_required', message: 'Update Operon on the machine that sent this request' }, 400)
+    }
     let keys: DirectionKeys
     let desktopId: string | undefined
     if (source) {
-      const delegation = delegationKeysFor(source, c.req.header(DELEGATION_PUBLIC_KEY_HEADER), deviceId, keyId)
-      if (!delegation) return c.json({ error: 'e2ee_key_invalid', message: 'Delegation key identity does not match' }, 403)
+      const delegation = delegationKeysFor(source, deviceId, keyId)
+      if (!delegation) {
+        return c.json({ error: 'machine_not_paired', message: 'This machine is not paired with the one that sent the request. Pair them in Settings → Remote.' }, 403)
+      }
       keys = delegation
     } else {
       desktopId = getDesktopIdentity().desktopId
@@ -398,12 +414,20 @@ export function createRemoteE2EEMiddleware(options: RemoteE2EEMiddlewareOptions 
       const apiPath = `${c.req.path}${new URL(c.req.url).search}`
       const raw = c.req.raw
       const innerContentType = raw.headers.get(E2EE_INNER_CONTENT_TYPE_HEADER) ?? ''
-      const aad = requestAad({ method: c.req.method, apiPath, deviceId, keyId, innerContentType })
+      const aad = requestAad({ method: c.req.method, apiPath, deviceId, keyId, innerContentType, time })
       const hasBody = c.req.method !== 'GET' && c.req.method !== 'HEAD'
       const encoded = hasBody ? await raw.text() : c.req.header(E2EE_PROOF_HEADER)
       if (!encoded) throw new Error('Missing encrypted request payload')
       const envelope = decodeEnvelope(encoded)
       const plaintext = openRemoteEnvelope(envelope, keys.request, aad)
+      // Only now, so nothing unauthenticated is remembered.
+      const verdict = remoteReplayGuard.check(`${deviceId}:${envelope.nonce}`, time)
+      if (verdict !== 'fresh') {
+        c.res = c.json(verdict === 'stale'
+          ? { error: 'e2ee_stale', message: 'The request is too old, or the two clocks differ by more than 5 minutes' }
+          : { error: 'e2ee_replayed', message: 'This request was already received' }, 401)
+        return
+      }
       const headers = new Headers(raw.headers)
       for (const name of [
         E2EE_HEADER,
@@ -411,6 +435,7 @@ export function createRemoteE2EEMiddleware(options: RemoteE2EEMiddlewareOptions 
         E2EE_KEY_HEADER,
         E2EE_PROOF_HEADER,
         E2EE_INNER_CONTENT_TYPE_HEADER,
+        E2EE_TIME_HEADER,
       ]) {
         headers.delete(name)
       }
@@ -451,6 +476,7 @@ export function createRemoteE2EEMiddleware(options: RemoteE2EEMiddlewareOptions 
       }, 500)
     }
     if (desktopId) requireState().storage.touchMobilePairingLastSeen(desktopId, deviceId, Date.now())
+    else if (source) touchPeer(source)
     const encrypted = encryptResponse(c.res, keys.response, {
       deviceId,
       keyId,
@@ -467,21 +493,18 @@ export function createRemoteE2EEMiddleware(options: RemoteE2EEMiddlewareOptions 
 }
 
 /**
- * Keys for another machine of the account, from the public key Broker stamped on
- * its request. The caller has already checked the stamp came through the tunnel
- * agent (`trustedDelegationTunnel`). Null when the claimed identity does not match it.
+ * Keys for another machine of the account, from the key pinned when the two
+ * paired — never from the key Broker stamps on the request, which a dishonest
+ * Broker could swap for its own. Broker's stamp of which machine sent the
+ * request only picks the pinned key: a request it misattributes does not open.
+ * Null when this machine is not paired with `source`, or the request claims
+ * another identity.
  */
-export function delegationKeysFor(
-  source: string, publicKey: string | undefined, deviceId: string, keyId: string,
-): DirectionKeys | null {
+export function delegationKeysFor(source: string, deviceId: string, keyId: string): DirectionKeys | null {
   const target = getSaasConfig().nodeId
-  try {
-    const peer = base64ToBytes(publicKey ?? '')
-    if (!target || deviceId !== source || peer.length !== 32 || fingerprintPublicKey(peer) !== keyId) return null
-    return deriveDelegationKeys(getDelegationKeypair().privateKey, peer, source, target)
-  } catch {
-    return null
-  }
+  const peer = trustedPeerKey(source)
+  if (!target || !peer || deviceId !== source || peer.fingerprint !== keyId) return null
+  return deriveDelegationKeys(getDelegationKeypair().privateKey, peer.publicKey, source, target)
 }
 
 export function getConfirmedRemoteDeviceKeys(deviceId: string, keyId?: string): DirectionKeys | null {

@@ -3,15 +3,19 @@ import type { NodeWebSocket } from '@hono/node-ws'
 import type WebSocket from 'ws'
 import type { WSContext, WSMessageReceive } from 'hono/ws'
 import {
-  DELEGATION_PUBLIC_KEY_HEADER,
   DELEGATION_SOURCE_HEADER,
   DELEGATION_TUNNEL_HEADER,
   REMOTE_E2EE_VERSION,
+  E2EE_FRESHNESS_MS,
   REMOTE_TUNNEL_HEADER,
+  WEBSOCKET_NONCE_PARAM,
+  WEBSOCKET_TIME_PARAM,
   decodeWebSocketFrame,
   utf8,
   webSocketFrameAad,
+  webSocketSession,
 } from '@shared/e2ee/protocol'
+import { parseE2EETime, remoteReplayGuard } from '../services/replay-guard.js'
 import * as terminalService from '../services/terminal.js'
 import { DELEGATION_NODE_ID } from '@shared/delegations'
 import { trustedDelegationTunnel } from '../services/delegation-tunnel.js'
@@ -67,6 +71,8 @@ interface SecureWebSocketState {
   responseKey: Uint8Array
   receiveSeq: number
   sendSeq: number
+  /** v2 connections: bound into every frame, and refused if seen before. */
+  session?: { value: string; nonce: string }
 }
 
 export function terminalRoutes(upgradeWebSocket: NodeWebSocket['upgradeWebSocket']) {
@@ -90,9 +96,18 @@ export function terminalRoutes(upgradeWebSocket: NodeWebSocket['upgradeWebSocket
       const deviceId = c.req.query('deviceId')
       const keyId = c.req.query('keyId')
       const keys = !deviceId || !keyId ? null
-        : source ? delegationKeysFor(source, c.req.header(DELEGATION_PUBLIC_KEY_HEADER), deviceId, keyId)
+        : source ? delegationKeysFor(source, deviceId, keyId)
           : getConfirmedRemoteDeviceKeys(deviceId, keyId)
       if (!deviceId || !keyId || !keys) return c.json({ error: 'e2ee_device_untrusted' }, 403)
+      // Another machine always opens a v2 connection; phones that predate it a v1 one.
+      const time = parseE2EETime(c.req.query(WEBSOCKET_TIME_PARAM))
+      const nonce = c.req.query(WEBSOCKET_NONCE_PARAM)
+      if ((source || time !== undefined || nonce) && (time === undefined || !nonce || !/^[A-Za-z0-9_-]{16,64}$/.test(nonce))) {
+        return c.json({ error: 'e2ee_time_required', message: 'Update Operon on the machine that opened this terminal' }, 400)
+      }
+      if (time !== undefined && (!Number.isSafeInteger(time) || Math.abs(Date.now() - time) > E2EE_FRESHNESS_MS)) {
+        return c.json({ error: 'e2ee_stale', message: 'The connection is too old, or the two clocks differ by more than 5 minutes' }, 401)
+      }
       secure = {
         deviceId,
         keyId,
@@ -100,11 +115,14 @@ export function terminalRoutes(upgradeWebSocket: NodeWebSocket['upgradeWebSocket
         responseKey: keys.response,
         receiveSeq: 0,
         sendSeq: 0,
+        ...(time !== undefined && nonce ? { session: { value: webSocketSession(time, nonce), nonce } } : {}),
       }
     }
 
+    let refused = false
     const handler = upgradeWebSocket(() => ({
       async onMessage(event, ws) {
+        if (refused) return
         try {
           let text = await messageText(event.data)
           if (secure) {
@@ -118,8 +136,19 @@ export function terminalRoutes(upgradeWebSocket: NodeWebSocket['upgradeWebSocket
                 deviceId: secure.deviceId,
                 keyId: secure.keyId,
                 seq: frame.seq,
+                session: secure.session?.value,
               }),
             ))
+            // The time was checked before the upgrade; the nonce on the first frame
+            // that opens, so only an authenticated connection is remembered. A
+            // recorded connection replayed within the window is refused here, a
+            // later one by the time check.
+            if (secure.receiveSeq === 0 && secure.session &&
+                remoteReplayGuard.check(`ws:${secure.deviceId}:${secure.session.nonce}`) !== 'fresh') {
+              refused = true
+              ws.close(1008, 'Connection replayed')
+              return
+            }
             secure.receiveSeq += 1
           }
           handleMessage(JSON.parse(text) as WSMessage, createSender(ws, secure))
@@ -159,6 +188,7 @@ function createSender(ws: WSContext<WebSocket>, secure: SecureWebSocketState | n
             deviceId: secure.deviceId,
             keyId: secure.keyId,
             seq,
+            session: secure.session?.value,
           }),
         ),
         seq,

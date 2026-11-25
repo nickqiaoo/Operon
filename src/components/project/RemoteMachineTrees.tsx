@@ -24,13 +24,16 @@ import type { DelegationMachine } from "@shared/delegations"
  * only once its tree answered: offline or unreachable ones are left out.
  */
 
-/** Other machines of the account. Desktop only: the web shell already is one machine's UI. */
+/**
+ * Other machines of the account this one is paired with (an unpaired one cannot
+ * be reached). Desktop only: the web shell already is one machine's UI.
+ */
 export function useOtherMachines(): DelegationMachine[] {
   const { data } = useDelegationMachines({
     enabled: __APP_TARGET__ !== "web",
     refetchInterval: 30_000,
   })
-  return data?.machines.filter((machine) => !machine.current) ?? NO_MACHINES
+  return data?.machines.filter((machine) => !machine.current && machine.paired !== false) ?? NO_MACHINES
 }
 
 const NO_MACHINES: DelegationMachine[] = []

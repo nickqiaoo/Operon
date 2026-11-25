@@ -10,6 +10,10 @@ import {
   createExternalAgent, externalAgentView, getExternalAgentStatus, sendExternalAgent, stopExternalAgent,
 } from '../services/external-agent.js'
 import { receiveAgentEvent } from '../services/remote-agents.js'
+import {
+  answerPairingClaim, cancelPairingCode, joinWithPairingCode, pairingCodeStatus, receivePeerSync, schedulePeerSync, startPairingCode,
+} from '../services/machine-pairing.js'
+import { listMachinePeers, revokePeer } from '../services/machine-peers.js'
 import { trustedDelegationTunnel } from '../services/delegation-tunnel.js'
 import { getChatStorage } from '../services/ai/state.js'
 
@@ -114,6 +118,19 @@ export function delegationRoutes(host: DelegationHost) {
     return c.json({ ok: true })
   })
 
+  // Pairing (machine-pairing.ts). The claim reaches here from a machine not yet
+  // paired, unsealed by the transport (see remote-e2ee.ts); the sync only from a
+  // paired one. Neither depends on the receive switch.
+  app.post('/pair/claim', async (c) => {
+    const from = source(c)
+    const answer = answerPairingClaim(from.id, await c.req.json())
+    return c.json(answer.body, answer.status)
+  })
+  app.post('/peers/sync', async (c) => {
+    const from = source(c)
+    return c.json(receivePeerSync(from.id, await c.req.json()))
+  })
+
   // ── This machine's own UI ───────────────────────────────────────────────
   const onThisMachine = (c: Context) => {
     if (c.req.header(REMOTE_TUNNEL_HEADER) === '1') throw new DelegationHttpError(403, 'Open Remote settings on this machine')
@@ -129,6 +146,33 @@ export function delegationRoutes(host: DelegationHost) {
     return c.json({ enabled, recent: host.recent() })
   })
   app.get('/local/machines', async (c) => c.json({ machines: await listDelegationNodes() }))
+  // Pairing is done by someone at both machines, so only from this machine's own window.
+  app.get('/local/peers', (c) => c.json({ peers: listMachinePeers() }))
+  app.post('/local/pair/code', (c) => {
+    onThisMachine(c)
+    return c.json(startPairingCode())
+  })
+  app.get('/local/pair/code', (c) => {
+    onThisMachine(c)
+    return c.json(pairingCodeStatus())
+  })
+  app.delete('/local/pair/code', (c) => {
+    onThisMachine(c)
+    cancelPairingCode()
+    return c.json({ ok: true })
+  })
+  app.post('/local/pair/join', async (c) => {
+    onThisMachine(c)
+    const { code } = z.object({ code: z.string().trim().min(1).max(64) }).parse(await c.req.json())
+    return c.json({ peer: await joinWithPairingCode(code) })
+  })
+  app.post('/local/peers/:nodeId/revoke', (c) => {
+    onThisMachine(c)
+    const peer = revokePeer(nodeId.parse(c.req.param('nodeId')))
+    if (!peer) throw new DelegationHttpError(404, 'This machine was never paired with that one')
+    schedulePeerSync()
+    return c.json({ peer })
+  })
   app.get('/local/machines/:nodeId/catalog', async (c) => {
     const target = nodeId.parse(c.req.param('nodeId'))
     return c.json(await delegationRequest(target, '/api/delegations/catalog?models=0'))

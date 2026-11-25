@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { FormattedMessage, useIntl } from 'react-intl'
 import QRCode from 'qrcode'
 import { Check, Copy, KeyRound, Loader2, RefreshCw, ShieldCheck, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -13,6 +14,7 @@ interface PairingSession {
 }
 
 export function RemoteEncryptionSettings() {
+  const intl = useIntl()
   const [devices, setDevices] = useState<MobilePairingSummary[]>([])
   const [session, setSession] = useState<PairingSession | null>(null)
   const [pairStatus, setPairStatus] = useState<'waiting' | 'pending' | 'expired'>('waiting')
@@ -63,7 +65,7 @@ export function RemoteEncryptionSettings() {
       clearCopied()
       setSession({ payload, imageUrl })
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not create a pairing code')
+      setError(cause instanceof Error ? cause.message : intl.formatMessage({ id: 'settings.remote.devices.error.createCode', defaultMessage: 'Could not create a pairing code' }))
     } finally {
       setBusy(false)
     }
@@ -75,7 +77,7 @@ export function RemoteEncryptionSettings() {
     try {
       await api.remoteE2eePairApprove(session.payload.pairingId)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not approve this device')
+      setError(cause instanceof Error ? cause.message : intl.formatMessage({ id: 'settings.remote.devices.error.approve', defaultMessage: 'Could not approve this device' }))
     } finally {
       setBusy(false)
     }
@@ -94,7 +96,7 @@ export function RemoteEncryptionSettings() {
       await navigator.clipboard.writeText(JSON.stringify(session.payload))
       flashCopied()
     } catch {
-      setError('Could not copy the pairing code')
+      setError(intl.formatMessage({ id: 'settings.remote.devices.error.copy', defaultMessage: 'Could not copy the pairing code' }))
     }
   }
 
@@ -108,21 +110,26 @@ export function RemoteEncryptionSettings() {
       <div className="flex items-start gap-3">
         <ShieldCheck className="mt-0.5 h-4 w-4 text-status-ok" />
         <div className="flex-1">
-          <div className="text-sm font-medium">End-to-end encryption</div>
+          <div className="text-sm font-medium">
+            <FormattedMessage id="settings.remote.devices.title" defaultMessage="Phones and browsers" />
+          </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Remote request and response content is encrypted between this machine and each approved device.
+            <FormattedMessage
+              id="settings.remote.devices.desc"
+              defaultMessage="Devices you pair here can reach this machine through Remote. Their requests and responses are end-to-end encrypted between this machine and each approved device."
+            />
           </p>
         </div>
         <Button size="sm" variant="secondary" className="h-8 gap-1.5" disabled={busy || session !== null} onClick={() => void startPairing()}>
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
-          Pair device
+          <FormattedMessage id="settings.remote.devices.pair" defaultMessage="Pair device" />
         </Button>
       </div>
 
       {session && (
         <div className="grid gap-4 rounded-lg bg-background/50 p-4 sm:grid-cols-[220px_1fr]">
           <div className="space-y-2">
-            <img src={session.imageUrl} alt="Secure pairing QR code" className="h-[220px] w-[220px] rounded-md" />
+            <img src={session.imageUrl} alt={intl.formatMessage({ id: 'settings.remote.devices.qrAlt', defaultMessage: 'Secure pairing QR code' })} className="h-[220px] w-[220px] rounded-md" />
             <Button
               size="sm"
               variant="secondary"
@@ -131,18 +138,28 @@ export function RemoteEncryptionSettings() {
               onClick={() => void copyPairingCode()}
             >
               {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              {copied ? 'Copied' : 'Copy pairing code'}
+              {copied
+                ? <FormattedMessage id="settings.remote.devices.copied" defaultMessage="Copied" />
+                : <FormattedMessage id="settings.remote.devices.copyCode" defaultMessage="Copy pairing code" />}
             </Button>
           </div>
           <div className="flex min-w-0 flex-col justify-center gap-3">
             <div>
               <div className="text-sm font-medium">
-                {pairStatus === 'pending' ? 'Approve this device' : pairStatus === 'expired' ? 'Pairing code expired' : 'Scan with your device'}
+                {pairStatus === 'pending'
+                  ? <FormattedMessage id="settings.remote.devices.approveTitle" defaultMessage="Approve this device" />
+                  : pairStatus === 'expired'
+                    ? <FormattedMessage id="settings.remote.devices.codeExpired" defaultMessage="Pairing code expired" />
+                    : <FormattedMessage id="settings.remote.devices.scanTitle" defaultMessage="Scan with your device" />}
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
                 {pairStatus === 'pending'
-                  ? `Confirm only if this is the device you are holding: ${pendingDevice?.mobileLabel ?? 'Unknown device'}.`
-                  : 'The code contains a one-time secret that the Broker cannot read.'}
+                  ? <FormattedMessage
+                      id="settings.remote.devices.approveDesc"
+                      defaultMessage="Confirm only if this is the device you are holding: {name}."
+                      values={{ name: pendingDevice?.mobileLabel ?? intl.formatMessage({ id: 'settings.remote.devices.unknown', defaultMessage: 'Unknown device' }) }}
+                    />
+                  : <FormattedMessage id="settings.remote.devices.scanDesc" defaultMessage="The code contains a one-time secret that the Broker cannot read." />}
               </p>
             </div>
             <div className="font-mono text-[10px] text-muted-foreground">
@@ -151,15 +168,18 @@ export function RemoteEncryptionSettings() {
             <div className="flex gap-2">
               {pairStatus === 'pending' ? (
                 <Button size="sm" className="h-8 gap-1.5" disabled={busy || pendingDevice === null} onClick={() => void approve()}>
-                  <Check className="h-3.5 w-3.5" /> Approve
+                  <Check className="h-3.5 w-3.5" />
+                  <FormattedMessage id="settings.remote.devices.approve" defaultMessage="Approve" />
                 </Button>
               ) : pairStatus === 'expired' ? (
                 <Button size="sm" variant="secondary" className="h-8 gap-1.5" onClick={() => void startPairing()}>
-                  <RefreshCw className="h-3.5 w-3.5" /> New code
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  <FormattedMessage id="settings.remote.devices.newCode" defaultMessage="New code" />
                 </Button>
               ) : null}
               <Button size="sm" variant="ghost" className="h-8 gap-1.5" onClick={() => void reject()}>
-                <X className="h-3.5 w-3.5" /> Cancel
+                <X className="h-3.5 w-3.5" />
+                <FormattedMessage id="settings.remote.devices.cancel" defaultMessage="Cancel" />
               </Button>
             </div>
           </div>
@@ -172,10 +192,10 @@ export function RemoteEncryptionSettings() {
             <div key={device.id} className="flex items-center gap-3 rounded-lg bg-background/40 px-3 py-2.5">
               <ShieldCheck className="h-4 w-4 shrink-0 text-status-ok" />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-xs font-medium">{device.mobileLabel || 'Approved device'}</div>
+                <div className="truncate text-xs font-medium">{device.mobileLabel || intl.formatMessage({ id: 'settings.remote.devices.approvedDevice', defaultMessage: 'Approved device' })}</div>
                 <div className="truncate font-mono text-[10px] text-muted-foreground">{device.mobileFingerprint}</div>
               </div>
-              <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground" aria-label="Revoke device" onClick={() => void revoke(device)}>
+              <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground" aria-label={intl.formatMessage({ id: 'settings.remote.devices.revoke', defaultMessage: 'Revoke device' })} onClick={() => void revoke(device)}>
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>

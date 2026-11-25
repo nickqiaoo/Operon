@@ -11,7 +11,7 @@ import {
   REMOTE_TUNNEL_HEADER, bytesToBase64,
 } from '@shared/e2ee/protocol'
 import { createDeviceKeypair, fingerprintPublicKey } from '@shared/e2ee/crypto'
-import { DELEGATED_AGENT_EVENTS_PATH, type DelegatedAgentStarted } from '@shared/delegations'
+import { DELEGATED_AGENT_EVENTS_PATH, MACHINE_PEER_SYNC_PATH, type DelegatedAgentStarted } from '@shared/delegations'
 import { SqliteStorage } from '../storage/sqlite.js'
 import { delegationRoutes } from '../routes/delegations.js'
 import { remoteMachineRoutes } from '../routes/remote-machines.js'
@@ -20,12 +20,17 @@ import { delegationTunnelToken } from './delegation-tunnel.js'
 import { DelegationHost } from './delegation-host.js'
 import { initRemoteAgents, listRemoteAgents, reportToParentMachine, startRemoteAgent } from './remote-agents.js'
 import { delegationRequest } from './delegation-transport.js'
+import { initMachinePeers, pinPairedPeer, revokePeer } from './machine-peers.js'
+import { joinWithPairingCode, machinePairingTestUtils, startPairingCode } from './machine-pairing.js'
 
 /**
  * Two machines of one account in one process: the origin (whose UI and
  * conversations start things) and the target, joined by a stand-in for Broker
- * that authenticates by node, hands out registered keys and stamps the source
- * machine — with the real end-to-end encryption in between.
+ * that authenticates by node, routes, and stamps the source machine and the key
+ * it registered — with the real end-to-end encryption in between.
+ *
+ * Both share one database, so its machine_peers holds both sides' records: the
+ * origin's of the target and the target's of the origin.
  */
 
 const origin = 'a'.repeat(32)
@@ -33,6 +38,8 @@ const target = 'b'.repeat(32)
 const account = 'd'.repeat(32)
 const onTarget = new AsyncLocalStorage<boolean>()
 const keys = { [origin]: createDeviceKeypair(), [target]: createDeviceKeypair() }
+/** Broker's own key, which a dishonest Broker would stamp in place of a machine's. */
+const brokerKey = createDeviceKeypair()
 const here = () => (onTarget.getStore() ? target : origin)
 
 const delivered = vi.hoisted(() => ({ results: [] as Array<{ chatId: number; id: string; text: string }> }))
@@ -63,19 +70,32 @@ function machineApp(nodeId: string, routes: (app: Hono) => void): Hono {
   const app = new Hono()
   app.use('/api/*', createRemoteE2EEMiddleware({
     acceptsMachines: () => accepting[nodeId],
-    alwaysFromMachines: (p) => p === DELEGATED_AGENT_EVENTS_PATH,
+    alwaysFromMachines: (p) => p === DELEGATED_AGENT_EVENTS_PATH || p === MACHINE_PEER_SYNC_PATH,
   }))
   routes(app)
   return app
 }
 
 let apps: Record<string, Hono>
+/** What the stand-in Broker forwarded, to replay. */
+const forwarded: Array<{ to: string; url: string; init: RequestInit; headers: Headers }> = []
+/** A dishonest Broker: stamps its own key as the source machine's. */
+const broker = { stampOwnKey: false }
+
+function pairBoth() {
+  pinPairedPeer({ nodeId: target, publicKey: keys[target].publicKey, label: 'Target' })
+  pinPairedPeer({ nodeId: origin, publicKey: keys[origin].publicKey, label: 'Origin' })
+}
 
 beforeEach(() => {
   root = mkdtempSync(path.join(tmpdir(), 'operon-remote-machines-'))
   storage = new SqliteStorage(path.join(root, 'test.sqlite'))
   initRemoteE2EE({ storage, mode: 'required' })
+  initMachinePeers(storage)
+  pairBoth()
   stopRemoteAgents = initRemoteAgents(storage)
+  forwarded.length = 0
+  broker.stampOwnKey = false
   delivered.results.length = 0
   seen.length = 0
   created.length = 0
@@ -110,9 +130,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
     if (url.pathname === '/agent/delegation-nodes') {
-      const asked = url.searchParams.get('nodeId')
-      if (!asked) return Response.json([{ nodeId: origin, label: 'Origin', online: true }, { nodeId: target, label: 'Target', online: true }])
-      return Response.json({ publicKey: bytesToBase64(keys[asked].publicKey) })
+      return Response.json([{ nodeId: origin, label: 'Origin', online: online[origin] }, { nodeId: target, label: 'Target', online: online[target] }])
     }
     const to = /\/n\/([0-9a-f]{32})\//.exec(url.pathname)?.[1] ?? ''
     if (!online[to]) return Response.json({ error: 'node_offline' }, { status: 503 })
@@ -123,13 +141,15 @@ beforeEach(() => {
     headers.set(DELEGATION_TUNNEL_HEADER, delegationTunnelToken)
     headers.set(DELEGATION_SOURCE_HEADER, from)
     headers.set(DELEGATION_SOURCE_LABEL_HEADER, bytesToBase64(new TextEncoder().encode(from === origin ? 'Origin' : 'Target')))
-    headers.set(DELEGATION_PUBLIC_KEY_HEADER, bytesToBase64(keys[from].publicKey))
+    headers.set(DELEGATION_PUBLIC_KEY_HEADER, bytesToBase64((broker.stampOwnKey ? brokerKey : keys[from]).publicKey))
     const apiPath = url.pathname.slice(url.pathname.indexOf('/api/'))
+    forwarded.push({ to, url: `${apiPath}${url.search}`, init: init ?? {}, headers })
     return onTarget.run(to === target, () => apps[to].request(`${apiPath}${url.search}`, { ...init, headers }))
   }))
 })
 
 afterEach(() => {
+  machinePairingTestUtils.reset()
   stopRemoteAgents()
   vi.unstubAllGlobals()
   storage.close()
@@ -236,5 +256,79 @@ describe('an external agent started on another machine', () => {
     expect(delivered.results[0].text).toContain('<result>boom</result>')
     // Delivered in order: the failed turn, then the next one starting.
     expect(listRemoteAgents(12)[0]).toMatchObject({ turnId: 'turn-2', status: 'running' })
+  })
+})
+
+describe('pairing between machines', () => {
+  /** Neither side trusts the other (revoked looks the same as never paired). */
+  const clearPeers = () => {
+    revokePeer(target)
+    revokePeer(origin)
+  }
+
+  it('keeps machines that never paired apart, whatever Broker says', async () => {
+    clearPeers()
+    const res = await relay('/echo/a')
+    expect(res.status).toBe(403)
+    expect(await res.json()).toMatchObject({ error: 'machine_not_paired' })
+    // The target refuses too, even when the origin trusts it: Broker's stamped key counts for nothing.
+    pinPairedPeer({ nodeId: target, publicKey: keys[target].publicKey, label: 'Target' })
+    expect((await relay('/echo/a')).status).toBe(403)
+    expect(seen).toHaveLength(0)
+  })
+
+  it('pairs two machines with a code shown on one and entered on the other', async () => {
+    clearPeers()
+    const { code } = startPairingCode()
+    expect(code).toMatch(/^[0-9A-Z]{4}(-[0-9A-Z]{4}){3}$/)
+    const peer = await onTarget.run(true, () => joinWithPairingCode(code.toLowerCase().replace(/-/g, ' ')))
+    expect(peer).toMatchObject({ nodeId: origin, status: 'trusted', source: 'paired' })
+    // The pairing went through Broker without the code: only its derived id and ciphertext.
+    const claim = forwarded.find((f) => f.url === '/api/delegations/pair/claim')
+    expect(String(claim?.init.body)).not.toContain(code.replace(/-/g, ''))
+    expect((await relay('/echo/a', { method: 'POST', body: 'hi' })).status).toBe(201)
+    // Single use.
+    await expect(onTarget.run(true, () => joinWithPairingCode(code))).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('finds no machine for a wrong code', async () => {
+    clearPeers()
+    startPairingCode()
+    await expect(onTarget.run(true, () => joinWithPairingCode('0000-0000-0000-0000'))).rejects.toMatchObject({ status: 404 })
+    await expect(onTarget.run(true, () => joinWithPairingCode('not a code'))).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('ignores the key a dishonest Broker stamps on a request', async () => {
+    broker.stampOwnKey = true
+    // The honest machines still talk: the stamp is not what they trust.
+    expect((await relay('/echo/a')).status).toBe(201)
+    // Broker sealing a request of its own as the origin, with its key, is refused.
+    const res = await apps[target].request('/api/echo/forged', {
+      method: 'GET',
+      headers: {
+        [REMOTE_TUNNEL_HEADER]: '1', [DELEGATION_TUNNEL_HEADER]: delegationTunnelToken, [DELEGATION_SOURCE_HEADER]: origin,
+        [DELEGATION_PUBLIC_KEY_HEADER]: bytesToBase64(brokerKey.publicKey),
+        'X-Operon-E2EE': 'v1', 'X-Operon-Device-Id': origin, 'X-Operon-Key-Id': fingerprintPublicKey(brokerKey.publicKey),
+        'X-Operon-E2EE-Time': String(Date.now()), 'X-Operon-E2EE-Proof': '{"v":1,"nonce":"AAAA","ciphertext":"AAAA"}',
+      },
+    })
+    expect(res.status).toBe(403)
+    expect(seen.map((s) => s.path)).toEqual(['/api/echo/a'])
+  })
+
+  it('refuses a request Broker recorded and sends again', async () => {
+    expect((await relay('/echo/a', { method: 'POST', body: 'once' })).status).toBe(201)
+    const sent = forwarded.find((f) => f.to === target)!
+    const again = await onTarget.run(true, () => apps[target].request(sent.url, { ...sent.init, headers: sent.headers }))
+    expect(again.status).toBe(401)
+    expect(await again.json()).toMatchObject({ error: 'e2ee_replayed' })
+    expect(seen).toHaveLength(1)
+  })
+
+  it('stops reaching a machine once it is revoked', async () => {
+    expect((await relay('/echo/a')).status).toBe(201)
+    revokePeer(target)
+    expect((await relay('/echo/a')).status).toBe(403)
+    expect(seen).toHaveLength(1)
   })
 })

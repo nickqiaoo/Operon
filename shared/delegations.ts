@@ -12,6 +12,82 @@ export interface DelegationMachine {
   label: string
   online: boolean
   current: boolean
+  /** Paired with this machine (see `MachinePeer`): only then can the two reach each other. */
+  paired?: boolean
+}
+
+// ── Pairing between machines ────────────────────────────────────────────────
+//
+// Two machines trust each other only after pairing: one shows a code, the other
+// enters it. The code never passes through Broker, and what the two exchange
+// under it are their delegation public keys, which each then pins. From then on
+// a request between them is sealed with keys derived from the pinned keys, so
+// Broker relays it but cannot read or forge it. A machine that joins one member
+// of the group is introduced to the rest by that member (`MachinePeerSync`).
+
+/** Another machine this one trusts, or stopped trusting, as Remote settings shows it. */
+export interface MachinePeer {
+  nodeId: string
+  label?: string
+  /** Of its delegation public key: what the two machines show to compare, if ever in doubt. */
+  fingerprint: string
+  status: 'trusted' | 'revoked'
+  /** Paired with a code on this machine, or vouched for by `introducedBy`. */
+  source: 'paired' | 'introduced'
+  introducedBy?: string
+  changedAt: number
+  lastSeenAt?: number
+}
+
+/** One machine's record of another in `MachinePeerSync`. */
+export interface MachinePeerRecord {
+  nodeId: string
+  /** Base64 X25519 public key. */
+  publicKey: string
+  label?: string
+  status: 'trusted' | 'revoked'
+  /** When the record last changed; the later record of a machine wins. */
+  changedAt: number
+}
+
+/**
+ * POST /api/delegations/peers/sync (machine → machine): every machine the sender
+ * trusts or revoked, so the receiver learns of machines that joined or left
+ * through the sender. Accepted only from a paired machine, whatever the receive
+ * switch says.
+ */
+export interface MachinePeerSync {
+  peers: MachinePeerRecord[]
+}
+export const MACHINE_PEER_SYNC_PATH = '/api/delegations/peers/sync'
+
+/**
+ * POST /api/delegations/pair/claim (machine entering the code → machine showing
+ * it). Not sealed by the transport (the two share no key yet) but under the
+ * code: `envelope` opens with the key derived from it.
+ */
+export const MACHINE_PAIR_CLAIM_PATH = '/api/delegations/pair/claim'
+
+/** What each side of a pairing tells the other, sealed under the code's key. */
+export interface MachinePairHello {
+  nodeId: string
+  /** Base64 X25519 delegation public key. */
+  publicKey: string
+  label: string
+  /** The claimer's random challenge; the answer echoes it back. */
+  challenge: string
+}
+
+/** A pairing code this machine shows (Remote settings). */
+export interface MachinePairingCode {
+  code: string
+  expiresAt: number
+}
+
+/** What became of the code this machine shows. */
+export interface MachinePairingCodeStatus {
+  status: 'waiting' | 'paired' | 'expired'
+  peer?: MachinePeer
 }
 
 export interface DelegationWorkspace {

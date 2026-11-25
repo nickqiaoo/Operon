@@ -33,7 +33,7 @@ export function buildExternalAgentMcpServer(availableAgents: string[], parentCha
   const tools: Tool[] = [
     ...(remote ? [{
       name: 'external_agent_list_targets',
-      description: 'List the other machines on this account an external agent can run on. A machine must allow it in its Remote settings.',
+      description: 'List the other machines on this account an external agent can run on. A machine must be paired with this one and allow it in its Remote settings; an unpaired one (paired: false) cannot be reached until the user pairs them in Settings → Remote.',
       inputSchema: { type: 'object' as const, properties: {} },
     }] : []),
     {
@@ -92,7 +92,7 @@ export function buildExternalAgentMcpServer(availableAgents: string[], parentCha
       const targetNodeId = remoteTarget(args.target_node_id)
       if (name === 'external_agent_list_targets') {
         const machines = (await listDelegationNodes()).filter((machine) => !machine.current)
-        return json({ machines: machines.map(({ nodeId, label, online }) => ({ nodeId, label, online })) })
+        return json({ machines: machines.map(({ nodeId, label, online, paired }) => ({ nodeId, label, online, paired: paired === true })) })
       }
       if (name === MODEL_TOOL) {
         const requested = Array.isArray(args.agentTypes) ? args.agentTypes.filter((id): id is string => typeof id === 'string') : []

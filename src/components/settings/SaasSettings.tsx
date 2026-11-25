@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { FormattedMessage, useIntl, type IntlShape } from 'react-intl'
-import { AlertCircle, Cloud, Github, Loader2, LogOut, Monitor } from 'lucide-react'
+import { AlertCircle, Cloud, Github, Loader2, LogOut } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -8,7 +8,7 @@ import { api } from '@/lib/api'
 import { syncAnalyticsIdentity } from '@/lib/analytics'
 import { RemoteEncryptionSettings } from './RemoteEncryptionSettings'
 import { RemoteDelegationSettings } from './RemoteDelegationSettings'
-import { useDelegationMachines } from '@/lib/delegation-queries'
+import { RemoteMachines } from './RemoteMachines'
 
 // Which broker this build talks to is decided in the main process
 // (server/src/gateway/saas/broker.ts) and never surfaces here — it is not a
@@ -302,8 +302,8 @@ export function SaasSettings() {
             </Button>
           ) : null}
           {connected && <RemoteMachines />}
-          {connected && <RemoteEncryptionSettings />}
           {connected && <RemoteDelegationSettings />}
+          {connected && <RemoteEncryptionSettings />}
         </>
       )}
 
@@ -326,37 +326,5 @@ export function SaasSettings() {
         </Alert>
       )}
     </div>
-  )
-}
-
-function RemoteMachines() {
-  const query = useDelegationMachines({ refetchInterval: 10_000 })
-  const machines = [...(query.data?.machines ?? [])].sort((a, b) =>
-    Number(b.current) - Number(a.current) || Number(b.online) - Number(a.online) || a.label.localeCompare(b.label),
-  )
-
-  return (
-    <section className="space-y-2 border-t border-border/40 pt-4">
-      <h3 className="text-sm font-medium">Machines on your account</h3>
-      {query.isPending && <p role="status" className="text-xs text-muted-foreground">Loading machines…</p>}
-      {query.isError && <p role="status" className="text-xs text-muted-foreground">Could not refresh machine status.</p>}
-      {query.isSuccess && machines.length === 0 && <p className="text-xs text-muted-foreground">No machines registered.</p>}
-      {machines.length > 0 && (
-        <ul className="divide-y divide-border/40 rounded-lg bg-background/40">
-          {machines.map((machine) => (
-            <li key={machine.nodeId} className="flex items-center gap-3 px-3 py-2">
-              <Monitor aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm" title={machine.label || machine.nodeId}>{machine.label || machine.nodeId}</div>
-                {machine.current && <div className="text-xs text-muted-foreground">This machine</div>}
-              </div>
-              <span className={machine.online ? 'text-xs text-status-ok' : 'text-xs text-muted-foreground'}>
-                {machine.online ? 'Online' : 'Offline'}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   )
 }

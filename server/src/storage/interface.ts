@@ -591,6 +591,31 @@ export interface AgentBindingStorageAdapter {
   ): void
 }
 
+export interface MachinePeerRow {
+  id: number
+  nodeId: string
+  publicKey: Uint8Array
+  fingerprint: string
+  label: string | null
+  status: 'trusted' | 'revoked'
+  source: 'paired' | 'introduced'
+  introducedBy: string | null
+  changedAt: number
+  createdAt: number
+  lastSeenAt: number | null
+}
+
+export type MachinePeerWrite = Omit<MachinePeerRow, 'id' | 'createdAt' | 'lastSeenAt'>
+
+/** The account's other machines this one trusts (machine_peers). */
+export interface MachinePeerStorageAdapter {
+  getMachinePeer(nodeId: string): MachinePeerRow | null
+  /** Trusted and revoked alike, newest change first. */
+  listMachinePeers(): MachinePeerRow[]
+  upsertMachinePeer(input: MachinePeerWrite): MachinePeerRow
+  touchMachinePeer(nodeId: string, ts: number): void
+}
+
 export interface MobilePairingStorageAdapter {
   insertMobilePairing(input: CreateMobilePairingInput): MobilePairingRow
   getMobilePairingByNonce(pairingNonce: string): MobilePairingRow | null

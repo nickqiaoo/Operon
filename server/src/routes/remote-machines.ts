@@ -88,7 +88,7 @@ function relayTerminal(target: string) {
             const seq = sendSeq++
             const frame = {
               ...seal(utf8(text), socket.keys.request, webSocketFrameAad({
-                direction: 'client-to-server', deviceId: socket.deviceId, keyId: socket.keyId, seq,
+                direction: 'client-to-server', deviceId: socket.deviceId, keyId: socket.keyId, seq, session: socket.session,
               })),
               seq,
             }
@@ -103,6 +103,7 @@ function relayTerminal(target: string) {
               if (frame.seq !== receiveSeq) throw new Error('Encrypted terminal frame is out of order')
               const plaintext = open(frame, socket.keys.response, webSocketFrameAad({
                 direction: 'server-to-client', deviceId: socket.deviceId, keyId: socket.keyId, seq: frame.seq,
+                session: socket.session,
               }))
               receiveSeq += 1
               ws.send(new TextDecoder().decode(plaintext))
