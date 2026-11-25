@@ -202,7 +202,7 @@ jobs:
       - name: Smoke test
         run: |
           prefix="$RUNNER_TEMP/operon-node"
-          npm install -g --prefix "$prefix" "release/operon-node-${{ needs.version.outputs.version }}.tgz"
+          npm install -g --prefix "$prefix" "$GITHUB_WORKSPACE/release/operon-node-${{ needs.version.outputs.version }}.tgz"
           "$prefix/bin/operon" --version
           export OPERON_HOME="$RUNNER_TEMP/operon-home" OPERON_PORT=39417
           "$prefix/bin/operon" serve > "$RUNNER_TEMP/serve.log" 2>&1 &
