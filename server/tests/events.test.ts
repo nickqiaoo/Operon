@@ -29,15 +29,15 @@ describe('GET /api/events', () => {
   afterEach(() => ctx.cleanup())
 
   it('carries every requested channel on one stream, each tagged with its name', async () => {
-    const channels = ['live-status', 'workflow', 'external-agents', 'tasks', 'inbox']
+    const channels = ['chat-status', 'workflow', 'external-agents', 'tasks', 'inbox']
     const response = await ctx.request(`/api/events?ch=${channels.join(',')}`)
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/event-stream')
 
     // Each feed opens with its snapshot; the empty task list sends none.
-    const opening = ['live-status', 'workflow', 'external-agents', 'inbox']
+    const opening = ['chat-status', 'workflow', 'external-agents', 'inbox']
     const frames = await readFrames(response, (seen) => opening.every((ch) => seen.some((f) => f.ch === ch)))
-    expect(frames.find((f) => f.ch === 'live-status')?.data.type).toBe('sync')
+    expect(frames.find((f) => f.ch === 'chat-status')?.data.type).toBe('sync')
     expect(frames.find((f) => f.ch === 'workflow')?.data.t).toBe('sync')
     expect(frames.find((f) => f.ch === 'external-agents')?.data.type).toBe('sync')
     expect(frames.find((f) => f.ch === 'inbox')?.data.type).toBe('counts')

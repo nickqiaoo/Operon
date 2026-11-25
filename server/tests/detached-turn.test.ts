@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { RuntimeStreamPart } from '@operon/agent-runtime'
 import { makeTestApp, type TestApp } from './helpers/make-app.js'
-import { runDetachedTurn } from '../src/services/ai/detached-turn.js'
+import { runChatTurn } from '../src/services/ai/chat-flow.js'
 import { onChatTurnFinished, isChatTurnBusy, type ChatTurnFinished } from '../src/services/ai/chat-turn-lifecycle.js'
 import { shutdown } from '../src/services/ai/state.js'
 
@@ -29,10 +29,10 @@ describe('independent background reply completion', () => {
       yield { type: 'text-end', id: 'reply' }
     }
     try {
-      const run = runDetachedTurn({ chatId, providerId: 'fake', logTag: 'test' }, output())
+      const turn = await runChatTurn({ chatId, providerId: 'fake', messages: [] }, { output: output() })
       await entered
       expect(events).toHaveLength(0); expect(isChatTurnBusy(chatId)).toBe(true)
-      release(); await run
+      release(); await turn.ended
       expect(events).toHaveLength(1)
       expect(events[0].status).toBe('completed')
       expect(events[0].message?.parts.filter((p) => p.type === 'text').map((p) => p.text).join('')).toBe('Before and after')

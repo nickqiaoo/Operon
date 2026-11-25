@@ -61,7 +61,11 @@ vi.mock('./mobile/identity.js', async (importOriginal) => ({
 }))
 // No real Tailscale client is asked; the direct tests stand one in.
 const tailnetDevices = vi.hoisted(() => ({ list: [] as Array<{ ipv4: string }> }))
-vi.mock('./tailscale.js', () => ({ detectTailscale: async () => ({ state: 'stopped' }), tailnetPeers: () => tailnetDevices.list }))
+vi.mock('./tailscale.js', () => ({
+  detectTailscale: async () => ({ state: 'stopped' }),
+  tailnetPeers: () => tailnetDevices.list,
+  readServe: async () => null,
+}))
 vi.mock('./external-agent-notifications.js', () => ({
   enqueueExternalAgentResult: (chatId: number, message: { id: string; parts: Array<{ text: string }> }) => {
     delivered.results.push({ chatId, id: message.id, text: message.parts[0].text })

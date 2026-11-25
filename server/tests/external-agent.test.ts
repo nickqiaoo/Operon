@@ -4,7 +4,6 @@ import type { RuntimeStreamPart } from '@operon/agent-runtime'
 import { makeTestApp, registerFakeScript, type TestApp } from './helpers/make-app.js'
 import { getSessionManager, shutdown } from '../src/services/ai/state.js'
 import { handleChat } from '../src/services/ai/chat-flow.js'
-import { getLiveTurn, getLiveTurnStatus } from '../src/services/ai/live-turn-hub.js'
 import { beginChatTurn, emitChatTurnFinished, isChatTurnBusy } from '../src/services/ai/chat-turn-lifecycle.js'
 import { clearExternalAgentNotifications } from '../src/services/external-agent-notifications.js'
 import { handleSessionCleanup } from '../src/services/ai/session-ops.js'
@@ -123,7 +122,9 @@ describe('server-owned external agent conversations', () => {
     const child = await createExternalAgent({ parent: { chatId: parentChatId }, providerId: 'codex', model: 'fake-1', description: 'Review', prompt: 'first' })
     await until(() => getExternalAgentStatus(parentChatId, child.agent_id).status === 'completed')
     expect(parentResults()).toHaveLength(0)
-    expect(await new Response(getLiveTurn(child.chat_id)!.toReadableStream()).text()).toContain('first')
+    const reply = await ctx.request(`/api/ai/chat/stream/${child.chat_id}`)
+    expect(reply.status).toBe(200)
+    expect(await reply.text()).toContain('first')
     const session = getSessionManager().get(child.chat_id)
     expect(session?.params.model).toBe('fake-1')
     handleSessionCleanup(child.chat_id)
@@ -145,7 +146,7 @@ describe('server-owned external agent conversations', () => {
 
   it('cancels the old turn and queued messages; a prompt from the child tab still reports to the parent', async () => {
     const child = await createExternalAgent({ parent: { chatId: parentChatId }, providerId: 'codex', model: 'fake-1', description: 'Review', prompt: 'slow' })
-    await until(() => getLiveTurnStatus(child.chat_id).active)
+    await until(() => !!getSessionManager().get(child.chat_id)?.activeRequest)
     const runtime = getSessionManager().get(child.chat_id)!.runtime
     Object.defineProperty(runtime, 'steer', { value: undefined, configurable: true })
     await expect(sendExternalAgent(parentChatId, child.agent_id, 'must not execute')).rejects.toThrow('does not support followup')
@@ -196,7 +197,7 @@ describe('server-owned external agent conversations', () => {
     const response = await handleChat({ chatId: parentChatId, providerId: 'fake', modelId: 'fake-1',
       workspaceId: ctx.workspaceId, messages: [{ id: 'parent-prompt', role: 'user', parts: [{ type: 'text', text: 'slow' }] }] })
     void response.body?.cancel()
-    await until(() => getLiveTurnStatus(parentChatId).active)
+    await until(() => !!getSessionManager().get(parentChatId)?.activeRequest)
     const session = getSessionManager().get(parentChatId)!
     const requestId = session.activeRequest!.requestId
     const inject = vi.spyOn(session.runtime, 'steer')
@@ -207,7 +208,7 @@ describe('server-owned external agent conversations', () => {
     expect(inject).toHaveBeenCalledTimes(1)
     for (const child of children) expect(inject.mock.calls[0][0]).toContain(`<agent-id>${child.agent_id}</agent-id>`)
     expect(session.activeRequest?.requestId).toBe(requestId)
-    expect(getLiveTurnStatus(parentChatId).active).toBe(true)
+    expect(isChatTurnBusy(parentChatId)).toBe(true)
     expect(parentResults()[0].metadata).toMatchObject({ steer: true, turnMessageId: 'parent-prompt' })
   })
 
