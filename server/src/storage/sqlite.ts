@@ -86,7 +86,7 @@ import type {
   NodeResultUpdate,
   UpdateCanvasWorkflowInput,
 } from '../types/canvas-workflow.js'
-import type { Project, Workspace, CreateProjectInput, CreateWorkspaceInput } from '../types/project.js'
+import type { Project, Workspace, CreateProjectInput, CreateWorkspaceInput, WorkspaceNameSource } from '../types/project.js'
 import type {
   Agent,
   Channel,
@@ -1683,8 +1683,8 @@ export class SqliteStorage
   createWorkspace(projectId: number, input: CreateWorkspaceInput): Workspace {
     const now = Date.now()
     const result = this.db.prepare(
-      'INSERT INTO workspaces (project_id, name, branch_name, worktree_path, origin_chat_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(projectId, input.name, input.branchName, input.worktreePath, input.originChatId ?? null, now, now)
+      'INSERT INTO workspaces (project_id, name, branch_name, worktree_path, origin_chat_id, name_source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(projectId, input.name, input.branchName, input.worktreePath, input.originChatId ?? null, input.nameSource ?? 'user', now, now)
     emitProjectTreeEvent({ type: 'tree_changed', projectId })
     return {
       id: Number(result.lastInsertRowid),
@@ -1693,6 +1693,7 @@ export class SqliteStorage
       branchName: input.branchName,
       worktreePath: input.worktreePath,
       originChatId: input.originChatId ?? null,
+      nameSource: input.nameSource ?? 'user',
       createdAt: now,
       updatedAt: now,
     }
@@ -1701,6 +1702,23 @@ export class SqliteStorage
   getWorkspace(id: number): Workspace | null {
     const row = this.db.prepare('SELECT * FROM workspaces WHERE id = ?').get(id) as Record<string, unknown> | undefined
     return row ? rowToWorkspace(row) : null
+  }
+
+  getWorkspaceByPath(worktreePath: string): Workspace | null {
+    const trimmed = worktreePath.replace(/[\\/]+$/, '')
+    const row = this.db.prepare('SELECT * FROM workspaces WHERE worktree_path IN (?, ?) ORDER BY id LIMIT 1')
+      .get(trimmed, `${trimmed}/`) as Record<string, unknown> | undefined
+    return row ? rowToWorkspace(row) : null
+  }
+
+  replacePlaceholderWorkspaceName(id: number, name: string, branchName: string): boolean {
+    const result = this.db.prepare(
+      "UPDATE workspaces SET name = ?, branch_name = ?, name_source = 'auto', updated_at = ? WHERE id = ? AND name_source = 'placeholder'"
+    ).run(name, branchName, Date.now(), id)
+    if (result.changes === 0) return false
+    const row = this.db.prepare('SELECT project_id FROM workspaces WHERE id = ?').get(id) as { project_id: number } | undefined
+    if (row) emitProjectTreeEvent({ type: 'tree_changed', projectId: row.project_id })
+    return true
   }
 
   listWorkspaces(projectId: number): Workspace[] {
@@ -4079,6 +4097,7 @@ function rowToWorkspace(row: Record<string, unknown>): Workspace {
     branchName: row.branch_name as string,
     worktreePath: row.worktree_path as string,
     originChatId: (row.origin_chat_id as number | null) ?? null,
+    nameSource: (row.name_source as WorkspaceNameSource | undefined) ?? 'user',
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
   }

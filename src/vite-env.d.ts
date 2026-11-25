@@ -32,6 +32,7 @@ interface ElectronAPI {
   syncAnalyticsId: (distinctId: string, optedOut: boolean) => Promise<void>
   getLogging: () => Promise<{ enabled: boolean; path: string }>
   setLogging: (enabled: boolean) => Promise<void>
+  setThemeSource?: (source: 'light' | 'dark' | 'system') => Promise<void>
   revealLogFile: () => Promise<void>
   readLogTail: () => Promise<string>
   /** Approve a pending device pairing. IPC-only by design — see electron/main.ts. */

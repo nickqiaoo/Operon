@@ -414,22 +414,6 @@ test('selecting a Spec closes the preview and retains its selected state', async
 })
 
 
-test('project preview coexists with the new workspace dialog', async ({ page }) => {
-  await collapseSidebar(page)
-  await page.getByRole('button', { name: 'Projects', exact: true }).click()
-  const tree = page.getByTestId('project-tree')
-  await tree.getByRole('button', { name: 'Collapse Test Project', exact: true }).hover()
-  await tree.getByRole('button', { name: 'New workspace in Test Project', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'New Workspace', exact: true })
-  await expect(dialog).toBeVisible()
-  await dialog.getByRole('textbox', { name: 'Branch Name', exact: true }).fill('feature/test')
-  await page.keyboard.press('Escape')
-  await expect(dialog).toBeHidden()
-  await expect(tree).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(tree).toBeHidden()
-})
-
 test('sidebar can expand while the right panel occupies the center', async ({ page }) => {
   await collapseSidebar(page)
   await page.getByTestId('toggle-right-panel').first().click()

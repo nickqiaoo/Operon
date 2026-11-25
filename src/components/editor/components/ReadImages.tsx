@@ -1,6 +1,6 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
-import { ImageViewer } from '@/components/ai-elements/image-viewer';
+import { ImageViewer, type ImageViewerNav } from '@/components/ai-elements/image-viewer';
 import { normalizeToolOutputBlocks } from '@/components/ai-elements/tool';
 import { useAuthedObjectUrl } from '@/hooks/useAuthedObjectUrl';
 import { useIsMobileShell } from '@/hooks/useIsMobile';
@@ -95,12 +95,16 @@ export function ReadImagesRow({ images: all, children }: { images: ToolImage[]; 
     <div className="flex min-w-0 items-start gap-3">
       <div className="min-w-0 flex-1">{children}</div>
       <div className="flex shrink-0 items-center gap-1.5">
-        {images.slice(0, DESKTOP_MAX).map((image) => (
-          <ReadImageThumb key={image.key} image={image} variant="strip" />
+        {images.slice(0, DESKTOP_MAX).map((image, index) => (
+          <ReadImageThumb
+            key={image.key}
+            image={image}
+            variant="strip"
+            set={images}
+            index={index}
+            more={moreAt(images.length, DESKTOP_MAX, index)}
+          />
         ))}
-        {images.length > DESKTOP_MAX && (
-          <span className="text-xs tabular-nums text-muted-foreground/70">+{images.length - DESKTOP_MAX}</span>
-        )}
       </div>
     </div>
   );
@@ -121,6 +125,15 @@ const ROW_HEIGHT = 110;
 const MOBILE_MAX = 6;
 
 /**
+ * How many images the cell at `index` stands for beyond itself: the last cell
+ * of a capped row covers itself and everything after it ("+N"), so the row never
+ * grows past `max` and a tap on it opens the viewer there to step through the rest.
+ */
+export function moreAt(total: number, max: number, index: number): number {
+  return total > max && index === max - 1 ? total - max + 1 : 0;
+}
+
+/**
  * Justified rows: each image takes width in proportion to its aspect ratio, so
  * a row of a wide and a tall picture fills the width at one height. Until an
  * image loads its ratio is taken as square.
@@ -133,7 +146,7 @@ function ReadImageGallery({ images }: { images: ToolImage[] }) {
   const shown = images.slice(0, MOBILE_MAX);
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
-      {shown.map((image) => {
+      {shown.map((image, index) => {
         const ratio = ratios[image.key] ?? 1;
         return (
           <div
@@ -141,13 +154,17 @@ function ReadImageGallery({ images }: { images: ToolImage[] }) {
             className="min-w-0"
             style={{ flexGrow: ratio, flexBasis: `${ratio * ROW_HEIGHT}px`, aspectRatio: String(ratio), maxHeight: 260 }}
           >
-            <ReadImageThumb image={image} onRatio={onRatio} variant="tile" />
+            <ReadImageThumb
+              image={image}
+              onRatio={onRatio}
+              variant="tile"
+              set={images}
+              index={index}
+              more={moreAt(images.length, MOBILE_MAX, index)}
+            />
           </div>
         );
       })}
-      {images.length > MOBILE_MAX && (
-        <span className="self-end text-xs tabular-nums text-muted-foreground/70">+{images.length - MOBILE_MAX}</span>
-      )}
     </div>
   );
 }
@@ -182,47 +199,90 @@ export function ReadImageLarge({ path }: { path: string }) {
   return <ReadImageThumb image={{ key: `path:${path}`, path }} variant="large" />;
 }
 
-/** The picture with its file name under it: one cell of a reply's image gallery. */
-export function ReadImageFigure({ image }: { image: ToolImage }) {
-  return <ReadImageThumb image={image} variant="figure" />;
+/**
+ * The picture with its file name under it: one cell of a reply's image gallery.
+ * `set` / `index`: the gallery it belongs to, which its viewer steps through.
+ */
+export function ReadImageFigure({ image, set, index, more }: { image: ToolImage; set?: ToolImage[]; index?: number; more?: number }) {
+  return <ReadImageThumb image={image} variant="figure" set={set} index={index} more={more} />;
+}
+
+function imageName(image: ToolImage): string {
+  return image.path ? basename(image.path) : 'Screenshot';
+}
+
+/**
+ * Where to load an image from: inline images as they are; files read again from
+ * disk by their path. `unavailable`: the file is gone since, or this surface
+ * can't read files.
+ */
+function useToolImageSrc(image: ToolImage) {
+  const { path = null } = image;
+  const openFile = useFileOpenHandler();
+  const { data: stat, isError: statFailed } = useFileStat(openFile && path ? path : null);
+  const { data: url = null, isError: urlFailed } = useFileUrl(stat?.isFile && path ? path : null);
+  // The web client's image URLs need the bearer header; desktop's carry the token.
+  const authedUrl = useAuthedObjectUrl(__APP_TARGET__ === 'web' ? url : null);
+  const fileSrc = __APP_TARGET__ === 'web' ? authedUrl : url;
+  const unavailable = path !== null && (!openFile || statFailed || urlFailed || stat?.isFile === false);
+  return { src: image.src ?? fileSrc, unavailable, statLoaded: stat !== undefined };
+}
+
+/** The viewer for one image of a set, stepping through the others with ← / → or a swipe. */
+function ToolImageSetViewer({ images, initialIndex }: { images: ToolImage[]; initialIndex: number }) {
+  const [index, setIndex] = useState(() => Math.min(Math.max(0, initialIndex), images.length - 1));
+  const current = images[Math.min(index, images.length - 1)];
+  const { src, unavailable } = useToolImageSrc(current);
+  const count = images.length;
+  const nav: ImageViewerNav | undefined = count > 1
+    ? {
+        index,
+        count,
+        onPrev: index > 0 ? () => setIndex((i) => Math.max(0, i - 1)) : undefined,
+        onNext: index < count - 1 ? () => setIndex((i) => Math.min(count - 1, i + 1)) : undefined,
+      }
+    : undefined;
+  return <ImageViewer src={src} filename={imageName(current)} unavailable={unavailable} nav={nav} />;
 }
 
 function ReadImageThumb({
   image,
   variant,
   onRatio,
+  set,
+  index = 0,
+  more = 0,
 }: {
   image: ToolImage;
   variant: ThumbVariant;
   onRatio?: (key: string, ratio: number) => void;
+  /** The images this one is shown with: its viewer steps through them. Alone without it. */
+  set?: ToolImage[];
+  index?: number;
+  /** This cell also stands for the images after it: shown as "+N" over the picture. */
+  more?: number;
 }) {
   const { path = null } = image;
-  const openFile = useFileOpenHandler();
-  const { data: stat, isError: statFailed } = useFileStat(openFile && path ? path : null);
-  const { data: url = null, isError: urlFailed } = useFileUrl(stat?.isFile && path ? path : null);
+  const { src, unavailable, statLoaded } = useToolImageSrc(image);
   const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  // The web client's image URLs need the bearer header; desktop's carry the token.
-  const authedUrl = useAuthedObjectUrl(__APP_TARGET__ === 'web' ? url : null);
-  const fileSrc = __APP_TARGET__ === 'web' ? authedUrl : url;
-  const src = image.src ?? fileSrc;
-  const name = path ? basename(path) : 'Screenshot';
+  const name = imageName(image);
 
   if (src !== null && src === brokenSrc) return null;
-  if (path !== null && (!openFile || statFailed || urlFailed || stat?.isFile === false)) return null;
+  if (path !== null && unavailable) return null;
   // A figure takes real room in the thread: a placeholder for a file that turns out
   // to be gone would open a gap and then collapse it.
-  if (variant === 'figure' && path !== null && !stat) return null;
+  if (variant === 'figure' && path !== null && !statLoaded) return null;
 
   const thumbnail = (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <button
           type="button"
-          aria-label={`Preview ${name}`}
-          title={name}
+          aria-label={more > 0 ? `Preview ${name} and ${more - 1} more` : `Preview ${name}`}
+          title={more > 0 ? `${more - 1} more` : name}
           className={cn(
-            'block cursor-zoom-in overflow-hidden rounded-md border border-border/50 bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+            'relative block cursor-zoom-in overflow-hidden rounded-md border border-border/50 bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
             (variant === 'large' || variant === 'figure') && 'rounded-lg',
             BUTTON_CLASS[variant],
           )}
@@ -243,9 +303,20 @@ function ReadImageThumb({
             // Holds the space while the URL resolves, so the row doesn't jump.
             <div className={cn('animate-pulse', PLACEHOLDER_CLASS[variant])} />
           )}
+          {more > 0 && (
+            <span
+              aria-hidden
+              className={cn(
+                'absolute inset-0 flex items-center justify-center bg-background/75 font-medium tabular-nums text-foreground backdrop-blur-[2px]',
+                variant === 'strip' ? 'text-[10px]' : 'text-base',
+              )}
+            >
+              +{more}
+            </span>
+          )}
         </button>
       </DialogTrigger>
-      {open && src && <ImageViewer src={src} filename={name} />}
+      {open && <ToolImageSetViewer images={set ?? [image]} initialIndex={set ? index : 0} />}
     </Dialog>
   );
 

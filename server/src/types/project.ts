@@ -20,9 +20,19 @@ export interface Workspace {
    * top. Null: the user, a spec or a board task made it.
    */
   originChatId?: number | null
+  /** Who named it; see `WorkspaceNameSource`. Absent on rows read before the field existed. */
+  nameSource?: WorkspaceNameSource
   createdAt: number
   updatedAt: number
 }
+
+/**
+ * 'user': typed, or made by a task / spec / agent. 'placeholder': a chat's
+ * worktree made before anyone said what it is for; the server renames it (and
+ * its branch) from the chat's messages. 'auto': that generated name went in.
+ */
+export type WorkspaceNameSource = 'user' | 'placeholder' | 'auto'
+
 
 /** The board task whose agent runs in a workspace — a dispatched task, a spec or one of its tickets. */
 export interface WorkspaceTask {
@@ -87,4 +97,6 @@ export interface CreateWorkspaceInput {
   worktreePath: string
   /** See `Workspace.originChatId`. */
   originChatId?: number
+  /** Defaults to 'user'. */
+  nameSource?: WorkspaceNameSource
 }

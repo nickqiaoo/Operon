@@ -18,12 +18,25 @@ const persistModeId = (chatId: number, modeId: string | undefined, metadata: Cha
 }
 
 /**
- * The composer switched mode without sending (`/cc/dynamic-set`). Saved now so
- * the chat reopens in it, instead of only once the next turn is written.
+ * The composer switched mode, model or effort without sending
+ * (`/cc/dynamic-set`). Saved now so the chat reopens in it, instead of only
+ * once the next turn is written — and so a turn its parent starts (an agent's
+ * chat) runs on what was picked in its tab.
  */
-export const rememberChatModeId = (chatId: number, modeId: string | undefined): void => {
-  if (!modeId || chatId <= 0) return
-  persistModeId(chatId, modeId, getChatStorage()?.getChatMeta(chatId)?.metadata)
+export const rememberChatTurnSettings = (
+  chatId: number,
+  settings: { modeId?: string; modelId?: string; thinkingLevel?: string },
+): void => {
+  if (chatId <= 0) return
+  const storage = getChatStorage()
+  const meta = storage?.getChatMeta(chatId)
+  if (!meta) return
+  persistModeId(chatId, settings.modeId, meta.metadata)
+  const patch = {
+    ...(settings.modelId && settings.modelId !== meta.model ? { model: settings.modelId } : {}),
+    ...(settings.thinkingLevel && settings.thinkingLevel !== meta.thinkingLevel ? { thinkingLevel: settings.thinkingLevel } : {}),
+  }
+  if (Object.keys(patch).length > 0) storage?.updateChatConfig(chatId, patch)
 }
 
 export const prepareChatRecord = (

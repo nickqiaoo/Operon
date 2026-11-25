@@ -72,6 +72,14 @@ export function useChatHistory(
   const [loadedSshEnvironment, setLoadedSshEnvironment] = useState<SshEnvironmentRef>();
   /** Server-side time of the last persisted message — survives closing the tab. */
   const [loadedUpdatedAt, setLoadedUpdatedAt] = useState<number | null>(null);
+  /**
+   * Why the first page did not load (the machine the chat lives on is offline, a
+   * server error). `historyLoaded` is still set, so nothing waits on it forever;
+   * ChatPanel shows this instead of an empty conversation.
+   */
+  const [loadError, setLoadError] = useState<unknown>(null);
+  /** Bumped by `retry` to load the first page again. */
+  const [attempt, setAttempt] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   /** Synchronous twin of `loadingMore`: two scroll / resize callbacks in one frame both saw the state false. */
@@ -96,6 +104,7 @@ export function useChatHistory(
     setLoadedUpdatedAt(null);
     setLoadedSshEnvironment(undefined);
     setLoadedModeId(null);
+    setLoadError(null);
     nextCursorRef.current = undefined;
 
     if (dbChatId === undefined) {
@@ -136,15 +145,18 @@ export function useChatHistory(
         }
         setHistoryLoaded(true);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (active) {
+          setLoadError(error ?? new Error('Failed to load conversation'));
           setHistoryLoaded(true);
         }
       });
     return () => {
       active = false;
     };
-  }, [dbChatId, timestamp]);
+  }, [dbChatId, timestamp, attempt]);
+
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
   const loadMore = useCallback(async () => {
     const chatId = dbChatIdRef.current;
@@ -182,5 +194,5 @@ export function useChatHistory(
     }
   }, [hasMore]);
 
-  return { historyLoaded, loadedModel, loadedProviderId, loadedThinkingLevel, loadedModeId, loadedUpdatedAt, loadedSshEnvironment, hasMore, loadingMore, loadMore };
+  return { historyLoaded, loadError, retry, loadedModel, loadedProviderId, loadedThinkingLevel, loadedModeId, loadedUpdatedAt, loadedSshEnvironment, hasMore, loadingMore, loadMore };
 }

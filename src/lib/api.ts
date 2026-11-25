@@ -841,8 +841,8 @@ export function createApi(transport: ApiTransport) {
         get<{ workspaces: WorkspaceDTO[] }>(`/projects/${projectId}/workspaces`),
       workspaceCreate: (projectId: number, input: { name: string; branchName: string; worktreePath: string }) =>
         post<{ workspace: WorkspaceDTO }>(`/projects/${projectId}/workspaces`, input),
-      /** A worktree on a fresh branch cut from `base`, named after `hint` (a chat's first message). */
-      workspaceCreateAuto: (projectId: number, input: { base?: string; hint?: string }) =>
+      /** A worktree on a fresh branch cut from `base`; the server names it from the chat's messages later. */
+      workspaceCreateAuto: (projectId: number, input: { base?: string }) =>
         post<{ workspace: WorkspaceDTO }>(`/projects/${projectId}/workspaces/auto`, input),
       workspaceDelete: (id: number) =>
         del<{ success: boolean }>(`/projects/workspaces/${id}`),

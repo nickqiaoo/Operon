@@ -967,6 +967,23 @@ export async function pushBranch(
   await git.push(args)
 }
 
+/** Whether `branchName` tracks a remote branch (has been pushed with -u, or was checked out from one). */
+export async function branchHasUpstream(repoPath: string, branchName: string): Promise<boolean> {
+  const git = await ensureRepo(repoPath)
+  if (!git) return false
+  return git
+    .raw(['rev-parse', '--abbrev-ref', '--symbolic-full-name', `${branchName}@{u}`])
+    .then((out) => out.trim().length > 0)
+    .catch(() => false)
+}
+
+/** `git branch -m from to`; works on the branch a worktree has checked out. */
+export async function renameBranch(repoPath: string, from: string, to: string): Promise<void> {
+  const git = await ensureRepo(repoPath)
+  if (!git) throw new Error('Not a git repository')
+  await git.raw(['branch', '-m', from, to])
+}
+
 export async function localBranchExists(repoPath: string, branchName: string): Promise<boolean> {
   const git = await ensureRepo(repoPath)
   if (!git) return false

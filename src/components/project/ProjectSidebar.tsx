@@ -1,7 +1,8 @@
 import { fileCitationsToText } from '@/lib/file-citation'
 import { api } from "@/lib/api"
 import { attentionOf, hasUnread, useChannelUnreadMap } from "@/lib/channel-queries"
-import { CalendarClock, ChevronRight, Folder, FolderOpen, GitBranch, Hash, ListFilter, Plus, Settings, Package, Network, LayoutDashboard, MessageCircle, Pin, PinOff, SquarePen, type LucideIcon } from "lucide-react"
+import { CalendarClock, ChevronRight, CloudOff, Folder, FolderOpen, GitBranch, Hash, ListFilter, Monitor, Plus, Settings, Package, Network, LayoutDashboard, MessageCircle, Pin, PinOff, SquarePen, type LucideIcon } from "lucide-react"
+import { useRemoteMachine } from "@/lib/machine-reachability"
 import { SpecIcon } from "@/components/icons/SpecIcon"
 import { toast } from "sonner"
 import { Fragment, memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from "react"
@@ -34,8 +35,6 @@ import { isOnNode, useExternalAgentsStore } from "@/stores/external-agents-store
 import { useWorkspaceLatestChats, type ChatHistoryListItem } from "@/lib/chat-queries"
 import { formatRelativeTime } from "@/lib/format"
 import type { Notification } from "@/types/notification"
-import { NewWorkspaceDialog } from "./NewWorkspaceDialog"
-import { createProjectWorkspace } from "@/lib/workspace-actions"
 import { startNewChat, startNewChatInWorkspace } from "@/lib/new-chat"
 import { useRailFlyout } from "./use-rail-flyout"
 import { ChannelList } from "@/components/channel/ChannelList"
@@ -56,7 +55,6 @@ interface ProjectItemProps {
   onNewChatInWorkspace: (workspaceId: number, projectId: number) => void
   onOpenChat: OpenTreeChat
   activeWorkspaceId?: number | null
-  onAddWorkspace: (project: Project) => void
   onTogglePin: (project: Project) => void
   error?: string | null
   workspaceDiffStats?: Record<string, WorkspaceDiffStat>
@@ -109,7 +107,6 @@ const ProjectItem = memo(function ProjectItem({
   onNewChatInWorkspace,
   onOpenChat,
   activeWorkspaceId,
-  onAddWorkspace,
   onTogglePin,
   error,
   workspaceDiffStats,
@@ -148,7 +145,7 @@ const ProjectItem = memo(function ProjectItem({
               className={cn(
                 "min-w-0 flex-1 truncate",
                 // Reserve room for the actions only while they are visible.
-                "pr-0 group-hover/project-header:pr-[58px] group-has-[:focus-visible]/project-header:pr-[58px] [@media(hover:none)]:pr-[58px]"
+                "pr-0 group-hover/project-header:pr-[36px] group-has-[:focus-visible]/project-header:pr-[36px] [@media(hover:none)]:pr-[36px]"
               )}
             >
               {project.name}
@@ -178,16 +175,6 @@ const ProjectItem = memo(function ProjectItem({
               ) : (
                 <Pin className="size-3.5" strokeWidth={1.5} />
               )}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-5 rounded-md bg-transparent text-muted-foreground hover:bg-accent-hover hover:text-foreground"
-              onClick={() => onAddWorkspace(project)}
-              title="New workspace on a new branch"
-              aria-label={`New workspace in ${project.name}`}
-            >
-              <Plus className="size-3.5" strokeWidth={1.5} />
             </Button>
           </div>
         </div>
@@ -581,24 +568,37 @@ function AgentRow({ agent, parentWorkspaceId, current }: {
   const stats = useProjectStore((s) => (workspace ? s.workspaceDiffStats[workspace.worktreePath] : undefined))
   const finished = agent.state === "done" || agent.state === "stopped"
   const title = fileCitationsToText(agent.title) || "Agent"
+  // Started on another machine: it lives there, and opens only while that machine is reachable.
+  const machine = useRemoteMachine(agent.remote?.nodeId)
+  const machineName = machine.label ?? agent.remote?.machine
+  // Can't be opened until its machine answers again: clicking says so instead (openChildChat).
+  const offline = machine.unreachable
+  const where = [
+    workspace?.name,
+    agent.remote && (offline ? `on ${machineName}, which can't be reached right now` : `on ${machineName}`),
+  ].filter(Boolean).join(" · ")
   return (
     <button
       type="button"
       data-testid={`sidebar-agent-${agent.childChatId}`}
       aria-current={current ? "page" : undefined}
+      aria-disabled={offline || undefined}
       onClick={() => void openChildChat(agent)}
-      title={workspace ? `${title} · ${workspace.name}` : title}
+      title={where ? `${title} · ${where}` : title}
       className={cn(
         treeRowClassName,
         // One more 12px step in from its lead.
         "pl-11",
         current && "bg-row-selected hover:bg-row-selected",
+        offline && "cursor-default",
       )}
     >
-      <AgentIcon providerId={agent.providerId} group={AGENT_DOT[agent.state] ?? null} />
+      <span className={cn("contents", offline && "[&>*]:opacity-50")}>
+        <AgentIcon providerId={agent.providerId} group={AGENT_DOT[agent.state] ?? null} />
+      </span>
       <span className={cn(
         "min-w-0 flex-1 truncate text-sm",
-        current || agent.state === "needs-you" ? "font-medium text-foreground" : finished ? "text-muted-foreground" : "text-foreground/70",
+        offline ? "text-muted-foreground/70" : current || agent.state === "needs-you" ? "font-medium text-foreground" : finished ? "text-muted-foreground" : "text-foreground/70",
         agent.state === "running" && "shimmer",
       )}>
         {title}
@@ -614,8 +614,24 @@ function AgentRow({ agent, parentWorkspaceId, current }: {
           {stats.deletions > 0 && <span className="ml-0.5 text-diff-remove">-{stats.deletions}</span>}
         </span>
       )}
-      {/* Its workspace is in the tooltip: in a 240px panel a branch name beside the
-          title cut both down to a few letters. */}
+      {agent.remote && (
+        <span
+          data-testid={`sidebar-agent-remote-${agent.childChatId}`}
+          data-offline={offline || undefined}
+          className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground"
+        >
+          {offline ? (
+            <>
+              <CloudOff className="size-3" strokeWidth={1.75} aria-hidden />
+              {intl.formatMessage({ id: "sidebar.agents.offline", defaultMessage: "Offline" })}
+            </>
+          ) : (
+            <Monitor className="size-3" strokeWidth={1.75} aria-label={`Runs on ${machineName}`} />
+          )}
+        </span>
+      )}
+      {/* Its workspace (and machine) is in the tooltip: in a 240px panel a branch
+          name beside the title cut both down to a few letters. */}
     </button>
   )
 }
@@ -847,7 +863,6 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
   const [localTreeOpen, setLocalTreeOpen] = useState(true)
   const addProject = useProjectStore((s) => s.addProject)
   const setActiveWorkspace = useProjectStore((s) => s.setActiveWorkspace)
-  const setProjectWorkspaces = useProjectStore((s) => s.setProjectWorkspaces)
   const setProjectPinned = useProjectStore((s) => s.setProjectPinned)
   const workspaceDiffStats = useProjectStore((s) => s.workspaceDiffStats)
   const [projectErrors, setProjectErrors] = useState<Record<string, string | null>>({})
@@ -856,14 +871,13 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
   const assistantAction = useInboxStore((s) => s.counts.assistantAction ?? 0)
   const assistantTotal = useInboxStore((s) => s.counts.assistantTotal ?? 0)
 
-  const [newWorkspaceProjectId, setNewWorkspaceProjectId] = useState<number | null>(null)
   const projectsTriggerRef = useRef<HTMLButtonElement>(null)
   const projectTreeRef = useRef<HTMLDivElement>(null)
   const projectTreeId = useId()
   const channelsTriggerRef = useRef<HTMLButtonElement>(null)
   const channelListRef = useRef<HTMLDivElement>(null)
   const channelListId = useId()
-  const { flyout, close: closeFlyout, pin: pinFlyout, holdOpen: holdFlyoutOpen, triggerHover, panelHover } = useRailFlyout()
+  const { flyout, close: closeFlyout, pin: pinFlyout, triggerHover, panelHover } = useRailFlyout()
   const flyoutOpen = collapsed && flyout !== null
   const flyoutPinned = flyoutOpen && flyout.pinned
   const floating = collapsed && flyout?.kind === "projects"
@@ -896,7 +910,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
   }, [collapsed, closeFlyout])
 
   useEffect(() => {
-    if (!flyoutOpen || newWorkspaceProjectId !== null) return
+    if (!flyoutOpen) return
     const tree = flyoutKind === "channels" ? channelListRef.current : projectTreeRef.current
     const trigger = flyoutKind === "channels" ? channelsTriggerRef.current : projectsTriggerRef.current
     const isInside = (target: EventTarget | null) => target instanceof Node &&
@@ -923,7 +937,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
       document.removeEventListener("focusin", dismissOutside)
       window.removeEventListener("keydown", dismissEscape)
     }
-  }, [flyoutOpen, flyoutKind, flyoutPinned, closeFlyout, closePreview, newWorkspaceProjectId])
+  }, [flyoutOpen, flyoutKind, flyoutPinned, closeFlyout, closePreview])
 
   const handleOpenSpec = useCallback((taskId: number, projectId: number) => {
     onOpenSpec?.(taskId, projectId)
@@ -998,17 +1012,6 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
     })
   }, [setProjectPinned])
 
-  const syncWorktrees = async (project: Project) => {
-    try {
-      const result = await api.workspaceList(project.id)
-      setProjectWorkspaces(project.id, result.workspaces)
-      setProjectErrors((prev) => ({ ...prev, [String(project.id)]: null }))
-    } catch (error) {
-      console.error("Failed to sync worktrees:", error)
-      setProjectErrors((prev) => ({ ...prev, [String(project.id)]: "Failed to sync workspaces." }))
-    }
-  }
-
   const handleAddProject = async () => {
     if (!canAddProject) return
 
@@ -1028,29 +1031,6 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
         workspaces
       })
       setProjectErrors((prev) => ({ ...prev, [String(createdProject.id)]: null }))
-    }
-  }
-
-  const handleOpenAddWorkspace = useCallback((project: Project) => {
-    // The dialog takes the pointer away; leaving must not close the panel behind it.
-    holdFlyoutOpen()
-    setNewWorkspaceProjectId(project.id)
-  }, [holdFlyoutOpen])
-
-  const handleConfirmAddWorkspace = async (branchName: string) => {
-    if (newWorkspaceProjectId === null) return
-
-    // Find project safely
-    const project = projects.find(p => p.id === newWorkspaceProjectId)
-    if (!project) return
-
-    try {
-      await createProjectWorkspace(project, branchName)
-      await syncWorktrees(project)
-    } catch (error) {
-      console.error("Failed to add worktree:", error)
-      setProjectErrors((prev) => ({ ...prev, [String(project.id)]: "Failed to create worktree." }))
-      throw error
     }
   }
 
@@ -1249,7 +1229,6 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
                       onOpenChat={handleOpenChat}
                       // Only one place is "current": while the Assistant is showing, no workspace is.
                       activeWorkspaceId={assistantActive || boardActive || channelsActive || activeSpecId != null || activeNodeId != null ? null : activeWorkspaceId}
-                      onAddWorkspace={handleOpenAddWorkspace}
                       onTogglePin={handleTogglePin}
                       error={projectErrors[String(project.id)] ?? null}
                       workspaceDiffStats={workspaceDiffStats}
@@ -1311,12 +1290,6 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
         </div>
       </div>
 
-      <NewWorkspaceDialog
-        open={!!newWorkspaceProjectId}
-        onOpenChange={(open) => !open && setNewWorkspaceProjectId(null)}
-        project={projects.find(p => p.id === newWorkspaceProjectId) || null}
-        onConfirm={handleConfirmAddWorkspace}
-      />
     </div>
   )
 }

@@ -8,6 +8,7 @@ import { normalizeOutboundMessagePaths } from '../utils/chatMetadata'
 import { mergeServerTail, TAIL_SYNC_SIZE } from '../utils/merge-server-tail'
 import { normalizeHistoryMessages } from './useChatHistory'
 import { trackEvent } from '@/lib/analytics'
+import { turnSettingsSaved } from '@/lib/turn-settings-saves'
 
 const IS_WEB = __APP_TARGET__ === 'web'
 
@@ -189,6 +190,9 @@ export function useChatRuntime({
       return { api: `${baseUrl}/ai/chat/live/${dbChatIdRef.current}` }
     },
     prepareSendMessagesRequest: async ({ messages, body }) => {
+      // A model / mode pick made just before sending is saved on the server
+      // first: an agent's chat runs on what is saved there.
+      if (dbChatIdRef.current !== undefined) await turnSettingsSaved({ nodeId: backend.nodeId, chatId: dbChatIdRef.current })
       const sshEnvironmentId = dbChatIdRef.current === undefined ? draftSshEnvironmentIdRef.current : undefined
       const baseUrl = await backend.baseUrl()
       // Send only the current turn (from the last user message onward), not the

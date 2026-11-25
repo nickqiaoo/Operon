@@ -29,6 +29,18 @@ export function useDelegationMachines(options?: { enabled?: boolean; refetchInte
   return useQuery({ ...delegationMachinesQuery(fromNodeId), ...options })
 }
 
+/**
+ * Another machine of the account as this machine sees it: its name and whether
+ * Broker lists it online. Asked of this machine even inside that machine's chat
+ * — the chat's own machine is the one that may not be answering. Empty for this
+ * machine (`nodeId` undefined) or before the list loads.
+ */
+export function useMachineStatus(nodeId: string | undefined): { label?: string; online?: boolean } {
+  const { data } = useQuery({ ...delegationMachinesQuery(undefined), enabled: !!nodeId, refetchInterval: 30_000 })
+  const machine = nodeId ? data?.machines.find((m) => m.nodeId === nodeId) : undefined
+  return machine ? { label: machine.label, online: machine.online } : {}
+}
+
 /** A machine's agents and workspaces, asked through the chat's machine; disabled until one is chosen. */
 export function useDelegationCatalog(nodeId: string | undefined) {
   const fromNodeId = useChatNodeId()

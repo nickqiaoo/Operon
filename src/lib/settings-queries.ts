@@ -27,6 +27,11 @@ export const settingsKeys = {
   diffPreview: () => ['settings', 'diff-preview'] as const,
   claudeToggles: () => ['settings', 'claude-toggles'] as const,
   cliAutoUpdate: () => ['settings', 'cli-auto-update'] as const,
+  /** Where each agent CLI resolves to — one request covers every adapter. */
+  cliPaths: () => ['settings', 'cli-paths'] as const,
+  /** `<cli> --version` for one adapter; `resolvedPath` re-probes after the binary moves. */
+  cliVersion: (adapterId: string, resolvedPath: string) =>
+    ['settings', 'cli-paths', 'version', adapterId, resolvedPath] as const,
   specRoles: () => ['settings', 'spec-roles'] as const,
 }
 
@@ -35,6 +40,30 @@ export function useClaudeToggles() {
   return useQuery({
     queryKey: settingsKeys.claudeToggles(),
     queryFn: () => api.claudeTogglesGet(),
+  })
+}
+
+export type CliPathInfo = Awaited<ReturnType<typeof api.cliPathsGet>>[string]
+
+/** Every agent CLI's resolution (manual override / auto-detected / missing). */
+export function useCliPaths() {
+  return useQuery({
+    queryKey: settingsKeys.cliPaths(),
+    queryFn: () => api.cliPathsGet(),
+  })
+}
+
+/**
+ * Runs the CLI once to read its version. It spawns a process, so it only runs
+ * for an adapter that resolved to a binary, and only for the one on screen.
+ */
+export function useCliVersion(adapterId: string, info: CliPathInfo | undefined) {
+  const resolvedPath = info?.available ? info.resolvedPath ?? '' : ''
+  return useQuery({
+    queryKey: settingsKeys.cliVersion(adapterId, resolvedPath),
+    queryFn: () => api.cliPathVersionProbe(adapterId),
+    enabled: resolvedPath !== '',
+    staleTime: 60_000,
   })
 }
 

@@ -1,5 +1,5 @@
 import './profile.js'
-import { app, BrowserWindow, ipcMain, dialog, session, shell, Menu, Notification, clipboard, nativeImage, powerMonitor, safeStorage } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, session, shell, Menu, Notification, clipboard, nativeImage, nativeTheme, powerMonitor, safeStorage } from 'electron'
 import { spawn, execFile } from 'child_process'
 import http from 'node:http'
 import fs from 'fs'
@@ -113,6 +113,34 @@ function rotateLogIfNeeded() {
     }
   } catch {
     // File doesn't exist yet, nothing to rotate
+  }
+}
+
+// --- Appearance ---
+// The app's Light / Dark / System choice, for what the OS draws: scrollbars,
+// form controls, context menus, dialogs, the title bar. The renderer sends it
+// on every theme change; it is saved so the next launch starts in it, before
+// the page (and its loading screen) paints.
+type ThemeSource = 'light' | 'dark' | 'system'
+const themeSettingsFile = path.join(app.getPath('userData'), 'theme-source.json')
+const isThemeSource = (value: unknown): value is ThemeSource => value === 'light' || value === 'dark' || value === 'system'
+
+function readThemeSource(): ThemeSource {
+  try {
+    const { source } = JSON.parse(fs.readFileSync(themeSettingsFile, 'utf-8')) as { source?: unknown }
+    return isThemeSource(source) ? source : 'system'
+  } catch {
+    return 'system'
+  }
+}
+
+function setThemeSource(source: ThemeSource) {
+  if (nativeTheme.themeSource === source) return
+  nativeTheme.themeSource = source
+  try {
+    fs.writeFileSync(themeSettingsFile, JSON.stringify({ source }))
+  } catch {
+    // Only the next launch's first paint depends on it.
   }
 }
 
@@ -889,6 +917,8 @@ app.whenReady().then(async () => {
   // As a native messaging host we are a pipe, not the app: no window, no HTTP server, and
   // above all no second copy of the server fighting the real app for its port and database.
   if (IS_CHROME_NATIVE_HOST) return
+  // Before any window: its loading screen reads `prefers-color-scheme`.
+  nativeTheme.themeSource = readThemeSource()
   // Before the server takes requests: the permission routes ask through it.
   registerComputerUsePermissions()
   // Start Hono HTTP server
@@ -965,6 +995,7 @@ app.whenReady().then(async () => {
   // Logging toggle
   ipcMain.handle('logging:get', () => ({ enabled: loggingEnabled, path: logFile }))
   ipcMain.handle('logging:set', (_event, enabled: boolean) => { setLoggingEnabled(enabled) })
+  ipcMain.handle('theme:set-source', (_event, source: unknown) => { if (isThemeSource(source)) setThemeSource(source) })
   ipcMain.handle('logging:reveal', () => { shell.showItemInFolder(logFile) })
   ipcMain.handle('logging:read-tail', () => {
     try {

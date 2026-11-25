@@ -30,6 +30,7 @@ const {
   isAssistantMessageRunning,
   isSettledPart,
   persistInjectedUserMessage,
+  rememberChatTurnSettings,
 } = await import('./persistence.js')
 
 type Part = UIMessage['parts'][number]
@@ -126,5 +127,38 @@ describe.skipIf(!opened)('reply persistence', () => {
     expect(isAssistantMessageRunning(chatId)).toBe(true)
     endAssistantMessage(chatId, 'older')
     expect(isAssistantMessageRunning(chatId)).toBe(false)
+  })
+})
+
+describe.skipIf(!opened)('rememberChatTurnSettings', () => {
+  const agentChat = () => storage.createChat({
+    tp: 'subagent', title: 'Agent: e2e', updatedAt: 1, providerId: 'codex', model: 'gpt-a', thinkingLevel: 'high',
+    metadata: { modeId: 'fullAccess', externalAgent: { agentId: 'ext-1', parentChatId: 9, description: 'e2e', model: 'gpt-a' } },
+  })
+
+  it("saves a pick made in an agent's tab, keeping the rest of its metadata", () => {
+    const chatId = agentChat()
+    rememberChatTurnSettings(chatId, { modeId: 'requestApproval', modelId: 'gpt-b', thinkingLevel: 'max' })
+
+    const meta = storage.getChatMeta(chatId)!
+    expect(meta.metadata?.modeId).toBe('requestApproval')
+    expect(meta.metadata?.externalAgent).toMatchObject({ agentId: 'ext-1' })
+    expect(meta.model).toBe('gpt-b')
+    expect(meta.thinkingLevel).toBe('max')
+    expect(meta.providerId).toBe('codex')
+  })
+
+  it('changes only what was picked', () => {
+    const chatId = agentChat()
+    rememberChatTurnSettings(chatId, { thinkingLevel: 'low' })
+
+    const meta = storage.getChatMeta(chatId)!
+    expect(meta.thinkingLevel).toBe('low')
+    expect(meta.model).toBe('gpt-a')
+    expect(meta.metadata?.modeId).toBe('fullAccess')
+  })
+
+  it('ignores a chat that does not exist', () => {
+    expect(() => rememberChatTurnSettings(999_999, { modeId: 'plan' })).not.toThrow()
   })
 })

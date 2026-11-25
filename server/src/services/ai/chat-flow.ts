@@ -576,7 +576,11 @@ export async function handleChat(
       env: payload.env ?? context.env,
     }
     // A workflow sub-agent's chat keeps what it ran on when a person picks it up
-    // (the tab sends `tp: 'subagent'` for every agent conversation).
+    // (the tab sends `tp: 'subagent'` for every agent conversation). What the
+    // tab sends is not used: until its catalog loads it can hold a stand-in
+    // model or mode. A pick made in the tab is saved at once instead
+    // (`/cc/dynamic-set` → `rememberChatTurnSettings`), so it is what is read
+    // here, for the tab's turns and for the ones its parent starts alike.
     if (stored?.tp === 'workflow-agent') {
       payload = { ...payload, providerId: stored.providerId, modelId: stored.model,
         modeId: stored.metadata?.modeId, thinkingLevel: stored.thinkingLevel, tp: 'workflow-agent' }

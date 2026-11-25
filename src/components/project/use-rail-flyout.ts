@@ -34,12 +34,6 @@ export function useRailFlyout() {
     setFlyout({ kind, pinned: true })
   }, [clearTimer])
 
-  /** Keeps whatever is open in place, e.g. while a dialog it launched is up. */
-  const holdOpen = useCallback(() => {
-    clearTimer()
-    setFlyout((current) => current && { ...current, pinned: true })
-  }, [clearTimer])
-
   const scheduleOpen = (kind: RailFlyoutKind) => {
     clearTimer()
     if (flyout?.kind === kind) return
@@ -71,5 +65,5 @@ export function useRailFlyout() {
     onPointerLeave,
   }
 
-  return { flyout, close, pin, holdOpen, triggerHover, panelHover }
+  return { flyout, close, pin, triggerHover, panelHover }
 }

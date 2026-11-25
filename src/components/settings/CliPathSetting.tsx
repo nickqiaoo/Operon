@@ -1,6 +1,7 @@
-import { useState, useEffect, type ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { api } from "@/lib/api"
+import { setSettingsData, settingsKeys, useCliPaths, useCliVersion } from "@/lib/settings-queries"
 import { Button } from "@/components/ui/button"
 import { Check, Loader2, AlertCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -17,54 +18,29 @@ type CliPathSource = "manual" | "auto" | "missing"
 
 export function CliPathSetting({ adapterId, label, description, placeholder }: CliPathSettingProps) {
   const intl = useIntl()
-  const [path, setPath] = useState("")
-  const [available, setAvailable] = useState(false)
-  const [resolvedPath, setResolvedPath] = useState("")
-  const [source, setSource] = useState<CliPathSource>("missing")
-  const [command, setCommand] = useState("")
-  const [loading, setLoading] = useState(true)
+  const { data: configs, isLoading: loading } = useCliPaths()
+  const config = configs?.[adapterId]
+  const originalPath = config?.path ?? ""
+  // The draft is seeded from the saved value and reseeded whenever that changes
+  // (a save, or the agent list re-detecting) — never written back until Save.
+  const [path, setPath] = useState(originalPath)
+  const [seededFrom, setSeededFrom] = useState(originalPath)
+  if (seededFrom !== originalPath) {
+    setSeededFrom(originalPath)
+    setPath(originalPath)
+  }
+  const available = config?.available ?? false
+  const resolvedPath = config?.resolvedPath ?? ""
+  const source: CliPathSource = config?.source ?? "missing"
+  const command = config?.command ?? ""
   const [saving, setSaving] = useState(false)
   const [savedOk, flashSavedOk, clearSavedOk] = useTransientFlag(2000)
   const [error, setError] = useState("")
-  const [originalPath, setOriginalPath] = useState("")
-  const [versionInfo, setVersionInfo] = useState<{ version?: string; error?: string; warning?: string } | null>(null)
-  const [versionLoading, setVersionLoading] = useState(false)
-
-  useEffect(() => {
-    let active = true
-    api.cliPathsGet().then((configs) => {
-      if (!active) return
-      const config = configs[adapterId]
-      setPath(config?.path ?? "")
-      setOriginalPath(config?.path ?? "")
-      setAvailable(config?.available ?? false)
-      setResolvedPath(config?.resolvedPath ?? "")
-      setSource(config?.source ?? "missing")
-      setCommand(config?.command ?? "")
-      setLoading(false)
-    }).catch(() => {
-      if (active) setLoading(false)
-    })
-    return () => { active = false }
-  }, [adapterId])
-
   // Actually run the CLI once we believe we have one. Resolving a path only
   // proves a file exists and is +x — this is what catches a binary that cannot
   // start at all (wrong arch, too-old Node under an npm-installed shim), which
   // otherwise stays invisible until a chat silently fails to answer.
-  useEffect(() => {
-    if (!available || !resolvedPath) {
-      setVersionInfo(null)
-      return
-    }
-    let active = true
-    setVersionLoading(true)
-    api.cliPathVersionProbe(adapterId)
-      .then((info) => { if (active) setVersionInfo(info) })
-      .catch(() => { if (active) setVersionInfo(null) })
-      .finally(() => { if (active) setVersionLoading(false) })
-    return () => { active = false }
-  }, [adapterId, available, resolvedPath])
+  const { data: versionInfo, isFetching: versionLoading } = useCliVersion(adapterId, config)
 
   const isDirty = path !== originalPath
 
@@ -74,11 +50,7 @@ export function CliPathSetting({ adapterId, label, description, placeholder }: C
     clearSavedOk()
     try {
       const res = await api.cliPathSet(adapterId, path.trim() || undefined)
-      setAvailable(res.info.available)
-      setResolvedPath(res.info.resolvedPath ?? "")
-      setSource(res.info.source)
-      setCommand(res.info.command)
-      setOriginalPath(path.trim())
+      setSettingsData(settingsKeys.cliPaths(), { ...configs, [adapterId]: res.info })
       flashSavedOk()
     } catch {
       setError(intl.formatMessage({ id: "common.saveFailed", defaultMessage: "Failed to save" }))

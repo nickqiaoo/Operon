@@ -39,6 +39,7 @@ import { MobileContextUsage } from './components/MobileContextUsage';
 import { useIsMobileShell } from '@/hooks/useIsMobile';
 import { useModelManagement, type SlashCommandItem } from './hooks/useModelManagement';
 import { useChatHistory } from './hooks/useChatHistory';
+import { ChatLoadFailed, RemoteMachineLabel } from './components/RemoteChatStatus';
 import { normalizeHistoryMessages } from './hooks/useChatHistory';
 import { mergeServerTail, TAIL_SYNC_SIZE } from './utils/merge-server-tail';
 import { useAttachmentLoader } from './hooks/useAttachmentLoader';
@@ -116,6 +117,7 @@ import { MobileFilePreviewSheet, type MobileFilePreview } from '@/components/mob
 import { FileOpenProvider, useFileOpenHandler, type FileOpenHandler } from '@/lib/file-open-context';
 import { resolveCitationFile } from '@/lib/file-citation';
 import { claimChatInput, getChatDraftSkills, setChatDraftSkills } from '@/lib/chat-drafts';
+import { trackTurnSettingsSave } from '@/lib/turn-settings-saves';
 import { ChatInputProvider } from './components/ChatInputProvider';
 import {
   getRecentChatOptions,
@@ -471,10 +473,13 @@ function ChatPanelContent({
     if (!thinkingEffortOptions.some((option) => option.value === nextEffort)) return;
     setThinkingEffort(nextEffort);
     rememberRecentOptions({ thinkingEffort: nextEffort });
-    if (canDynamicSwitch && tab?.isSubAgent !== true && dbChatIdRef.current) {
-      void api.aiCCDynamicSet({ chatId: dbChatIdRef.current, thinkingLevel: nextEffort });
+    // An agent's chat saves it even when the session can't switch live: turns
+    // its parent starts run on what is saved.
+    if ((canDynamicSwitch || tab?.isSubAgent === true) && dbChatIdRef.current) {
+      const id = dbChatIdRef.current;
+      void trackTurnSettingsSave({ nodeId: chatNodeId, chatId: id }, api.aiCCDynamicSet({ chatId: id, thinkingLevel: nextEffort }));
     }
-  }, [canDynamicSwitch, dbChatIdRef, rememberRecentOptions, tab?.isSubAgent, thinkingEffortOptions]);
+  }, [api, canDynamicSwitch, chatNodeId, dbChatIdRef, rememberRecentOptions, tab?.isSubAgent, thinkingEffortOptions]);
 
   useEffect(() => {
     // Wait for the real catalog: the stand-in one has no model picked, so its
@@ -507,7 +512,8 @@ function ChatPanelContent({
     sendMessage,
     chatBodyRef,
     setModel,
-    canDynamicSwitch: canDynamicSwitch && tab?.isSubAgent !== true,
+    canDynamicSwitch,
+    saveTurnSettings: tab?.isSubAgent === true,
     modeOptions,
   });
 
@@ -522,16 +528,16 @@ function ChatPanelContent({
     const nextServiceTier = currentServiceTier === 'fast' ? fallbackServiceTier : 'fast';
     rememberRecentOptions({ serviceTier: nextServiceTier });
     toggleFastMode();
-    if (canDynamicSwitch && tab?.isSubAgent !== true && dbChatIdRef.current) {
+    if (canDynamicSwitch && dbChatIdRef.current) {
       void api.aiCCDynamicSet({ chatId: dbChatIdRef.current, serviceTier: nextServiceTier });
     }
   }, [
+    api,
     canDynamicSwitch,
     currentServiceTier,
     dbChatIdRef,
     rememberRecentOptions,
     serviceTierOptions,
-    tab?.isSubAgent,
     toggleFastMode,
   ]);
 
@@ -540,7 +546,7 @@ function ChatPanelContent({
     providerGroup: selectedModel?.group,
   });
 
-  const { historyLoaded, loadedModel, loadedProviderId, loadedThinkingLevel, loadedModeId, loadedUpdatedAt, loadedSshEnvironment, hasMore: chatHasMore, loadingMore: chatLoadingMore, loadMore: chatLoadMore } = useChatHistory(historyDbChatId, setMessages, tab?.options?.timestamp);
+  const { historyLoaded, loadError: historyLoadError, retry: retryHistory, loadedModel, loadedProviderId, loadedThinkingLevel, loadedModeId, loadedUpdatedAt, loadedSshEnvironment, hasMore: chatHasMore, loadingMore: chatLoadingMore, loadMore: chatLoadMore } = useChatHistory(historyDbChatId, setMessages, tab?.options?.timestamp);
   const sshEnvironment = loadedSshEnvironment ?? tab?.sshEnvironment;
   // The agent works on files of another host: nothing here can open, annotate or review them.
   // Not the case for a tab showing another machine's chat: its workspace is on
@@ -570,6 +576,9 @@ function ChatPanelContent({
     return () => window.clearTimeout(timer);
   }, [historyLoading, loadingShownAtOnce]);
   const showHistoryLoading = historyLoading && (loadingShownAtOnce || historyLoadingDelayed);
+  // The first page did not load and there is nothing else to show: say why, in
+  // place of an empty conversation (another machine's chat, its machine offline).
+  const historyFailed = historyDbChatId !== undefined && historyLoaded && historyLoadError != null && messages.length === 0;
 
   // Sits below useChatHistory because it needs that hook's loaded timestamp to
   // date a conversation reopened from history.
@@ -977,7 +986,7 @@ function ChatPanelContent({
     return (async () => {
       const base = intent.baseBranch
         ?? (await queryClient.fetchQuery(gitBranchesQuery(workspace.worktreePath, chatNodeId))).find((b) => b.current && !b.remote)?.name;
-      const created = await createAutoWorkspace(project, { base, hint: message.text }, chatNodeId);
+      const created = await createAutoWorkspace(project, { base }, chatNodeId);
       pendingWorktreeSendRef.current = { workspaceId: created.id, message };
       draft.clear(chatId);
       moveDraftToWorkspace(chatId, created.id, project.id, chatNodeId);
@@ -1402,7 +1411,7 @@ function ChatPanelContent({
             "group-data-[keyboard-open=true]/mobile-shell:fixed group-data-[keyboard-open=true]/mobile-shell:bottom-[var(--keyboard-height)] group-data-[keyboard-open=true]/mobile-shell:z-50 group-data-[keyboard-open=true]/mobile-shell:max-w-none group-data-[keyboard-open=true]/mobile-shell:px-4 group-data-[keyboard-open=true]/mobile-shell:pb-1 group-data-[keyboard-open=true]/mobile-shell:pt-2",
           // Hidden, not unmounted, while the transcript loads: the composer keeps
           // its draft and its measured height, and it can't be tapped or focused.
-          historyLoading && "invisible"
+          (historyLoading || historyFailed) && "invisible"
         )}
       >
         {reconnecting ? (
@@ -1588,13 +1597,13 @@ function ChatPanelContent({
         />
         {showDraftBar ? (
           <DraftChatBar tabId={chatId} providerId={tab?.providerId ?? providerId} workspaceId={currentWorkspaceId} sshEnvironment={sshEnvironment} isMobile={isMobile} />
-        ) : sshEnvironment && (
+        ) : sshEnvironment ? (
           <div className="mb-1.5 flex min-w-0 items-center gap-1.5 px-3 text-xs text-muted-foreground">
             <Server className="size-3.5 shrink-0" />
             <span className="truncate">{sshEnvironment.name}</span>
             <span className="shrink-0 text-muted-foreground/70">SSH</span>
           </div>
-        )}
+        ) : chatNodeId != null && <RemoteMachineLabel nodeId={chatNodeId} />}
         {readOnlyReason != null ? (
           <div
             role="status"
@@ -1608,7 +1617,7 @@ function ChatPanelContent({
         ) : <ChatComposer
           // `invisible` above only hides the web composer: the packaged apps draw a native
           // one over its spacer, which keeps its box, so it has to be told to hide too.
-          visible={visible && !historyLoading}
+          visible={visible && !historyLoading && !historyFailed}
           promptSuggestion={promptSuggestion}
           isOperonProvider={isOperonProvider}
           dbChatId={tab?.chatId ?? dbChatIdRef.current}
@@ -1628,8 +1637,8 @@ function ChatPanelContent({
           modeOptions={modeOptions}
           currentMode={currentMode}
           setMode={handleSetMode}
-          supportsDynamicSwitch={canDynamicSwitch && tab?.isSubAgent !== true}
-          canEditTurnSettings={(supportsDynamicSwitch || (selectedModel?.providerId ?? providerId) === 'codex') && tab?.isSubAgent !== true}
+          supportsDynamicSwitch={canDynamicSwitch}
+          canEditTurnSettings={supportsDynamicSwitch || (selectedModel?.providerId ?? providerId) === 'codex'}
           canSteer={isGenerating && supportsInjection && !!(tab?.chatId ?? dbChatIdRef.current)}
           steerPending={steerPending}
           onSteer={handleSteer}
@@ -1659,6 +1668,7 @@ function ChatPanelContent({
           <FormattedMessage id="editor.chat.loadingConversation" defaultMessage="Loading conversation…" />
         </div>
       )}
+      {historyFailed && <ChatLoadFailed nodeId={chatNodeId} error={historyLoadError} onRetry={retryHistory} />}
       <AgentPanel
         open={agentPanelOpen}
         live={visible}

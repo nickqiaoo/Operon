@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { copyImageToClipboard } from "@/lib/copy-image";
 import { useIsMobileShell } from "@/hooks/useIsMobile";
 import { useNativeShellOverlay } from "@/hooks/useNativeShellOverlay";
-import { CheckIcon, CopyIcon, ImageIcon, Loader2Icon, MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, CopyIcon, ImageIcon, Loader2Icon, MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { toast } from "sonner";
 
@@ -22,22 +22,40 @@ const DISMISS_DISTANCE = 120;
 const DISMISS_VELOCITY = 0.6;
 /** Phone: double tap zooms to this multiple of the fitted size. */
 const DOUBLE_TAP_ZOOM = 2.5;
+/** Phone: how far sideways, or how fast (px/ms), a drag must go to turn to the next / previous image. */
+const SWIPE_DISTANCE = 64;
+const SWIPE_VELOCITY = 0.5;
 
 /**
  * - `pending`: one pointer down, not yet past the tap slop (a tap, or the start of a drag).
  * - `pan`: moving a zoomed image (desktop: any drag).
  * - `dismiss`: phone, image at fit size, dragging vertically to close.
+ * - `swipe`: phone, image at fit size, one of several, dragging sideways to the next / previous.
  * - `pinch`: two pointers; zooms around their midpoint and pans with it.
  */
 type Gesture =
   | { kind: "pending"; start: Point }
   | { kind: "pan"; last: Point }
   | { kind: "dismiss"; start: Point; lastY: number; lastTime: number; velocity: number }
+  | { kind: "swipe"; start: Point; lastX: number; lastTime: number; velocity: number }
   | { kind: "pinch"; distance: number; mid: Point };
 
-type ImageViewerProps = { src: string; filename?: string };
+/**
+ * One image of a set: where it is, and how to step to its neighbours. A missing
+ * handler means there is nothing that way (first / last image).
+ */
+export type ImageViewerNav = { index: number; count: number; onPrev?: () => void; onNext?: () => void };
 
-function ImageViewerContent({ src, filename, mobile }: ImageViewerProps & { mobile: boolean }) {
+type ImageViewerProps = {
+  /** null while the image's URL is still resolving, or when it is gone (`unavailable`). */
+  src: string | null;
+  filename?: string;
+  /** The file is gone since: say so instead of loading forever. */
+  unavailable?: boolean;
+  nav?: ImageViewerNav;
+};
+
+function ImageViewerContent({ src, filename, unavailable = false, nav, mobile }: ImageViewerProps & { mobile: boolean }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -55,13 +73,14 @@ function ImageViewerContent({ src, filename, mobile }: ImageViewerProps & { mobi
   const [failed, setFailed] = useState(false);
   const [gestureActive, setGestureActive] = useState(false);
   const [dismissY, setDismissY] = useState(0);
+  const [swipeX, setSwipeX] = useState(0);
   const [chromeVisible, setChromeVisible] = useState(true);
   const [copyState, setCopyState] = useState<"idle" | "copying" | "copied">("idle");
   // Phones show the image edge to edge; the desktop dialog keeps a margin around it.
   const padding = mobile ? 0 : 48;
 
   const copyImage = async () => {
-    if (copyState !== "idle") return;
+    if (copyState !== "idle" || !src) return;
     setCopyState("copying");
     try {
       await copyImageToClipboard(src);
@@ -183,7 +202,8 @@ function ImageViewerContent({ src, filename, mobile }: ImageViewerProps & { mobi
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     lastPointerType.current = event.pointerType;
-    if (!ready || (event.pointerType === "mouse" && event.button !== 0)) return;
+    // A set can be swiped past an image that never loads.
+    if ((!ready && !nav) || (event.pointerType === "mouse" && event.button !== 0)) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     const point = { x: event.clientX, y: event.clientY };
@@ -191,6 +211,7 @@ function ImageViewerContent({ src, filename, mobile }: ImageViewerProps & { mobi
     if (pointers.current.size === 2) {
       fitMode.current = false;
       setDismissY(0);
+      setSwipeX(0);
       gesture.current = { kind: "pinch", ...pinchState() };
     } else if (pointers.current.size === 1) {
       gesture.current = { kind: "pending", start: point };
@@ -230,6 +251,11 @@ function ImageViewerContent({ src, filename, mobile }: ImageViewerProps & { mobi
         setDismissY(dy);
         return;
       }
+      if (mobile && !zoomedIn() && nav) {
+        gesture.current = { kind: "swipe", start: current.start, lastX: point.x, lastTime: event.timeStamp, velocity: 0 };
+        setSwipeX(swipeOffset(dx));
+        return;
+      }
       current = { kind: "pan", last: current.start };
       gesture.current = current;
     }
@@ -238,6 +264,13 @@ function ImageViewerContent({ src, filename, mobile }: ImageViewerProps & { mobi
       const elapsed = Math.max(1, event.timeStamp - current.lastTime);
       gesture.current = { ...current, lastY: point.y, lastTime: event.timeStamp, velocity: (point.y - current.lastY) / elapsed };
       setDismissY(point.y - current.start.y);
+      return;
+    }
+
+    if (current.kind === "swipe") {
+      const elapsed = Math.max(1, event.timeStamp - current.lastTime);
+      gesture.current = { ...current, lastX: point.x, lastTime: event.timeStamp, velocity: (point.x - current.lastX) / elapsed };
+      setSwipeX(swipeOffset(point.x - current.start.x));
       return;
     }
 
@@ -269,11 +302,27 @@ function ImageViewerContent({ src, filename, mobile }: ImageViewerProps & { mobi
       else setDismissY(0);
       return;
     }
+    if (current?.kind === "swipe") {
+      const dx = event.clientX - current.start.x;
+      const forward = dx < -SWIPE_DISTANCE || current.velocity < -SWIPE_VELOCITY;
+      const back = dx > SWIPE_DISTANCE || current.velocity > SWIPE_VELOCITY;
+      // Turning remounts the viewer on the new image; only a drag that stays put springs back.
+      if (!cancelled && forward && nav?.onNext) nav.onNext();
+      else if (!cancelled && back && nav?.onPrev) nav.onPrev();
+      else setSwipeX(0);
+      return;
+    }
     if (current?.kind === "pending" && !cancelled && event.pointerType !== "mouse") {
       handleTap({ x: event.clientX, y: event.clientY }, event.timeStamp);
     }
     if (mobile || current?.kind === "pinch") settle();
   };
+
+  /** Past the first / last image the drag still follows, a third as far, so the edge is felt. */
+  function swipeOffset(dx: number): number {
+    const blocked = dx > 0 ? !nav?.onPrev : !nav?.onNext;
+    return blocked ? dx / 3 : dx;
+  }
 
   // Dragging down to close: the image follows and shrinks a little, the backdrop fades.
   const dismissProgress = Math.min(1, Math.max(0, dismissY) / 300);
@@ -316,10 +365,10 @@ function ImageViewerContent({ src, filename, mobile }: ImageViewerProps & { mobi
     >
       {!ready && (
         <div role="status" className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
-          {failed ? "Unable to load image" : "Loading image…"}
+          {unavailable ? "This image is no longer available" : failed ? "Unable to load image" : "Loading image…"}
         </div>
       )}
-      <img
+      {src && <img
         ref={imageRef}
         alt={filename || "Image preview"}
         src={src}
@@ -334,7 +383,7 @@ function ImageViewerContent({ src, filename, mobile }: ImageViewerProps & { mobi
           width: dimensions?.width,
           height: dimensions?.height,
           visibility: ready ? "visible" : "hidden",
-          transform: `translate(-50%, -50%) translate(${view.x}px, ${view.y + dismissY}px) scale(${view.scale * (1 - dismissProgress * 0.2)})`,
+          transform: `translate(-50%, -50%) translate(${view.x + swipeX}px, ${view.y + dismissY}px) scale(${view.scale * (1 - dismissProgress * 0.2)})`,
         }}
         onLoad={(event) => {
           setDimensions({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight });
@@ -342,7 +391,13 @@ function ImageViewerContent({ src, filename, mobile }: ImageViewerProps & { mobi
           fit();
         }}
         onError={() => setFailed(true)}
-      />
+      />}
+      {!mobile && nav && (
+        <>
+          <NavButton side="prev" onClick={nav.onPrev} />
+          <NavButton side="next" onClick={nav.onNext} />
+        </>
+      )}
     </div>
   );
 
@@ -375,6 +430,17 @@ function ImageViewerContent({ src, filename, mobile }: ImageViewerProps & { mobi
               <XIcon className="size-5" />
             </button>
           </DialogClose>
+          {nav && (
+            <span
+              aria-live="polite"
+              className={cn(
+                "liquid-glass rounded-full px-3 py-1.5 text-sm tabular-nums text-foreground/80 transition-opacity duration-200",
+                !showChrome && "opacity-0",
+              )}
+            >
+              {nav.index + 1} / {nav.count}
+            </span>
+          )}
           <button {...copyProps} className={chromeButton}>{copyIcon("size-5")}</button>
         </div>
         {copyStatus}
@@ -390,7 +456,8 @@ function ImageViewerContent({ src, filename, mobile }: ImageViewerProps & { mobi
         </div>
         <div className="min-w-0 flex-1">
           <DialogTitle className="truncate text-sm font-medium">{filename || "Image preview"}</DialogTitle>
-          <p className="mt-0.5 text-xs text-muted-foreground">
+          <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+            {nav && <span aria-live="polite">{nav.index + 1} of {nav.count}{" · "}</span>}
             {dimensions ? `${dimensions.width.toLocaleString()} × ${dimensions.height.toLocaleString()} px` : "Image preview"}
           </p>
         </div>
@@ -408,7 +475,9 @@ function ImageViewerContent({ src, filename, mobile }: ImageViewerProps & { mobi
       {canvas}
 
       <footer className="flex shrink-0 flex-wrap items-center justify-center gap-x-6 gap-y-2 border-t border-border/40 px-3 py-3 sm:justify-between sm:px-5">
-        <p className="hidden text-xs text-muted-foreground sm:block">Scroll to zoom · Drag to pan · Double-click to toggle zoom</p>
+        <p className="hidden text-xs text-muted-foreground sm:block">
+          Scroll to zoom · Drag to pan · Double-click to toggle zoom{nav && " · ← → to switch images"}
+        </p>
         <div className="flex items-center gap-1" role="group" aria-label="Image zoom controls">
           <Button aria-label="Zoom out" title="Zoom out (−)" variant="ghost" size="icon-sm" type="button" disabled={!ready || view.scale <= MIN_SCALE} onClick={() => zoom(0.8)}><MinusIcon /></Button>
           <span aria-live="polite" aria-atomic="true" className="w-14 text-center text-xs tabular-nums text-muted-foreground">{Math.round(view.scale * 100)}%</span>
@@ -422,7 +491,34 @@ function ImageViewerContent({ src, filename, mobile }: ImageViewerProps & { mobi
   );
 }
 
-/** Shared by composer attachments and images already in the conversation. */
+/** Desktop: previous / next, over the canvas's edge, vertically centred. */
+function NavButton({ side, onClick }: { side: "prev" | "next"; onClick?: () => void }) {
+  const Icon = side === "prev" ? ChevronLeftIcon : ChevronRightIcon;
+  return (
+    <button
+      type="button"
+      aria-label={side === "prev" ? "Previous image" : "Next image"}
+      title={side === "prev" ? "Previous image (←)" : "Next image (→)"}
+      disabled={!onClick}
+      // Keep the canvas from starting a pan under the button.
+      onPointerDown={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => event.stopPropagation()}
+      onClick={onClick}
+      className={cn(
+        "liquid-glass absolute top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-full text-foreground/80 transition-opacity hover:text-foreground disabled:pointer-events-none disabled:opacity-0",
+        side === "prev" ? "left-4" : "right-4",
+      )}
+    >
+      <Icon className="size-5" />
+    </button>
+  );
+}
+
+/**
+ * Shared by composer attachments and images already in the conversation. With
+ * `nav` it is one image of a set: ← / → (and, on a phone, a sideways swipe)
+ * step through the rest.
+ */
 export function ImageViewer(props: ImageViewerProps) {
   const mobile = useIsMobileShell();
   // Callers mount this only while open. In the packaged apps the native composer, tab bar,
@@ -441,8 +537,17 @@ export function ImageViewer(props: ImageViewerProps) {
       // Phone: the viewer paints its own backdrop, which fades while dragging down to close.
       overlayClassName={mobile ? "bg-transparent" : "bg-background/65 backdrop-blur-md"}
       showCloseButton={false}
+      onKeyDown={(event) => {
+        const { nav } = props;
+        if (!nav || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+        const step = event.key === "ArrowLeft" ? nav.onPrev : event.key === "ArrowRight" ? nav.onNext : undefined;
+        if (!step) return;
+        event.preventDefault();
+        step();
+      }}
     >
-      <ImageViewerContent key={props.src} {...props} mobile={mobile} />
+      {/* A fresh viewer per image, so zoom, pan and the loaded size start over. */}
+      <ImageViewerContent key={`${props.nav?.index ?? 0}:${props.src ?? ""}`} {...props} mobile={mobile} />
     </DialogContent>
   );
 }

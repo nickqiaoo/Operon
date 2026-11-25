@@ -51,6 +51,13 @@ export function applyTheme(theme: Theme) {
 
   const mode = resolveMode(theme)
   root.classList.add(mode)
+  // What the browser draws itself follows `color-scheme`, not the `.dark`
+  // class: scrollbars, form controls, autofill. Without it they stayed in the
+  // OS's mode when the app's differs.
+  root.style.colorScheme = mode
+  // And what the OS draws (context menus, dialogs, the title bar) follows
+  // Electron's theme source. "System" hands it back to the OS.
+  window.electronAPI?.setThemeSource?.(theme).catch(() => {})
 
   // Apply the matching UI theme preset
   const store = useThemeStore.getState()

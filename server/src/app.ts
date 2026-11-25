@@ -331,7 +331,7 @@ export async function createApp(deps: AppDeps) {
     return c.json({ status: 'ok', timestamp: new Date().toISOString() })
   })
 
-  app.route('/api/git', gitRoutes())
+  app.route('/api/git', gitRoutes(deps.storage))
   app.route('/api/git', gitWatchRoutes())
   app.route('/api/fs', fsRoutes())
   app.route('/api/fs', fsWatchRoutes())

@@ -188,17 +188,17 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
     return c.json({ workspace })
   })
 
-  // A new chat's worktree, named for the user: a fresh branch cut from `base`,
-  // its name taken from the chat's first message (`hint`).
+  // A new chat's worktree: a fresh branch cut from `base`, under a placeholder
+  // name until the chat's messages say what it is for.
   router.post('/:id/workspaces/auto', async (c) => {
     const projectId = parseInt(c.req.param('id'), 10)
     if (!storage.getProject(projectId)) return c.json({ error: 'Not found' }, 404)
-    const body = await c.req.json<{ base?: string; hint?: string }>().catch(() => ({}) as { base?: string; hint?: string })
+    const body = await c.req.json<{ base?: string }>().catch(() => ({}) as { base?: string })
     try {
+      // Named later, from the chat's messages (workspace-naming).
       const workspace = await provisionAutoWorkspace(storage, {
         projectId,
         base: body.base?.trim() || undefined,
-        hint: body.hint,
       })
       return c.json({ workspace })
     } catch (e) {

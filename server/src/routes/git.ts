@@ -5,8 +5,10 @@ import * as gitService from '../services/git.js'
 import { generateCommitMessage } from '../services/git-commit-message.js'
 import { generatePrSummary } from '../services/git-pr-summary.js'
 import { worktreePathFor } from '../services/worktree-paths.js'
+import { nameWorkspaceBeforePush, type WorkspaceNamingStorage } from '../services/workspace-naming.js'
 
-export function gitRoutes() {
+/** `storage`: lets a push name a chat's still-unnamed worktree branch first. */
+export function gitRoutes(storage?: WorkspaceNamingStorage) {
   const router = new Hono()
 
   router.onError((error, c) => {
@@ -150,6 +152,7 @@ export function gitRoutes() {
     // Always 200 with a result object so the client can branch on `code`
     // (the shared request helper throws on non-2xx, hiding the error code).
     try {
+      if (storage) await nameWorkspaceBeforePush(storage, repoPath)
       await gitService.push(repoPath, { setUpstream, force })
       return c.json({ success: true, code: null as string | null, error: null as string | null })
     } catch (e) {

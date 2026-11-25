@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { ProjectStorageAdapter } from '../storage/interface.js'
-import type { Workspace } from '../types/project.js'
+import type { Workspace, WorkspaceNameSource } from '../types/project.js'
 import { getDefaultBaseBranch, localBranchExists, worktreeAdd } from './git.js'
 import { sanitizeSegment, worktreePathFor } from './worktree-paths.js'
 
@@ -25,6 +25,8 @@ export async function provisionWorkspace(
     base?: string
     /** The conversation making it for an agent it dispatches (`Workspace.originChatId`). */
     originChatId?: number
+    /** Defaults to 'user'. */
+    nameSource?: WorkspaceNameSource
   },
 ): Promise<Workspace> {
   const project = storage.getProject(input.projectId)
@@ -39,48 +41,46 @@ export async function provisionWorkspace(
   return storage.createWorkspace(input.projectId, {
     name: input.name, branchName: branch, worktreePath,
     ...(input.originChatId != null ? { originChatId: input.originChatId } : {}),
+    ...(input.nameSource ? { nameSource: input.nameSource } : {}),
   })
 }
 
-/**
- * A short, git-safe name for a workspace made for a chat, from the words of its
- * first message: "Fix the login timeout" → `fix-the-login-timeout`. A message
- * with no Latin words (most Chinese ones) falls back to `chat-<4 chars>`.
- */
-export function workspaceSlugFromHint(hint: string | undefined, random: () => string = randomSuffix): string {
-  const words = (hint ?? '').toLowerCase().match(/[a-z0-9]+/g) ?? []
-  const picked: string[] = []
-  for (const word of words) {
-    if (picked.length >= 5 || [...picked, word].join('-').length > 32) break
-    picked.push(word)
-  }
-  return picked.length > 0 ? picked.join('-') : `chat-${random()}`
-}
+/** What the sidebar shows for a chat's worktree until it is named from the chat. */
+export const PLACEHOLDER_WORKSPACE_NAME = 'New worktree'
 
-function randomSuffix(): string {
+function shortId(): string {
   return Math.random().toString(36).slice(2, 6).padEnd(4, '0')
 }
 
 /**
- * A workspace nobody had to name: a fresh `operon/<slug>` branch cut from `base`
- * (the default branch when unset) in its own worktree. The slug comes from
- * `hint` and gets `-2`, `-3`… when that branch or directory is already taken.
+ * A chat's worktree, made on its first send before anyone has said what it is
+ * for: directory and branch get a short random id (`<id>`, `operon/<id>`), the
+ * sidebar shows a placeholder, and `workspace-naming` swaps in a real name (and
+ * renames the branch) once a message says what the work is. The directory is
+ * never renamed, so nothing running in it has to move.
  */
 export async function provisionAutoWorkspace(
   storage: Pick<ProjectStorageAdapter, 'getProject' | 'createWorkspace'>,
-  input: { projectId: number; base?: string; hint?: string },
+  input: { projectId: number; base?: string },
+  random: () => string = shortId,
 ): Promise<Workspace> {
   const project = storage.getProject(input.projectId)
   if (!project) throw new Error(`There is no project ${input.projectId}.`)
-  const slug = workspaceSlugFromHint(input.hint)
   for (let n = 1; n <= 50; n++) {
-    const name = n === 1 ? slug : `${slug}-${n}`
-    const branch = `operon/${name}`
+    const id = random()
+    const branch = `operon/${id}`
     const taken =
-      existsSync(worktreePathFor(input.projectId, project.rootPath, name)) ||
+      existsSync(worktreePathFor(input.projectId, project.rootPath, id)) ||
       (await localBranchExists(project.rootPath, branch))
     if (taken) continue
-    return provisionWorkspace(storage, { projectId: input.projectId, name, branch, dir: name, base: input.base })
+    return provisionWorkspace(storage, {
+      projectId: input.projectId,
+      name: PLACEHOLDER_WORKSPACE_NAME,
+      branch,
+      dir: id,
+      base: input.base,
+      nameSource: 'placeholder',
+    })
   }
-  throw new Error(`Could not find a free workspace name for "${slug}".`)
+  throw new Error('Could not find a free worktree name.')
 }

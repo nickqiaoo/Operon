@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toolImagesOf, uniqueToolImages } from './ReadImages';
+import { moreAt, toolImagesOf, uniqueToolImages } from './ReadImages';
 
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
@@ -34,5 +34,17 @@ describe('toolImagesOf', () => {
 
   it('lists a picture returned twice only once', () => {
     expect(uniqueToolImages([mcpScreenshot(), { ...mcpScreenshot(), toolCallId: 'shot-2' }])).toHaveLength(1);
+  });
+});
+
+describe('moreAt', () => {
+  it('puts "+N" on the last cell of a capped row, counting the cell itself', () => {
+    expect(moreAt(17, 6, 5)).toBe(12);
+    expect(moreAt(17, 6, 4)).toBe(0);
+  });
+
+  it('is nothing when everything fits', () => {
+    expect(moreAt(6, 6, 5)).toBe(0);
+    expect(moreAt(3, 6, 2)).toBe(0);
   });
 });

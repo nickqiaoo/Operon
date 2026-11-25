@@ -295,7 +295,14 @@ export interface ProjectStorageAdapter {
   // Workspaces
   createWorkspace(projectId: number, input: CreateWorkspaceInput): Workspace
   getWorkspace(id: number): Workspace | null
+  /** The workspace checked out at `worktreePath` (trailing slashes ignored). */
+  getWorkspaceByPath(worktreePath: string): Workspace | null
   listWorkspaces(projectId: number): Workspace[]
+  /**
+   * Swap a generated name (and the branch it was renamed to) in for a
+   * placeholder. False when the workspace is gone or no longer a placeholder.
+   */
+  replacePlaceholderWorkspaceName(id: number, name: string, branchName: string): boolean
   deleteWorkspace(id: number): void
   /** File a workspace under the conversation that dispatched work into it (it then stays out of the top of the tree). */
   setWorkspaceOriginChat(id: number, chatId: number): void

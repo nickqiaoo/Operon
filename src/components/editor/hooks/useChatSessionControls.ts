@@ -1,6 +1,7 @@
 import { useCallback, type MutableRefObject } from 'react'
 import { toast } from 'sonner'
-import { useChatApi } from '@/lib/chat-api-context'
+import { useChatApi, useChatNodeId } from '@/lib/chat-api-context'
+import { trackTurnSettingsSave } from '@/lib/turn-settings-saves'
 
 type PermissionDecision = 'allow' | 'deny' | 'allowAlways'
 
@@ -19,6 +20,7 @@ export function useChatSessionControls({
   chatBodyRef,
   setModel,
   canDynamicSwitch,
+  saveTurnSettings = false,
   modeOptions,
 }: {
   providerId?: string
@@ -31,9 +33,20 @@ export function useChatSessionControls({
   chatBodyRef: MutableRefObject<Record<string, unknown>>
   setModel: (modelId: string) => void
   canDynamicSwitch: boolean
+  /**
+   * Save a model / mode pick on the server at once even when the live session
+   * cannot switch: an agent's chat also runs turns its parent starts, which
+   * take what is saved rather than what this tab shows.
+   */
+  saveTurnSettings?: boolean
   modeOptions: ModeOption[]
 }) {
   const api = useChatApi()
+  const nodeId = useChatNodeId()
+  const pushSettings = canDynamicSwitch || saveTurnSettings
+  const save = useCallback((chatId: number, patch: { modelId?: string; modeId?: string }) => {
+    void trackTurnSettingsSave({ nodeId, chatId }, api.aiCCDynamicSet({ chatId, ...patch }))
+  }, [api, nodeId])
   const handlePermissionDecide = useCallback(async (
     id: string,
     outcome: PermissionDecision,
@@ -93,19 +106,19 @@ export function useChatSessionControls({
 
   const handleSetModel = useCallback((id: string) => {
     setModel(id)
-    if (canDynamicSwitch && currentDbChatId) {
-      void api.aiCCDynamicSet({ chatId: currentDbChatId, modelId: id })
+    if (pushSettings && currentDbChatId) {
+      save(currentDbChatId, { modelId: id })
     }
-  }, [canDynamicSwitch, currentDbChatId, setModel])
+  }, [pushSettings, currentDbChatId, setModel, save])
 
   const handleSetMode = useCallback((mode: string) => {
     if (!modeOptions.some((option) => option.value === mode)) return
     setMode(mode)
     chatBodyRef.current.modeId = mode
-    if (canDynamicSwitch && currentDbChatId) {
-      void api.aiCCDynamicSet({ chatId: currentDbChatId, modeId: mode })
+    if (pushSettings && currentDbChatId) {
+      save(currentDbChatId, { modeId: mode })
     }
-  }, [modeOptions, setMode, chatBodyRef, canDynamicSwitch, currentDbChatId])
+  }, [modeOptions, setMode, chatBodyRef, pushSettings, currentDbChatId, save])
 
   return {
     handlePermissionDecide,

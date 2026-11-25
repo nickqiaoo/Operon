@@ -6,14 +6,33 @@ import { getChatStorage } from '../services/ai/state.js'
 import type { PermissionOutcome } from '../services/ai.js'
 import type { AiChatRequest } from '../services/ai/types.js'
 import { waitForChatTurnIdle } from '../services/ai/chat-turn-lifecycle.js'
-import { rememberChatModeId } from '../services/ai/persistence.js'
+import { rememberChatTurnSettings } from '../services/ai/persistence.js'
 import { replaceLiveAgent, steerLiveAgent } from '../services/workflow/live-agents.js'
 import { getOrCreateWorkspaceAssistant } from '../services/workspace-assistant.js'
+import { nameWorkspaceFromMessage, type WorkspaceNamingStorage } from '../services/workspace-naming.js'
 import type { AgentBindingStorageAdapter, ChannelStorageAdapter, ProjectStorageAdapter } from '../storage/interface.js'
 
 type AiRouteStorage = Pick<ChannelStorageAdapter, 'getAgentByName' | 'createAgent'> &
   Pick<ProjectStorageAdapter, 'getWorkspace'> &
-  Pick<AgentBindingStorageAdapter, 'getBindingByActiveChatId'>
+  Pick<AgentBindingStorageAdapter, 'getBindingByActiveChatId'> &
+  WorkspaceNamingStorage
+
+/** The text the user typed across the request's messages, oldest first. */
+function userTextOf(messages: unknown[]): string {
+  const texts: string[] = []
+  for (const message of messages) {
+    if (!message || typeof message !== 'object' || (message as { role?: unknown }).role !== 'user') continue
+    const parts = (message as { parts?: unknown }).parts
+    if (!Array.isArray(parts)) continue
+    for (const part of parts) {
+      if (part && typeof part === 'object' && (part as { type?: unknown }).type === 'text') {
+        const text = (part as { text?: unknown }).text
+        if (typeof text === 'string' && text.trim()) texts.push(text.trim())
+      }
+    }
+  }
+  return texts.join('\n\n')
+}
 
 /**
  * Give an interactive workspace chat the task-board context it needs, so the
@@ -74,6 +93,11 @@ export function aiRoutes(storage: AiRouteStorage) {
     const lastUser = [...msgs].reverse().find((m) => m?.role === 'user')
     console.log('[ai/chat] request', { chatId: payload?.chatId, lastUserId: lastUser?.id, msgCount: msgs.length })
     enrichChatAgentContext(payload, storage)
+    // A chat's worktree still under its placeholder name gets one from what was
+    // just sent, if that says what the work is (in the background).
+    if (payload.workspaceId && msgs[msgs.length - 1]?.role === 'user') {
+      void nameWorkspaceFromMessage(storage, payload.workspaceId, userTextOf(msgs))
+    }
     // Deliberately NOT passing c.req.raw.signal: a dropped request must not kill
     // the turn. Other surfaces may be attached to it via /chat/live/:chatId, and
     // the requester itself can re-attach after a reload or a tunnel blip. Only a
@@ -401,7 +425,7 @@ export function aiRoutes(storage: AiRouteStorage) {
       serviceTier?: string
     }>()
     const { chatId, modelId, modeId, thinkingLevel } = payload
-    rememberChatModeId(chatId, modeId)
+    rememberChatTurnSettings(chatId, { modeId, modelId, thinkingLevel })
     const result = await aiService.handleCCDynamicSet(chatId, {
       model: modelId,
       mode: modeId,

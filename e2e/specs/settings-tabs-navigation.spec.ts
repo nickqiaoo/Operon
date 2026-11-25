@@ -21,6 +21,12 @@ test('settings opens, switches across multiple tabs, and closes', async ({ page 
     'true',
   )
 
+  // Every coding agent sits inside one master/detail tab; picking one swaps the panel.
+  await settings.openTab(page, 'agents')
+  await expect(page.getByTestId('settings-agents-list')).toBeVisible()
+  await page.getByTestId('settings-agent-operon').click()
+  await expect(page.getByTestId('settings-agent-header')).toContainText('Operon')
+
   await settings.openTab(page, 'env')
   await expect(page.locator('[data-testid="settings-tab-env"]')).toHaveAttribute(
     'data-active',

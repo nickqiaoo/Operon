@@ -5,7 +5,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { SqliteStorage } from '../storage/sqlite.js'
-import { provisionAutoWorkspace, workspaceSlugFromHint } from './workspace-provision.js'
+import { PLACEHOLDER_WORKSPACE_NAME, provisionAutoWorkspace } from './workspace-provision.js'
 
 let root: string
 let repo: string
@@ -38,27 +38,18 @@ afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true })
 })
 
-it('names a workspace from the Latin words of the first message', () => {
-  expect(workspaceSlugFromHint('Fix the login timeout, please!')).toBe('fix-the-login-timeout-please')
-  expect(workspaceSlugFromHint('修一下 Settings 页面的 bug')).toBe('settings-bug')
-  // Capped at five words and 32 characters.
-  expect(workspaceSlugFromHint('one two three four five six seven')).toBe('one-two-three-four-five')
-  expect(workspaceSlugFromHint('internationalization localization accessibility')).toBe('internationalization')
-})
-
-it('falls back to chat-<random> when the message has no Latin words', () => {
-  expect(workspaceSlugFromHint('帮我看看这个问题', () => 'k3f9')).toBe('chat-k3f9')
-  expect(workspaceSlugFromHint(undefined, () => 'a1b2')).toBe('chat-a1b2')
-})
-
-it('cuts an operon/<slug> branch from the chosen base, numbering a taken name', async () => {
-  const first = await provisionAutoWorkspace(storage, { projectId, base: 'release', hint: 'Add dark mode' })
-  expect(first.branchName).toBe('operon/add-dark-mode')
-  expect(first.name).toBe('add-dark-mode')
+it('cuts an operon/<id> branch from the chosen base under a placeholder name', async () => {
+  const first = await provisionAutoWorkspace(storage, { projectId, base: 'release' }, () => 'k3f9')
+  expect(first).toMatchObject({ branchName: 'operon/k3f9', name: PLACEHOLDER_WORKSPACE_NAME, nameSource: 'placeholder' })
+  expect(path.basename(first.worktreePath)).toBe('k3f9')
   expect(existsSync(first.worktreePath)).toBe(true)
   expect(git(first.worktreePath, 'rev-parse', 'HEAD')).toBe(git(repo, 'rev-parse', 'release'))
+  expect(storage.getWorkspace(first.id)?.nameSource).toBe('placeholder')
+})
 
-  const second = await provisionAutoWorkspace(storage, { projectId, base: 'main', hint: 'add dark mode' })
-  expect(second.branchName).toBe('operon/add-dark-mode-2')
-  expect(storage.listWorkspaces(projectId).map((w) => w.name)).toEqual(['add-dark-mode', 'add-dark-mode-2'])
+it('draws another id when one is taken', async () => {
+  const ids = ['k3f9', 'k3f9', 'a1b2']
+  await provisionAutoWorkspace(storage, { projectId, base: 'main' }, () => 'k3f9')
+  const second = await provisionAutoWorkspace(storage, { projectId, base: 'main' }, () => ids.shift()!)
+  expect(second.branchName).toBe('operon/a1b2')
 })

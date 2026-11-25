@@ -101,7 +101,7 @@ export async function startNewChat(): Promise<void> {
  * first chat of a workspace is started, since the tab strip only offers "+"
  * once it has tabs.
  */
-export async function startNewChatInWorkspace(workspaceId: number, projectId: number, nodeId?: string): Promise<void> {
+export async function startNewChatInWorkspace(workspaceId: number, projectId: number, nodeId?: string): Promise<string> {
   const navigation = useNavigationStore.getState()
   for (const page of navigation.pages) navigation.closePage(page.kind)
   navigation.showWorkbench()
@@ -109,18 +109,18 @@ export async function startNewChatInWorkspace(workspaceId: number, projectId: nu
   if (state.activeWorkspaceId !== workspaceId || state.activeNodeId !== (nodeId ?? null)) {
     state.setActiveWorkspace(workspaceId, projectId, nodeId)
   }
-  await openBlankChat()
+  return openBlankChat()
 }
 
-async function openBlankChat(): Promise<void> {
+async function openBlankChat(): Promise<string> {
   // Pressing ⌘N twice must not stack empty tabs: reuse the blank one.
   const existing = useEditorStore.getState().tabs.find(isBlankDraft)
   if (existing) {
     useEditorStore.getState().setActiveTab(existing.id)
-    return
+    return existing.id
   }
   const providerId = await resolveProvider()
-  useEditorStore.getState().createChatTab(providerId, "Chat")
+  return useEditorStore.getState().createChatTab(providerId, "Chat")
 }
 
 /**

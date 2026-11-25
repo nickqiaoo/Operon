@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
 import { buildChatChildren, type ChatChild } from '@/lib/chat-children'
+import { toast } from 'sonner'
 import { activateWorkspace } from '@/lib/workspace-nav'
+import { remoteMachineNow } from '@/lib/machine-reachability'
 import { useChatPendingInputStore } from '@/stores/chat-pending-input-store'
 import { useEditorStore } from '@/stores/editor-store'
 import { isOnNode, useExternalAgentsStore } from '@/stores/external-agents-store'
@@ -65,9 +67,21 @@ export function useOtherWorkspaceName(workspaceId: number | undefined): string |
  * working in a workspace of its own goes there, rather than into the parent's tabs
  * where the git panel and files would be another worktree's.
  */
+/** How long opening another machine's agent waits for that machine to answer before saying it can't. */
+export const REMOTE_SWITCH_WAIT_MS = 3_000
+
+function notReachable(nodeId: string): false {
+  const { label, online } = remoteMachineNow(nodeId)
+  const machine = label ?? 'The other machine'
+  toast(online === false ? `${machine} is offline` : `Can't reach ${machine}`, {
+    description: 'This agent runs there. Open it once that machine is back online.',
+  })
+  return false
+}
+
 export async function openChildChat(
   child: Pick<ChatChild, 'childChatId' | 'nodeId' | 'title' | 'providerId' | 'modelId' | 'modeId' | 'workspaceId'>,
-): Promise<void> {
+): Promise<boolean> {
   const editor = useEditorStore.getState()
   const ref: ChatRef = child.nodeId ? { nodeId: child.nodeId, chatId: child.childChatId } : { chatId: child.childChatId }
   // Already open somewhere: that tab, in whatever workspace holds it.
@@ -78,7 +92,20 @@ export async function openChildChat(
   const nodeId = existing ? existing.nodeId : child.nodeId
   const here = workspaceId === editor.currentWorkspaceId && (nodeId ?? null) === editor.currentNodeId
   if (workspaceId != null && !here) {
-    await activateWorkspace(workspaceId, nodeId)
+    if (nodeId) {
+      // Another machine's agent opens only while that machine answers. Before, a
+      // click on one that was away looked dead (its tree request hung for as long
+      // as Broker took to give up), and then opened an empty tab saying nothing.
+      if (remoteMachineNow(nodeId).unreachable) return notReachable(nodeId)
+      const switched = await Promise.race([
+        activateWorkspace(workspaceId, nodeId),
+        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), REMOTE_SWITCH_WAIT_MS)),
+      ])
+      // A machine that answered without that workspace (removed since) still has the chat.
+      if (switched === 'timeout' || (switched === false && remoteMachineNow(nodeId).unreachable)) return notReachable(nodeId)
+    } else {
+      await activateWorkspace(workspaceId)
+    }
   }
   useEditorStore.getState().openChatTab(
     existing?.tabId ?? chatTabId(ref),
@@ -87,4 +114,5 @@ export async function openChildChat(
     child.providerId,
     true,
   )
+  return true
 }

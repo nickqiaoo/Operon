@@ -4,29 +4,6 @@ import { projectsOn, useProjectStore, type Project, type Workspace } from "@/sto
 
 const trimSlash = (p: string) => p.replace(/[\\/]+$/, "")
 
-/**
- * New worktree on a new branch, registered as a workspace of `project`. The
- * server places it under operon's managed worktrees dir
- * (~/.operon/worktrees/<id>-<repo>/<name>) and returns the absolute path.
- * Throws when the worktree or the workspace row cannot be created.
- */
-export async function createProjectWorkspace(project: Project, branchName: string): Promise<Workspace> {
-  const safeBranch = branchName.replace(/[^a-zA-Z0-9._-]+/g, "-")
-  const worktreePath = await api.gitWorktreeAdd(
-    project.rootPath,
-    "",
-    branchName,
-    true,
-    undefined,
-    { projectId: project.id, name: safeBranch },
-  )
-  return useProjectStore.getState().addWorkspace(project.id, {
-    name: safeBranch || branchName,
-    branchName,
-    worktreePath,
-  })
-}
-
 /** Re-read a project's workspaces from the server (picks up worktrees made outside operon). */
 export async function syncProjectWorkspaces(project: Project): Promise<Workspace[]> {
   const result = await api.workspaceList(project.id)
@@ -40,14 +17,15 @@ export function findSyncedWorkspace(workspaces: Workspace[], workspace: Workspac
 }
 
 /**
- * A worktree on a fresh branch the server names from `hint` (a chat's first
- * message), cut from `base` (the default branch when unset). Returns the synced
+ * A worktree on a fresh branch for a chat's first send, under a placeholder
+ * name the server replaces once the chat's messages say what it is for, cut
+ * from `base` (the default branch when unset). Returns the synced
  * workspace so a tab can move into it right away. `nodeId`: the project is on
  * another machine; its tree is re-read from there.
  */
 export async function createAutoWorkspace(
   project: Project,
-  input: { base?: string; hint?: string },
+  input: { base?: string },
   nodeId?: string,
 ): Promise<Workspace> {
   const { workspace } = await apiOn(nodeId).workspaceCreateAuto(project.id, input)

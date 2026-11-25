@@ -37,6 +37,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   syncAnalyticsId: (distinctId: string, optedOut: boolean) =>
     ipcRenderer.invoke('analytics:sync-id', distinctId, optedOut),
 
+  // Appearance: the app's Light / Dark / System choice, for what the OS draws.
+  setThemeSource: (source: 'light' | 'dark' | 'system') => ipcRenderer.invoke('theme:set-source', source),
+
   // Logging
   getLogging: () => ipcRenderer.invoke('logging:get') as Promise<{ enabled: boolean; path: string }>,
   setLogging: (enabled: boolean) => ipcRenderer.invoke('logging:set', enabled),

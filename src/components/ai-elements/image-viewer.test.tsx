@@ -144,3 +144,80 @@ describe('phone image viewer gestures', () => {
     expect(image().style.transform).toContain('translate(100px, 0px) scale(0.5)');
   });
 });
+
+function SetHarness() {
+  const [index, setIndex] = useState(1);
+  const count = 3;
+  return (
+    <Dialog open>
+      <ImageViewer
+        src={`blob:shot-${index}`}
+        filename="shot.png"
+        nav={{
+          index,
+          count,
+          onPrev: index > 0 ? () => setIndex(index - 1) : undefined,
+          onNext: index < count - 1 ? () => setIndex(index + 1) : undefined,
+        }}
+      />
+    </Dialog>
+  );
+}
+
+describe('phone image viewer in a set', () => {
+  beforeEach(async () => {
+    await act(async () => root.render(<SetHarness />));
+    act(() => { image().dispatchEvent(new Event('load')); });
+  });
+
+  const counter = () => document.body.textContent ?? '';
+
+  it('shows where it is in the set', () => {
+    expect(counter()).toContain('2 / 3');
+  });
+
+  it('turns to the next image on a long swipe left and the previous on one right', () => {
+    pointer('pointerdown', 1, 300, 400);
+    pointer('pointermove', 1, 200, 400);
+    pointer('pointerup', 1, 200, 400);
+    expect(image().getAttribute('src')).toBe('blob:shot-2');
+    expect(counter()).toContain('3 / 3');
+
+    act(() => { image().dispatchEvent(new Event('load')); });
+    pointer('pointerdown', 1, 100, 400);
+    pointer('pointermove', 1, 200, 400);
+    pointer('pointerup', 1, 200, 400);
+    expect(image().getAttribute('src')).toBe('blob:shot-1');
+  });
+
+  it('springs back from a short swipe, and resists past the last image', () => {
+    pointer('pointerdown', 1, 300, 400);
+    pointer('pointermove', 1, 270, 400);
+    expect(image().style.transform).toContain('translate(-30px, 0px)');
+    pointer('pointerup', 1, 270, 400);
+    expect(image().getAttribute('src')).toBe('blob:shot-1');
+    expect(image().style.transform).toContain('translate(0px, 0px)');
+
+    // Go to the last image, then drag on past it.
+    pointer('pointerdown', 1, 300, 400);
+    pointer('pointermove', 1, 200, 400);
+    pointer('pointerup', 1, 200, 400);
+    act(() => { image().dispatchEvent(new Event('load')); });
+    pointer('pointerdown', 1, 300, 400);
+    pointer('pointermove', 1, 210, 400);
+    expect(image().style.transform).toContain('translate(-30px, 0px)');
+    pointer('pointerup', 1, 210, 400);
+    expect(image().getAttribute('src')).toBe('blob:shot-2');
+  });
+
+  it('steps with the arrow keys', () => {
+    const key = (k: string) => act(() => { image().dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); });
+    key('ArrowLeft');
+    expect(image().getAttribute('src')).toBe('blob:shot-0');
+    key('ArrowLeft');
+    expect(image().getAttribute('src')).toBe('blob:shot-0');
+    key('ArrowRight');
+    key('ArrowRight');
+    expect(image().getAttribute('src')).toBe('blob:shot-2');
+  });
+});
