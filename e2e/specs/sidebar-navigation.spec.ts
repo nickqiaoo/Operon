@@ -93,7 +93,7 @@ test('navigation icons keep their size and alignment when the sidebar changes mo
   expect(await measure()).toEqual(expanded)
   await page.screenshot({ path: testInfo.outputPath('collapsed-aligned.png') })
   await expandButton(page).click()
-  await expect.poll(async () => (await sidebar.boundingBox())?.width).toBe(276)
+  await expect.poll(async () => (await sidebar.boundingBox())?.width).toBe(292)
   expect(await measure()).toEqual(expanded)
 })
 
@@ -237,16 +237,16 @@ test('the panel makes way off the workspace views and comes back with them', asy
   }
   // The toggle peeks it out on this view; the next navigation ends the peek.
   await page.getByTestId('toggle-sidebar').click()
-  await expect.poll(width).toBe(276)
+  await expect.poll(width).toBe(292)
   await sidebar.getByRole('button', { name: 'Assistant', exact: true }).click()
   await expect.poll(width).toBe(52)
   await sidebar.getByRole('button', { name: 'Channels', exact: true }).click()
-  await expect.poll(width).toBe(276)
+  await expect.poll(width).toBe(292)
   await expect(sidebar.getByRole('region', { name: 'Channels', exact: true })).toBeVisible()
   await expect(tree).toBeHidden()
   // Going back to the workspace (here through the rail's Projects) brings it back.
   await sidebar.getByRole('button', { name: 'Projects', exact: true }).click()
-  await expect.poll(width).toBe(276)
+  await expect.poll(width).toBe(292)
   await expect(tree).toHaveAttribute('role', 'region')
   await expect(sidebar.getByRole('button', { name: 'Projects', exact: true })).toHaveAttribute('aria-current', 'page')
 })
@@ -269,7 +269,7 @@ test('a workspace lists its latest chats in the tree, and Recent lists them acro
   await page.getByRole('button', { name: 'Projects', exact: true }).hover()
   await expect(page.getByRole('dialog', { name: 'Projects', exact: true })).toBeVisible()
   await rows.getByRole('button').first().click()
-  await expect.poll(async () => (await page.getByTestId('left-sidebar').boundingBox())?.width).toBe(276)
+  await expect.poll(async () => (await page.getByTestId('left-sidebar').boundingBox())?.width).toBe(292)
   await expect(rows.getByRole('button').first()).toHaveAttribute('aria-current', 'page')
 })
 
@@ -386,7 +386,7 @@ test('project tree keeps its node, scroll and folder state when the preview beco
   await page.screenshot({ path: testInfo.outputPath('preview.png') })
   await expandButton(page).click()
   await expect(tree).toHaveAttribute('role', 'region')
-  await expect.poll(async () => (await page.getByTestId('left-sidebar').boundingBox())?.width).toBe(276)
+  await expect.poll(async () => (await page.getByTestId('left-sidebar').boundingBox())?.width).toBe(292)
   await expect(viewport).toHaveAttribute('data-preserved-node', 'yes')
   expect(await viewport.evaluate(element => element.scrollTop)).toBe(140)
   await viewport.evaluate(element => { element.scrollTop = 0 })
@@ -422,7 +422,7 @@ test('sidebar can expand while the right panel occupies the center', async ({ pa
   await expect(page.getByRole('dialog', { name: 'Projects', exact: true })).toBeVisible()
   await expandButton(page).click()
   await expect(page.getByTestId('project-tree')).toHaveAttribute('role', 'region')
-  await expect.poll(async () => (await page.getByTestId('left-sidebar').boundingBox())?.width).toBe(276)
+  await expect.poll(async () => (await page.getByTestId('left-sidebar').boundingBox())?.width).toBe(292)
 })
 
 test('project preview fits the minimum desktop window in light and dark modes', async ({ page }, testInfo) => {
