@@ -8,7 +8,6 @@ export const delegationKeys = {
   all: ['delegations'] as const,
   // Scoped by backend: the web shell can switch which machine it talks to.
   machines: () => ['delegations', getBaseUrlSync(), 'machines'] as const,
-  catalog: (nodeId: string) => ['delegations', getBaseUrlSync(), 'catalog', nodeId] as const,
   settings: () => ['delegations', getBaseUrlSync(), 'settings'] as const,
 }
 
@@ -39,18 +38,6 @@ export function useMachineStatus(nodeId: string | undefined): { label?: string; 
   const { data } = useQuery({ ...delegationMachinesQuery(undefined), enabled: !!nodeId, refetchInterval: 30_000 })
   const machine = nodeId ? data?.machines.find((m) => m.nodeId === nodeId) : undefined
   return machine ? { label: machine.label, online: machine.online } : {}
-}
-
-/** A machine's agents and workspaces, asked through the chat's machine; disabled until one is chosen. */
-export function useDelegationCatalog(nodeId: string | undefined) {
-  const fromNodeId = useChatNodeId()
-  return useQuery({
-    queryKey: onNode(delegationKeys.catalog(nodeId ?? ''), fromNodeId),
-    queryFn: () => apiOn(fromNodeId).delegationCatalog(nodeId!),
-    enabled: !!nodeId,
-    staleTime: 30_000,
-    retry: false,
-  })
 }
 
 export function useDelegationSettings() {

@@ -19,7 +19,7 @@ import type {
 import type { CanvasWorkflow, CanvasWorkflowListItem, CanvasWorkflowRun, CreateCanvasWorkflowInput, UpdateCanvasWorkflowInput } from '@/types/canvas-workflow'
 import type { FileUIPart, UIMessage } from 'ai'
 import type {
-  DelegationMachine, DelegationWorkspace, IncomingDelegation, MachinePairingCode, MachinePairingCodeStatus, MachinePeer,
+  DelegationMachine, IncomingDelegation, MachinePairingCode, MachinePairingCodeStatus, MachinePeer,
 } from '@shared/delegations'
 import type { DetailedContextUsage } from '@/types/context-usage'
 import type { ClaudeRateLimits, CodexRateLimits } from '@/components/editor/utils/chatMetadata'
@@ -418,12 +418,6 @@ export function createApi(transport: ApiTransport) {
 
   return {
       delegationMachines: () => get<{ machines: DelegationMachine[] }>('/delegations/local/machines'),
-      /** Another machine's agents and workspaces, for starting an external agent there. */
-      delegationCatalog: (nodeId: string) => get<{ workspaces: DelegationWorkspace[]; agents: { agentType: string }[] }>(
-        `/delegations/local/machines/${encodeURIComponent(nodeId)}/catalog`),
-      runExternalAgent: (chatId: number, input: {
-        providerId: string; model: string; effort?: string; description: string; prompt: string; target?: string; workspaceId?: number
-      }) => post<{ agent_id: string; chat_id: number }>(`/delegations/local/chats/${chatId}/agents`, input),
       delegationSettings: () => get<{ enabled: boolean; recent: IncomingDelegation[] }>('/delegations/local/settings'),
       setDelegationSettings: (enabled: boolean) => post<{ enabled: boolean; recent: IncomingDelegation[] }>('/delegations/local/settings', { enabled }),
       /** Machines this one is paired with (and those it revoked). */
@@ -434,6 +428,8 @@ export function createApi(transport: ApiTransport) {
       cancelMachinePairing: () => del<{ ok: true }>('/delegations/local/pair/code'),
       /** Enter the code another machine shows. */
       joinMachinePairing: (code: string) => post<{ peer: MachinePeer }>('/delegations/local/pair/join', { code }),
+      /** A code for a server to join the account and pair with this machine (`operon node join`). Also shows a pairing code. */
+      startNodeEnrollment: () => post<MachinePairingCode>('/delegations/local/enroll/code', {}),
       revokeMachinePeer: (nodeId: string) => post<{ peer: MachinePeer }>(`/delegations/local/peers/${encodeURIComponent(nodeId)}/revoke`, {}),
       // --- Git (HTTP) ---
       gitStatus: httpClient.gitStatus,

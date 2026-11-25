@@ -41,6 +41,11 @@ jobs:
           merge-multiple: true
           path: release
 
+      - uses: actions/download-artifact@v7
+        with:
+          name: node-package-${{ inputs.version }}
+          path: release
+
       - name: Merge latest-mac.yml for both architectures
         run: node scripts/merge-latest-mac.mjs
 

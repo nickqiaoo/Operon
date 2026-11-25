@@ -1,14 +1,16 @@
-import { useCallback, useEffect, type ReactNode } from "react"
-import { useQueryClient } from "@tanstack/react-query"
+import { useCallback, useContext, useEffect, type ReactNode } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useIntl } from "react-intl"
-import { ChevronRight, Folder, FolderOpen, Monitor } from "lucide-react"
+import { ChevronRight, Folder, FolderOpen, KeyRound, Monitor } from "lucide-react"
+import { MachineActionsContext } from "@/components/web/MachineSwitcher"
 import { cn } from "@/lib/utils"
 import { subscribeEvents } from "@/lib/event-stream"
-import { useDelegationMachines } from "@/lib/delegation-queries"
+import { delegationMachinesQuery } from "@/lib/delegation-queries"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { remoteFoldKey, useProjectStore, type Project, type Workspace } from "@/stores/project-store"
 import { useChatPresenceStore } from "@/stores/chat-presence-store"
 import { chatHistoryKeys } from "@/lib/chat-queries"
+import { providersQueryFor } from "@/lib/provider-queries"
 import { nodeChatIds } from "@/lib/chat-ref"
 import type { DelegationMachine } from "@shared/delegations"
 
@@ -26,13 +28,15 @@ import type { DelegationMachine } from "@shared/delegations"
 
 /**
  * Other machines of the account this one is paired with (an unpaired one cannot
- * be reached). Desktop only: the web shell already is one machine's UI.
+ * be reached). On web "this one" is the selected machine, so the sidebar is that
+ * machine's; the browser then reaches each of the others itself.
+ *
+ * Always as this machine sees them, also inside another machine's chat (the
+ * draft's project picker): asked there, "current" would be that machine and
+ * this one would be listed among the others.
  */
 export function useOtherMachines(): DelegationMachine[] {
-  const { data } = useDelegationMachines({
-    enabled: __APP_TARGET__ !== "web",
-    refetchInterval: 30_000,
-  })
+  const { data } = useQuery({ ...delegationMachinesQuery(undefined), refetchInterval: 30_000 })
   return data?.machines.filter((machine) => !machine.current && machine.paired !== false) ?? NO_MACHINES
 }
 
@@ -51,7 +55,7 @@ export const MACHINE_GROUP_GAP = "pt-3"
 
 /** This machine's label, for the header over the local tree once there are others. */
 export function useThisMachineLabel(): string | null {
-  const { data } = useDelegationMachines({ enabled: __APP_TARGET__ !== "web", refetchInterval: 30_000 })
+  const { data } = useQuery({ ...delegationMachinesQuery(undefined), refetchInterval: 30_000 })
   return data?.machines.find((machine) => machine.current)?.label ?? null
 }
 
@@ -221,10 +225,16 @@ function RemoteMachineTree({ machine, activeWorkspaceId, renderWorkspace }: {
     }
   }, [nodeId, online, reachable, loadRemoteProjects])
 
+  const queryClient = useQueryClient()
+  // Its agents, read ahead: a new chat there picks one, and asking only then
+  // kept the chat from opening for as long as that machine took to answer.
+  useEffect(() => {
+    if (online && reachable) void queryClient.prefetchQuery(providersQueryFor(nodeId))
+  }, [queryClient, nodeId, online, reachable])
+
   // A turn starting or ending there moves its chat to the top of its workspace's
   // rows, as this machine's do (ActiveConversations). Presence of another machine
   // is followed while one of its chats is open; the lists also poll.
-  const queryClient = useQueryClient()
   const runningKey = useChatPresenceStore((s) => [...nodeChatIds(s.runningChats, nodeId)].sort((a, b) => a - b).join(","))
   // It is also when an agent's edits land, so the rows' +N/-N are read again.
   useEffect(() => {
@@ -236,6 +246,11 @@ function RemoteMachineTree({ machine, activeWorkspaceId, renderWorkspace }: {
   }, [queryClient, nodeId, runningKey])
 
   const projects = tree?.projects ?? []
+  // Web: this browser has not paired with that machine yet. Unlike a refusal,
+  // this one you can fix from here.
+  if (online && failed && tree.needsPairing) {
+    return <UnpairedMachine machine={machine} onPaired={() => void loadRemoteProjects(nodeId)} />
+  }
   // Only a machine that is online and answered: one that is offline, still
   // connecting, turned receiving off or runs an older version would be a row
   // you cannot use. A tree loaded earlier stays cached for when it is back.
@@ -266,6 +281,30 @@ function RemoteMachineTree({ machine, activeWorkspaceId, renderWorkspace }: {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+/** Web: a machine whose tree needs this browser paired with it first. */
+function UnpairedMachine({ machine, onPaired }: { machine: DelegationMachine; onPaired: () => void }) {
+  const intl = useIntl()
+  const actions = useContext(MachineActionsContext)
+  if (!actions) return null
+  return (
+    <div data-testid={`machine-unpaired-${machine.nodeId}`} className={MACHINE_GROUP_GAP}>
+      <MachineHeader label={machine.label} foldable={false} open={false} onToggle={() => {}} />
+      <div className="px-2">
+        <button
+          type="button"
+          onClick={() => actions.onPairMachine({ nodeId: machine.nodeId, label: machineDisplayName(machine.label), onPaired })}
+          className="flex w-full min-w-0 items-center gap-1.5 rounded-lg py-1 pl-2 pr-2 text-left text-xs text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:py-2"
+        >
+          <KeyRound className="size-4 shrink-0" strokeWidth={1.5} aria-hidden />
+          <span className="min-w-0 flex-1 truncate">
+            {intl.formatMessage({ id: "sidebar.machine.pairBrowser", defaultMessage: "Pair this browser" })}
+          </span>
+        </button>
+      </div>
     </div>
   )
 }

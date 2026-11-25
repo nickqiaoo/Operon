@@ -390,6 +390,7 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func presentContextSheet(_ call: CAPPluginCall) {
         let title = call.getString("title") ?? "Switch project"
         let emptyText = call.getString("emptyText") ?? "No projects yet."
+        let activeNodeId = call.getString("activeNodeId")
         let activeProjectId = call.getInt("activeProjectId")
         let activeWorkspaceId = call.getInt("activeWorkspaceId")
         let activeSpecId = call.getInt("activeSpecId")
@@ -404,7 +405,10 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
                       let sid = spec["id"] as? Int, let name = spec["name"] as? String else { return nil }
                 return .init(id: sid, name: name)
             }
-            return ContextSheetProject(id: id, name: name, workspaces: workspaces, specs: specs)
+            return ContextSheetProject(
+                id: id, name: name, workspaces: workspaces, specs: specs,
+                nodeId: raw["nodeId"] as? String, machine: raw["machine"] as? String
+            )
         }
         DispatchQueue.main.async { [weak self] in
             guard let presenter = self?.bridge?.viewController?.parent else {
@@ -416,13 +420,15 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
                 title: title,
                 emptyText: emptyText,
                 projects: projects,
+                activeNodeId: activeNodeId,
                 activeProjectId: activeProjectId,
                 activeWorkspaceId: activeWorkspaceId,
                 activeSpecId: activeSpecId,
-                onPick: { projectId, workspaceId, specId in
+                onPick: { projectId, workspaceId, specId, nodeId in
                     var data: [String: Any] = ["projectId": projectId]
                     if let workspaceId { data["workspaceId"] = workspaceId }
                     if let specId { data["specId"] = specId }
+                    if let nodeId { data["nodeId"] = nodeId }
                     self?.notifyListeners("contextPicked", data: data)
                 },
                 onDismiss: {

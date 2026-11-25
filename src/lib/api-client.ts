@@ -37,16 +37,24 @@ import type {
 let _baseUrl: string | null = null
 let _apiToken: string | null = null
 
+/**
+ * Web client: a machine's backend as Broker tunnels it, or null before sign-in.
+ * userId comes from the login token. Not cached — the user can switch nodes at runtime.
+ */
+function brokerNodeBaseUrl(nodeId: string | null): string | null {
+  const broker = (import.meta.env.VITE_BROKER_URL ?? '').replace(/\/$/, '')
+  const userId = getUserId()
+  if (!userId || !nodeId) return null
+  return `${broker}/u/${userId}/n/${encodeURIComponent(nodeId)}/api`
+}
+
 export async function getBaseUrl(): Promise<string> {
   if (__APP_TARGET__ === 'web') {
-    // Web client: every request goes to the cloud broker, which tunnels it to the
-    // selected node's local backend. userId comes from the login token, nodeId from
-    // the picker. Not cached — the user can switch nodes at runtime.
-    const broker = (import.meta.env.VITE_BROKER_URL ?? '').replace(/\/$/, '')
-    const userId = getUserId()
-    const nodeId = getSelectedNodeId()
-    if (!userId || !nodeId) throw new Error('web client not authenticated / no node selected')
-    return `${broker}/u/${userId}/n/${nodeId}/api`
+    // Every request goes to the cloud broker, which tunnels it to the node picked
+    // in the machine picker.
+    const base = brokerNodeBaseUrl(getSelectedNodeId())
+    if (!base) throw new Error('web client not authenticated / no node selected')
+    return base
   }
 
   if (_baseUrl) return _baseUrl
@@ -108,13 +116,7 @@ export function withApiTokenQuery(url: string): string {
  * null as "not ready" and retry after awaiting `getBaseUrl()`.
  */
 export function getBaseUrlSync(): string | null {
-  if (__APP_TARGET__ === 'web') {
-    const broker = (import.meta.env.VITE_BROKER_URL ?? '').replace(/\/$/, '')
-    const userId = getUserId()
-    const nodeId = getSelectedNodeId()
-    if (!userId || !nodeId) return null
-    return `${broker}/u/${userId}/n/${nodeId}/api`
-  }
+  if (__APP_TARGET__ === 'web') return brokerNodeBaseUrl(getSelectedNodeId())
   return _baseUrl
 }
 
@@ -148,14 +150,35 @@ export const localTransport: ApiTransport = {
 const remoteTransports = new Map<string, ApiTransport>()
 
 /**
- * Another machine of the account, reached through this machine's server
- * (`/api/remote/:nodeId/*` relays end-to-end encrypted over the Broker). The
- * renderer still only ever talks to its own server, with its own token: the
- * relay authenticates to the other machine. One instance per machine, so it can
- * serve as a stable React dependency and cache key.
+ * Another machine of the account. One instance per machine, so it can serve as
+ * a stable React dependency and cache key.
+ *
+ * Desktop: reached through this machine's server (`/api/remote/:nodeId/*`
+ * relays end-to-end encrypted over the Broker). The renderer still only ever
+ * talks to its own server, with its own token: the relay authenticates to the
+ * other machine.
+ *
+ * Web: straight through Broker, the way the selected machine is reached, with
+ * this browser's own pairing with that machine (`secure-fetch` picks the key
+ * from the URL). The selected machine will not relay for it: a device it
+ * approved must not reach a machine that never approved it.
  */
 export function remoteTransport(nodeId: string): ApiTransport {
   let transport = remoteTransports.get(nodeId)
+  if (!transport && __APP_TARGET__ === 'web') {
+    transport = {
+      nodeId,
+      baseUrl: async () => {
+        const base = brokerNodeBaseUrl(nodeId)
+        if (!base) throw new Error('web client not authenticated')
+        return base
+      },
+      baseUrlSync: () => brokerNodeBaseUrl(nodeId),
+      authHeaders: apiAuthHeaders,
+      withTokenQuery: withApiTokenQuery,
+    }
+    remoteTransports.set(nodeId, transport)
+  }
   if (!transport) {
     const prefix = `/remote/${encodeURIComponent(nodeId)}`
     transport = {

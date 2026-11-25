@@ -169,9 +169,64 @@ jobs:
           overwrite: true
           retention-days: 7
 
+  # The headless node for Linux servers (`operon serve` / `operon node join`), as an
+  # npm tarball attached to the same release. Not macOS, but it ships with every
+  # desktop version, so it is built and published alongside it.
+  node-package:
+    name: Build headless node package
+    needs: version
+    if: needs.version.outputs.version != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          SKIP_ELECTRON_REBUILD: '1'
+
+      - name: Build the package
+        run: node scripts/build-node-package.mjs
+
+      # Install it the way a user does, on a clean prefix, and check the node
+      # actually starts and answers: a missing external or runtime file only
+      # shows up when the bundle runs.
+      - name: Smoke test
+        run: |
+          prefix="$RUNNER_TEMP/operon-node"
+          npm install -g --prefix "$prefix" "release/operon-node-${{ needs.version.outputs.version }}.tgz"
+          "$prefix/bin/operon" --version
+          export OPERON_HOME="$RUNNER_TEMP/operon-home" OPERON_PORT=39417
+          "$prefix/bin/operon" serve > "$RUNNER_TEMP/serve.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fs http://127.0.0.1:39417/api/health > /dev/null; then
+              "$prefix/bin/operon" node status
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/serve.log"
+          echo "::error::The headless node did not start"
+          exit 1
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: node-package-${{ needs.version.outputs.version }}
+          path: release/operon-node-${{ needs.version.outputs.version }}.tgz
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     name: Publish
-    needs: [version, build]
+    needs: [version, build, node-package]
     # From test.yml the caller publishes after the tests; here only the manual path.
     if: github.event_name == 'workflow_dispatch' && needs.version.outputs.version != ''
     permissions:

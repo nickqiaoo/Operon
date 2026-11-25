@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { foldResourceState } from './agent-session-queries'
+import { foldResourceState, sectionPollInterval } from './agent-session-queries'
 
 const NO_SESSION = 'No active session'
 
@@ -62,5 +62,20 @@ describe('foldResourceState', () => {
       expect(step(failed)).toEqual({ error: NO_SESSION, loading: false, settled: true })
     }
     expect(step(succeeded)).toEqual({ error: null, loading: false, settled: true })
+  })
+})
+
+describe('sectionPollInterval', () => {
+  it('stops polling a chat that has no session, until a turn asks again', () => {
+    expect(sectionPollInterval(4000, new Error(NO_SESSION))).toBe(false)
+  })
+
+  it('keeps polling through other errors and on success', () => {
+    expect(sectionPollInterval(4000, null)).toBe(4000)
+    expect(sectionPollInterval(4000, new Error('Network error'))).toBe(4000)
+  })
+
+  it('never polls a load-once section', () => {
+    expect(sectionPollInterval(0, null)).toBe(false)
   })
 })

@@ -8,7 +8,15 @@ back. The tunnel protocol is documented alongside the broker implementation.
 broker ──WS frames──► tunnel-agent ──fetch──► 127.0.0.1/api (server/)
 ```
 
-## Run
+> **Not how a server joins operon.** This standalone entry is for developing
+> against a local broker. It does not register a delegation key, so the
+> account's other machines cannot pair with it or open it. To run operon on a
+> server, install the headless node from a GitHub release and use
+> `operon service install` + `operon node join <code>`
+> (see `docs/remote-tunnel/broker-deployment.md`, "Connecting a node"). The
+> server embeds this agent itself (`server/src/services/saas-runtime.ts`).
+
+## Run (development)
 
 ```bash
 # from the repo root (uses root node_modules: ws, tsx)

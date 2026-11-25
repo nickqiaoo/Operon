@@ -74,6 +74,16 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+describe('brokerNodeIdOf', () => {
+  it('reads the machine a Broker tunnel URL goes to', async () => {
+    const { brokerNodeIdOf } = await importWebAuth()
+    expect(brokerNodeIdOf('https://broker.example/u/user-1/n/node-b/api/projects')).toBe('node-b')
+    expect(brokerNodeIdOf('https://broker.example/u/user-1/n/node%3Ab/api')).toBe('node:b')
+    expect(brokerNodeIdOf('https://broker.example/auth/nodes')).toBeNull()
+    expect(brokerNodeIdOf('not a url')).toBeNull()
+  })
+})
+
 describe('machine list failures', () => {
   beforeEach(() => {
     const claims = btoa(JSON.stringify({ sub: 'test-user', exp: Math.floor(Date.now() / 1000) + 3600 }))

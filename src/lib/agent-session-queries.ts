@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { useQuery, type UseQueryResult } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
+import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
 import * as agent from '@/components/editor/agent/agentControl'
 import { useInstalledPlugins } from './plugin-queries'
 import { useChatRef } from './chat-api-context'
@@ -163,6 +163,20 @@ interface SectionOptions {
   intervalMs: number
 }
 
+/** What the server answers for a chat that has no runtime session (yet, or any more). */
+export const NO_SESSION = /no active session/i
+
+/**
+ * The poll interval, or none while the chat has no session: a chat reopened from
+ * history has none until its next turn, and asking every few seconds until then
+ * only fills the network log with 400s. `useAgentSessionState` asks again when a
+ * turn starts.
+ */
+export function sectionPollInterval(intervalMs: number, error: Error | null): number | false {
+  if (intervalMs <= 0) return false
+  return error && NO_SESSION.test(error.message) ? false : intervalMs
+}
+
 function useSessionSection<T>(
   providerId: string | undefined,
   chat: ChatRef,
@@ -174,7 +188,7 @@ function useSessionSection<T>(
     queryKey: agentSessionKeys.section(providerId, chat, section),
     queryFn: () => fetcher(chat),
     enabled,
-    refetchInterval: intervalMs > 0 ? intervalMs : false,
+    refetchInterval: (query) => sectionPollInterval(intervalMs, query.state.error),
     // A hidden window doesn't burn requests.
     refetchIntervalInBackground: false,
     // "No session yet" comes back as an error the panel reads at once; retrying it only delays that.
@@ -204,16 +218,28 @@ export function useAgentSessionState({
   open,
   fullInspector,
   pollMs,
+  running = false,
 }: {
   providerId: string | undefined
   chatId: number | undefined
   open: boolean
   fullInspector: boolean
   pollMs: number
+  /** The chat has a turn in progress. A turn starting is when a missing session appears. */
+  running?: boolean
 }): AgentSessionState {
   const live = open && chatId != null
   const id = useChatRef(chatId) ?? NO_CHAT
   const full = live && fullInspector
+  // Polling stops while the chat has no session; a turn starting brings one, so look again.
+  const queryClient = useQueryClient()
+  const chat = chatKey(id)
+  useEffect(() => {
+    if (!running || !live) return
+    void queryClient.invalidateQueries({ queryKey: agentSessionKeys.session(providerId, id) })
+    // `chat` stands for `id`, whose object identity may change without the chat changing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running, live, queryClient, providerId, chat])
   const pluginsQuery = useInstalledPlugins({ enabled: open && fullInspector })
   return {
     mcp: useSessionSection(providerId, id, 'mcp', agent.mcpList, { enabled: live, intervalMs: pollMs }),

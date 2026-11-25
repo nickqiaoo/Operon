@@ -8,6 +8,11 @@ function env(key: string, def: string): string {
 }
 
 async function main(): Promise<void> {
+  console.warn(
+    '[agent] standalone agent: for development against a local broker only. It registers no delegation key, so other machines\n' +
+    '        cannot pair with or open this one. On a server, run the headless node instead: `operon service install`, then\n' +
+    '        `operon node join <code>` (the server embeds this agent itself).',
+  )
   // Prefer explicit env; otherwise fall back to the desktop SaaS login config for
   // the node's identity. The broker address is NOT taken from that file — it is a
   // property of whoever is running this agent, so a standalone agent is configured

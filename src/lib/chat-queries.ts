@@ -62,6 +62,8 @@ const dedupeById = (items: ChatHistoryListItem[]): ChatHistoryListItem[] => {
 
 interface UseChatHistoryListOptions {
   workspaceId: number | null | undefined
+  /** The machine the workspace is on (undefined: this one). */
+  nodeId?: string
   /** Server-side `tp` filter ("chat", "canvas", …). Omit for every kind. */
   tp?: string
   pageSize: number
@@ -77,15 +79,16 @@ interface UseChatHistoryListOptions {
 
 export function useChatHistoryList({
   workspaceId,
+  nodeId,
   tp,
   pageSize,
   enabled = true,
   staleTime = 5_000,
 }: UseChatHistoryListOptions) {
   const query = useInfiniteQuery({
-    queryKey: chatHistoryKeys.list(workspaceId, tp),
+    queryKey: onNode(chatHistoryKeys.list(workspaceId, tp), nodeId),
     queryFn: ({ pageParam }) =>
-      api.chatHistoryList(workspaceId ?? undefined, tp, { limit: pageSize, offset: pageParam }),
+      apiOn(nodeId).chatHistoryList(workspaceId ?? undefined, tp, { limit: pageSize, offset: pageParam }),
     initialPageParam: 0,
     // A short page means the server ran out of rows. Offset counts raw rows, not
     // deduped ones, or the next page would skip whatever we dropped.

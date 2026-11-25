@@ -50,6 +50,18 @@ export function claimChatInput(chatId: string, inputKey: string): boolean {
   return true
 }
 
+/**
+ * Hand a draft to another tab, files included: their blob URLs go with it rather
+ * than being revoked, so closing the old tab afterwards leaves them working.
+ */
+export function moveChatDraft(fromChatId: string, toChatId: string): void {
+  const draft = drafts.get(fromChatId)
+  drafts.delete(fromChatId)
+  if (!draft) return
+  const { appliedInputKey: _applied, ...rest } = draft
+  drafts.set(toChatId, rest)
+}
+
 export function clearChatDraft(chatId: string): void {
   for (const file of drafts.get(chatId)?.files ?? []) {
     if (file.url?.startsWith("blob:")) URL.revokeObjectURL(file.url)

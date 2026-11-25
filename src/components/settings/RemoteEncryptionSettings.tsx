@@ -108,8 +108,7 @@ export function RemoteEncryptionSettings() {
   return (
     <section className="space-y-3 border-t border-border/40 pt-4">
       <div className="flex items-start gap-3">
-        <ShieldCheck className="mt-0.5 h-4 w-4 text-status-ok" />
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <div className="text-sm font-medium">
             <FormattedMessage id="settings.remote.devices.title" defaultMessage="Phones and browsers" />
           </div>

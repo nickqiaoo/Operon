@@ -1,3 +1,4 @@
+import { hostname } from 'node:os'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import {
@@ -5,7 +6,7 @@ import {
 } from '@shared/delegations'
 import { DELEGATION_SOURCE_HEADER, DELEGATION_SOURCE_LABEL_HEADER, DELEGATION_TUNNEL_HEADER, REMOTE_TUNNEL_HEADER } from '@shared/e2ee/protocol'
 import { delegationProviderIds, type DelegationHost } from '../services/delegation-host.js'
-import { DelegationHttpError, delegationRequest, listDelegationNodes } from '../services/delegation-transport.js'
+import { DelegationHttpError, listDelegationNodes } from '../services/delegation-transport.js'
 import {
   createExternalAgent, externalAgentView, getExternalAgentStatus, sendExternalAgent, stopExternalAgent,
 } from '../services/external-agent.js'
@@ -15,7 +16,7 @@ import {
 } from '../services/machine-pairing.js'
 import { listMachinePeers, revokePeer } from '../services/machine-peers.js'
 import { trustedDelegationTunnel } from '../services/delegation-tunnel.js'
-import { getChatStorage } from '../services/ai/state.js'
+import { createNodeEnrollmentCode, joinWithNodeEnrollmentCode, leaveAccount, nodeAccountStatus } from '../services/node-enrollment.js'
 
 const nodeId = z.string().regex(DELEGATION_NODE_ID)
 const providerId = z.string().regex(DELEGATION_PROVIDER_ID)
@@ -39,11 +40,6 @@ const agentEvent = z.discriminatedUnion('type', [
     workspace: z.object({ id: positiveId, branch: z.string().max(500), worktreePath: z.string().max(4_000) }).optional(),
   }),
 ])
-const launch = z.object({
-  providerId, model: setting, effort: setting.optional(),
-  description: z.string().trim().min(1).max(300), prompt: z.string().trim().min(1).max(100_000),
-  target: nodeId.optional(), workspaceId: z.number().int().positive().optional(),
-})
 
 export function delegationRoutes(host: DelegationHost) {
   const app = new Hono()
@@ -166,31 +162,31 @@ export function delegationRoutes(host: DelegationHost) {
     const { code } = z.object({ code: z.string().trim().min(1).max(64) }).parse(await c.req.json())
     return c.json({ peer: await joinWithPairingCode(code) })
   })
+  // Adding a server with no browser (see node-enrollment.ts). The desktop asks for
+  // the code; the server redeems it, driven by `operon node join` over loopback.
+  app.post('/local/enroll/code', async (c) => {
+    onThisMachine(c)
+    return c.json(await createNodeEnrollmentCode())
+  })
+  app.post('/local/enroll/join', async (c) => {
+    onThisMachine(c)
+    const body = z.object({ code: z.string().trim().min(1).max(128), label: z.string().trim().max(80).optional() }).parse(await c.req.json())
+    return c.json(await joinWithNodeEnrollmentCode(body.code, body.label || hostname(), (enabled) => host.setAccepting(enabled)))
+  })
+  app.get('/local/account', async (c) => {
+    onThisMachine(c)
+    return c.json({ ...(await nodeAccountStatus()), acceptingOtherMachines: host.accepting() })
+  })
+  app.post('/local/account/leave', async (c) => {
+    onThisMachine(c)
+    return c.json(await leaveAccount())
+  })
   app.post('/local/peers/:nodeId/revoke', (c) => {
     onThisMachine(c)
     const peer = revokePeer(nodeId.parse(c.req.param('nodeId')))
     if (!peer) throw new DelegationHttpError(404, 'This machine was never paired with that one')
     schedulePeerSync()
     return c.json({ peer })
-  })
-  app.get('/local/machines/:nodeId/catalog', async (c) => {
-    const target = nodeId.parse(c.req.param('nodeId'))
-    return c.json(await delegationRequest(target, '/api/delegations/catalog?models=0'))
-  })
-  // The Agents panel's "Run external agent": the same call the parent's agent makes.
-  app.post('/local/chats/:chatId/agents', async (c) => {
-    const chatId = z.number().int().positive().parse(Number(c.req.param('chatId')))
-    const input = launch.parse(await c.req.json())
-    const parent = getChatStorage()?.getChatMeta(chatId)
-    if (!parent || parent.tp !== 'chat' || parent.metadata?.sshEnvironment || parent.metadata?.assistantSpec) {
-      throw new DelegationHttpError(400, 'External agents start from a regular workspace conversation')
-    }
-    const result = await createExternalAgent({
-      parent: { chatId }, providerId: input.providerId, model: input.model, effort: input.effort,
-      description: input.description, prompt: input.prompt,
-      ...(input.target ? { remote: { nodeId: input.target, workspaceId: input.workspaceId } } : {}),
-    })
-    return c.json(result, 202)
   })
   return app
 }

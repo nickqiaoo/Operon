@@ -39,7 +39,7 @@ fi
 
 node scripts/extract-release-notes.mjs "$VERSION" "$CHANGELOG_FILE" > "$NOTES_FILE"
 
-# Collect release files (dmg, zip, blockmap, yml)
+# Collect release files (dmg, zip, blockmap, yml, and the headless node's npm tarball)
 FILES=()
 for f in \
   "${RELEASE_DIR}/Operon-${VERSION}-arm64.dmg" \
@@ -51,7 +51,8 @@ for f in \
   "${RELEASE_DIR}/Operon-${VERSION}-mac.zip" \
   "${RELEASE_DIR}/Operon-${VERSION}-mac.zip.blockmap" \
   "${RELEASE_DIR}/latest-mac.yml" \
-  "${RELEASE_DIR}/latest-mac-arm64.yml"; do
+  "${RELEASE_DIR}/latest-mac-arm64.yml" \
+  "${RELEASE_DIR}/operon-node-${VERSION}.tgz"; do
   if [ -n "$RELEASE_TARGET" ] && [ ! -s "$f" ]; then
     echo "Error: missing or empty release asset: $f" >&2
     exit 1

@@ -51,8 +51,9 @@ interface SecureSocketState {
 
 /**
  * One machine's terminal socket. This machine's is the module-level instance
- * below; another machine's goes through this machine's server relay
- * (`/api/remote/:nodeId/terminal/ws`), so it still presents this server's token.
+ * below. On desktop another machine's goes through this machine's server relay
+ * (`/api/remote/:nodeId/terminal/ws`), so it still presents this server's token;
+ * on web it goes straight through Broker, sealed with this browser's key for it.
  */
 export function createTerminalClient(transport: ApiTransport) {
   const getBaseUrl = () => transport.baseUrl()
@@ -195,7 +196,8 @@ export function createTerminalClient(transport: ApiTransport) {
         throw new Error('Not authenticated')
       }
       if (__APP_TARGET__ === 'web') {
-        const nodeId = getSelectedNodeId()
+        // The machine this socket goes to: another one carries its own pairing key.
+        const nodeId = transport.nodeId ?? getSelectedNodeId()
         const pairing = nodeId ? await getRemotePairing(nodeId) : null
         // No key for this machine: offer a plain handshake and let the machine
         // rule on it, the same way secure-fetch does. One running with E2EE off
@@ -234,7 +236,8 @@ export function createTerminalClient(transport: ApiTransport) {
         }
         socket.onerror = () => {
           cleanup()
-          if (__APP_TARGET__ === 'web') notifyNodeOffline()
+          // Another machine going away only hides it in the sidebar; this one is the whole app.
+          if (__APP_TARGET__ === 'web' && !transport.nodeId) notifyNodeOffline()
           reject(new Error('Failed to connect terminal websocket'))
         }
       })

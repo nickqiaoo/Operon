@@ -19,13 +19,14 @@ import { Switch } from '@/components/ui/switch';
 import { useChatApi, useChatNodeId } from '@/lib/chat-api-context';
 import type { GitBranchEntry } from '@/lib/api-client';
 import { gitKeys, useGitBranches } from '@/lib/git-queries';
-import { moveDraftToWorkspace, rememberChatProvider } from '@/lib/new-chat';
+import { moveDraftToMachine, moveDraftToWorkspace, rememberChatProvider } from '@/lib/new-chat';
 import { useProviders, type ProviderSummary } from '@/lib/provider-queries';
 import { cn } from '@/lib/utils';
 import { mainWorkspaceOf } from '@/lib/workspace-actions';
 import { useDraftChatStore } from '@/stores/draft-chat-store';
 import { useEditorStore } from '@/stores/editor-store';
 import { projectsOn, useProjectStore, type Project, type Workspace } from '@/stores/project-store';
+import { machineDisplayName, useOtherMachines, useThisMachineLabel } from '@/components/project/RemoteMachineTrees';
 import { sshEnvironmentsQuery } from '@/lib/ssh-environments';
 import { useNavigationStore } from '@/stores/navigation-store';
 import type { SshEnvironmentRef } from '@shared/ssh-environment';
@@ -174,21 +175,62 @@ function AgentPicker({ tabId, providerId }: { tabId: string; providerId: string 
   );
 }
 
+/** One machine's projects in the picker; `nodeId` null is this machine. */
+interface MachineProjects {
+  nodeId: string | null;
+  label: string | null;
+  projects: Project[];
+}
+
+const byPinned = (projects: Project[]) =>
+  [...projects].sort((a, b) => Number(b.pinnedAt != null) - Number(a.pinnedAt != null));
+
+/**
+ * Every machine's projects, this one first, then the others whose tree answered
+ * (the ones the sidebar shows). A draft can go to any of them.
+ */
+function useMachineProjects(): MachineProjects[] {
+  const thisLabel = useThisMachineLabel();
+  const others = useOtherMachines();
+  const local = useProjectStore((s) => s.projects);
+  const remote = useProjectStore((s) => s.remoteProjects);
+  return useMemo(() => {
+    const groups: MachineProjects[] = [{ nodeId: null, label: thisLabel, projects: byPinned(local) }];
+    for (const machine of others) {
+      const tree = remote[machine.nodeId];
+      if (!machine.online || !tree?.loaded || tree.error != null) continue;
+      groups.push({ nodeId: machine.nodeId, label: machine.label, projects: byPinned(tree.projects) });
+    }
+    return groups;
+  }, [thisLabel, others, local, remote]);
+}
+
 function ProjectPicker({ tabId, current }: { tabId: string; current: { project: Project; workspace: Workspace } | null }) {
   const intl = useIntl();
   const [open, setOpen] = useState(false);
-  // A draft stays on its machine: only that machine's projects are offered.
-  const nodeId = useChatNodeId();
-  const projects = useProjectStore((s) => projectsOn(s, nodeId));
+  // The draft's machine. Picking a project on another one moves the draft there.
+  const nodeId = useChatNodeId() ?? null;
+  const groups = useMachineProjects();
   const creating = useDraftChatStore((s) => s.byTab[tabId]?.creating ?? false);
-
-  // Pinned first, as in the sidebar; otherwise the store's order.
-  const orderedProjects = useMemo(
-    () => [...projects].sort((a, b) => Number(b.pinnedAt != null) - Number(a.pinnedAt != null)),
-    [projects],
-  );
+  const machineCount = groups.length;
+  const empty = groups.every((group) => group.projects.length === 0);
   // A draft opened inside a worktree keeps saying which one.
   const inWorktree = current != null && mainWorkspaceOf(current.project)?.id !== current.workspace.id;
+  const draftMachine = machineCount > 1 ? groups.find((group) => group.nodeId === nodeId)?.label : null;
+
+  const pick = (group: MachineProjects, project: Project) => {
+    const target = mainWorkspaceOf(project);
+    if (!target) return;
+    if (group.nodeId === nodeId) {
+      if (target.id !== current?.workspace.id) moveDraftToWorkspace(tabId, target.id, project.id, nodeId ?? undefined);
+      return;
+    }
+    void moveDraftToMachine(tabId, target.id, project.id, group.nodeId).catch((error: unknown) => {
+      toast.error(intl.formatMessage({ id: 'draftChat.moveMachineFailed', defaultMessage: 'Could not open the chat on that machine' }), {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    });
+  };
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -201,6 +243,12 @@ function ProjectPicker({ tabId, current }: { tabId: string; current: { project: 
         <Folder className="size-3.5 shrink-0" strokeWidth={1.75} />
         {current ? (
           <span className="flex min-w-0 items-center gap-1">
+            {draftMachine && (
+              <>
+                <span className="min-w-0 max-w-32 shrink-[0.5] truncate">{machineDisplayName(draftMachine)}</span>
+                <span aria-hidden className="shrink-0 text-muted-foreground/40">›</span>
+              </>
+            )}
             <span className="min-w-0 shrink truncate">{current.project.name}</span>
             {inWorktree && (
               <>
@@ -219,34 +267,48 @@ function ProjectPicker({ tabId, current }: { tabId: string; current: { project: 
       <DropdownMenuContent
         side="top"
         align="start"
-        className="max-h-[min(60vh,28rem)] w-56 overflow-y-auto"
+        className="max-h-[min(60vh,28rem)] w-64 overflow-y-auto"
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
-        {orderedProjects.length === 0 && (
+        {empty && (
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
             <FormattedMessage id="draftChat.noProjects" defaultMessage="No projects yet" />
           </div>
         )}
-        {orderedProjects.map((project) => {
-          const target = mainWorkspaceOf(project);
-          const selected = current?.project.id === project.id;
-          return (
-            <DropdownMenuItem
-              key={project.id}
-              data-testid={`draft-project-option-${project.id}`}
-              className="gap-2"
-              title={project.rootPath}
-              disabled={!target}
-              onSelect={() => {
-                if (target && target.id !== current?.workspace.id) moveDraftToWorkspace(tabId, target.id, project.id, nodeId);
-              }}
-            >
-              <Folder className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
-              <span className="min-w-0 flex-1 truncate">{project.name}</span>
-              {selected && <Check className="size-3.5 shrink-0 text-muted-foreground" />}
-            </DropdownMenuItem>
-          );
-        })}
+        {groups.map((group, index) => group.projects.length > 0 && (
+          <div key={group.nodeId ?? 'local'} role="group">
+            {machineCount > 1 && (
+              <>
+                {index > 0 && <DropdownMenuSeparator />}
+                <DropdownMenuLabel className="flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                  <Monitor className="size-3.5 shrink-0" strokeWidth={1.75} />
+                  <span className="min-w-0 truncate">
+                    {group.label
+                      ? machineDisplayName(group.label)
+                      : intl.formatMessage({ id: 'draftChat.thisMachine', defaultMessage: 'This machine' })}
+                  </span>
+                </DropdownMenuLabel>
+              </>
+            )}
+            {group.projects.map((project) => {
+              const selected = group.nodeId === nodeId && current?.project.id === project.id;
+              return (
+                <DropdownMenuItem
+                  key={project.id}
+                  data-testid={group.nodeId ? `draft-project-option-${group.nodeId}-${project.id}` : `draft-project-option-${project.id}`}
+                  className="gap-2"
+                  title={project.rootPath}
+                  disabled={!mainWorkspaceOf(project)}
+                  onSelect={() => pick(group, project)}
+                >
+                  <Folder className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+                  <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                  {selected && <Check className="size-3.5 shrink-0 text-muted-foreground" />}
+                </DropdownMenuItem>
+              );
+            })}
+          </div>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );

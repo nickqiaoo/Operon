@@ -17,7 +17,7 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/lib/analytics", () => ({ trackEvent: vi.fn() }))
 vi.mock("@/lib/web-auth", () => ({ getSelectedNodeId: () => null }))
 
-import { findWorkspaceOn, isTransientRemoteError, projectsOn, pruneRemoteFoldKeys, remoteFoldKey, useProjectStore } from "./project-store"
+import { findWorkspaceOn, isPairingRequiredError, isTransientRemoteError, projectsOn, pruneRemoteFoldKeys, remoteFoldKey, useProjectStore } from "./project-store"
 import { ApiError } from "@/lib/api-client"
 
 const tree = [
@@ -194,6 +194,21 @@ describe("other machines' trees", () => {
     expect(await failWith(new ApiError(409, "no key", "delegation_key_missing"))).toBe(false)
     expect(await failWith(new ApiError(403, "receiving is off"))).toBe(false)
     expect(isTransientRemoteError(new ApiError(404, "older version"))).toBe(false)
+  })
+
+  it("tells a machine that wants this browser paired from one that refuses", () => {
+    expect(isPairingRequiredError(new ApiError(426, "Secure pairing is required", "e2ee_required"))).toBe(true)
+    expect(isPairingRequiredError(new ApiError(403, "This device is not paired", "e2ee_device_untrusted"))).toBe(true)
+    expect(isPairingRequiredError(new ApiError(403, "Encrypted key identity does not match", "e2ee_key_invalid"))).toBe(true)
+    expect(isPairingRequiredError(new ApiError(403, "receiving is off"))).toBe(false)
+    expect(isPairingRequiredError(new TypeError("Failed to fetch"))).toBe(false)
+  })
+
+  it("only asks for pairing on web, where the browser reaches each machine itself", async () => {
+    remoteProjectList.mockRejectedValueOnce(new ApiError(426, "Secure pairing is required", "e2ee_required"))
+    await useProjectStore.getState().loadRemoteProjects(NODE)
+    // The test build is the desktop target: there the selected machine relays, and pairing is its business.
+    expect(useProjectStore.getState().remoteProjects[NODE].needsPairing).toBe(false)
   })
 
   it("forgets a machine that left the list", async () => {

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Loader2 } from "lucide-react"
+import { FormattedMessage } from "react-intl"
 import { installBrowserUseBridge } from "@/components/browser/browser-use-bridge"
 import { cn } from "@/lib/utils"
 import { createPortal } from "react-dom"
@@ -32,6 +34,7 @@ import { useNativePushNotifications, type PushTarget } from "@/hooks/useNativePu
 import type { Notification } from "@/types/notification"
 import { useEditorStore } from "@/stores/editor-store"
 import { useProjectStore } from "@/stores/project-store"
+import { useOpeningChatStore } from "@/lib/new-chat"
 import { useStreamingStore } from "@/stores/streaming-store"
 import { useNavigationStore, type FullPage, type FullPageKind } from "@/stores/navigation-store"
 import { DESKTOP_WORKSPACE_SYNC, useWorkspaceStoreSync } from "@/stores/workspace-sync"
@@ -109,6 +112,11 @@ export default function App() {
   const setTabChatId = useEditorStore((state) => state.setTabChatId)
   const workspaceStates = useEditorStore((state) => state.workspaceStates)
   const currentWorkspaceId = useEditorStore((state) => state.currentWorkspaceId)
+  const currentNodeId = useEditorStore((state) => state.currentNodeId)
+  // A new chat on its way here (asking another machine for its agents): say so
+  // rather than flash the empty workbench before the tab opens.
+  const openingChatHere = useOpeningChatStore((s) =>
+    s.pending && s.workspaceId === currentWorkspaceId && s.nodeId === currentNodeId)
 
   const loadProjects = useProjectStore((state) => state.loadProjects)
   const setActiveWorkspace = useProjectStore((state) => state.setActiveWorkspace)
@@ -444,7 +452,13 @@ export default function App() {
                     />
                   </div>
                 )}
-                {!activeTab && (
+                {!activeTab && openingChatHere && (
+                  <div data-testid="opening-chat" className="flex h-full items-center justify-center gap-2 bg-background text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <FormattedMessage id="workbench.openingChat" defaultMessage="Starting a new chat…" />
+                  </div>
+                )}
+                {!activeTab && !openingChatHere && (
                   <ConversationEmptyState className="bg-background" style={{ backgroundImage: 'var(--gradient-glow)' }}>
                     <div className="flex flex-col items-center justify-center h-full text-center space-y-6 pb-20 select-none">
                       <svg width="80" height="80" viewBox="60 90 900 850" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-90 relative z-10 drop-shadow-[0_0_24px_rgba(99,88,220,0.2)]">

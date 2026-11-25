@@ -92,7 +92,7 @@ function ArchitectureDiagram() {
         {intl.formatMessage({
           id: 'web.auth.diagram.note',
           defaultMessage:
-            'The broker only relays — it never sees your code or runs your agents. Your machine dials out, so nothing inbound needs to be exposed.',
+            'End-to-end encrypted: everything between this browser and your machine is encrypted on your devices, so the broker only relays ciphertext and cannot read your code, chats or files. Your machine dials out, so nothing inbound needs to be exposed.',
         })}
       </p>
     </div>
@@ -143,7 +143,7 @@ export function ConnectionStrip() {
         {intl.formatMessage({
           id: 'web.auth.diagram.note',
           defaultMessage:
-            'The broker only relays — it never sees your code or runs your agents. Your machine dials out, so nothing inbound needs to be exposed.',
+            'End-to-end encrypted: everything between this browser and your machine is encrypted on your devices, so the broker only relays ciphertext and cannot read your code, chats or files. Your machine dials out, so nothing inbound needs to be exposed.',
         })}
       </p>
     </div>

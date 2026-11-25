@@ -52,16 +52,22 @@ var errSeqGap = errors.New("uplink sequence gap")
 
 // uplinkStallTimeout bounds how long a conn may go without ANY accepted uplink
 // batch, while no batch is being applied, before we assume the node is gone. The
-// node sends an empty keepalive batch at least every ~80s when idle and retries a
-// failed POST with ≤30s backoff, so three minutes is two lost keepalives plus retries.
+// node sends an empty keepalive batch at least every ~20s when idle (IDLE_KEEPALIVE_MS
+// + its check interval in tunnel-agent/src/uploader.ts), so 45s is one lost keepalive
+// plus the first few retries of its replacement.
 //
 // It has to be this short because the downlink cannot tell us: behind Cloudflare a
-// node that vanished (network drop, proxy reset) leaves the SSE stream accepting
-// writes, so pings keep "succeeding". Until this fires, web requests routed here hang.
+// node that vanished (lid closed, network drop, proxy reset) leaves the SSE stream
+// accepting writes, so pings keep "succeeding". Until this fires, the node stays
+// listed online and web requests routed here hang — another machine opening one of
+// its chats just sees "Loading…". Dropping the conn fails them with node_offline.
+//
+// Nodes older than the 15s keepalive send one every ~80s and get dropped and
+// reconnected while idle; that costs a reconnect, not a request.
 //
 // A POST blocked on backpressure (full inbox while a slow browser drains a big
 // response) is not a stall — see upInflight — so this never cuts a busy conn.
-const uplinkStallTimeout = 3 * time.Minute
+const uplinkStallTimeout = 45 * time.Second
 
 type AgentConnStats struct {
 	PendingRequests int

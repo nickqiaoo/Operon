@@ -16,7 +16,7 @@ import { useInboxStream } from "@/hooks/useInboxStream"
 import { useTaskStream } from "@/hooks/useTaskStream"
 import { useProjectTreeStream } from "@/hooks/useProjectTreeStream"
 import type { Notification } from "@/types/notification"
-import { useProjectStore } from "@/stores/project-store"
+import { projectsOn, useProjectStore } from "@/stores/project-store"
 import { useEditorStore } from "@/stores/editor-store"
 import { useNavigationStore } from "@/stores/navigation-store"
 import { MOBILE_WORKSPACE_SYNC, useWorkspaceStoreSync } from "@/stores/workspace-sync"
@@ -35,6 +35,10 @@ import { MobileAssistantScreen, type AssistantHeader } from "./MobileAssistantSc
 import { InstallPrompt } from "@/components/web/InstallPrompt"
 import { PendingInputSync } from "@/components/editor/components/PendingInputSync"
 import { ExternalAgentsSync } from "@/components/editor/components/ExternalAgentsSync"
+import { RemoteNodeFeeds } from "@/components/editor/components/RemoteNodeFeeds"
+import { WorkspaceApiProvider } from "@/components/app-shell/WorkspaceApiProvider"
+import { machineDisplayName, useThisMachineLabel } from "@/components/project/RemoteMachineTrees"
+import { useMobileMachineTrees } from "./remote-machines"
 import { setAnalyticsScreen } from "@/lib/analytics"
 
 /** The open conversation's native-bar button (`action:session`) that opens its Session panel. */
@@ -112,7 +116,7 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
     if (tab === "channel") navigation.showMain({ kind: "board", view: "board" })
   }, [tab])
   const [switcherOpen, setSwitcherOpen] = useState(false)
-  const [selectedSpec, setSelectedSpec] = useState<{ id: number; projectId: number; returnWorkspaceId: number | null; returnProjectId: number | null } | null>(null)
+  const [selectedSpec, setSelectedSpec] = useState<{ id: number; projectId: number; returnWorkspaceId: number | null; returnProjectId: number | null; returnNodeId: string | null } | null>(null)
   // The Board tab spans every project; its header menu narrows it to one
   // instead of switching the workspace. Same filter as the desktop board.
   const [boardFilter, setBoardFilter] = useProjectFilter("operon.boardProjectFilter")
@@ -129,6 +133,11 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
   const projects = useProjectStore((s) => s.projects)
   useWorkspaceStoreSync(MOBILE_WORKSPACE_SYNC)
   const activeWorkspaceId = useProjectStore((s) => s.activeWorkspaceId)
+  // Set when the current workspace is on another machine of the account.
+  const activeNodeId = useProjectStore((s) => s.activeNodeId)
+  const activeProjects = useProjectStore((s) => projectsOn(s, s.activeNodeId))
+  const { trees: machineTrees, refresh: refreshMachineTrees } = useMobileMachineTrees()
+  const thisMachineLabel = useThisMachineLabel()
   const loadProjects = useProjectStore((s) => s.loadProjects)
   const setActiveProject = useProjectStore((s) => s.setActiveProject)
   const setActiveWorkspace = useProjectStore((s) => s.setActiveWorkspace)
@@ -172,16 +181,21 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
     }
   }, [nativeTabBar, intl, assistantUnread])
 
-  const selectWorkspace = useCallback((projectId: number, workspaceId: number | null) => {
+  const selectWorkspace = useCallback((projectId: number, workspaceId: number | null, nodeId?: string) => {
     setSelectedSpec(null)
-    setActiveWorkspace(workspaceId, projectId)
+    setActiveWorkspace(workspaceId, projectId, nodeId)
   }, [setActiveWorkspace])
+
+  const openWebContextSheet = useCallback(() => {
+    refreshMachineTrees()
+    setSwitcherOpen(true)
+  }, [refreshMachineTrees])
 
   const selectSpec = useCallback((projectId: number, specId: number) => {
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
     const workspace = project?.workspaces.find((w) => w.task?.id === specId)
     const store = useProjectStore.getState()
-    setSelectedSpec((previous) => ({ id: specId, projectId, returnWorkspaceId: previous?.returnWorkspaceId ?? store.activeWorkspaceId, returnProjectId: previous?.returnProjectId ?? store.activeProjectId }))
+    setSelectedSpec((previous) => ({ id: specId, projectId, returnWorkspaceId: previous?.returnWorkspaceId ?? store.activeWorkspaceId, returnProjectId: previous?.returnProjectId ?? store.activeProjectId, returnNodeId: previous ? previous.returnNodeId : store.activeNodeId }))
     setActiveWorkspace(workspace?.id ?? null, projectId)
     setDeepLink(null)
     setTab("chats")
@@ -191,20 +205,38 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
   const openNativeContextSheet = useCallback(async () => {
     // Android's current context sheet only supports workspaces. The shared
     // sheet also exposes Specs, so use it until the native picker does too.
-    if (nativePlatform() === 'android') { setSwitcherOpen(true); return }
+    if (nativePlatform() === 'android') { openWebContextSheet(); return }
+    refreshMachineTrees()
     const store = useProjectStore.getState()
+    // With other machines on the account, each project carries its machine:
+    // the sheet groups them under the machine's name and hands it back on a pick.
+    const grouped = machineTrees.length > 0
+    const thisMachine = grouped
+      ? { machine: machineDisplayName(thisMachineLabel ?? intl.formatMessage({ id: "mobile.context.thisMachine", defaultMessage: "This machine" })) }
+      : {}
     try {
       await NativeShell.presentContextSheet({
         title: intl.formatMessage({ id: "mobile.context.title", defaultMessage: "Switch project" }),
         emptyText: intl.formatMessage({ id: "mobile.context.empty", defaultMessage: "No projects yet." }),
-        projects: store.projects.map((project) => {
-          const groups = contextProjectGroups(project, store.hiddenSpecIds, store.shownSpecIds)
-          return {
+        projects: [
+          ...store.projects.map((project) => {
+            const groups = contextProjectGroups(project, store.hiddenSpecIds, store.shownSpecIds)
+            return {
+              id: project.id, name: project.name,
+              workspaces: groups.workspaces.map(({ id, name }) => ({ id, name })),
+              specs: groups.specs.map((task) => ({ id: task.id, name: task.title })),
+              ...thisMachine,
+            }
+          }),
+          ...machineTrees.flatMap(({ machine, projects: remote }) => remote.map((project) => ({
             id: project.id, name: project.name,
-            workspaces: groups.workspaces.map(({ id, name }) => ({ id, name })),
-            specs: groups.specs.map((task) => ({ id: task.id, name: task.title })),
-          }
-        }),
+            workspaces: contextProjectGroups(project, [], []).workspaces.map(({ id, name }) => ({ id, name })),
+            specs: [],
+            nodeId: machine.nodeId,
+            machine: machineDisplayName(machine.label),
+          }))),
+        ],
+        activeNodeId: store.activeNodeId ?? undefined,
         activeProjectId: selectedSpec?.projectId ?? store.activeProjectId ?? undefined,
         activeWorkspaceId: selectedSpec ? undefined : store.activeWorkspaceId ?? undefined,
         activeSpecId: selectedSpec?.id,
@@ -212,7 +244,7 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
     } catch {
       setSwitcherOpen(true)
     }
-  }, [intl, selectedSpec])
+  }, [intl, selectedSpec, machineTrees, thisMachineLabel, refreshMachineTrees, openWebContextSheet])
 
 
   // JS-initiated switches (deep links, Android back, notification taps) show
@@ -280,6 +312,10 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
       if (n.workspaceId != null) {
         const project = projects.find((p) => p.workspaces.some((w) => w.id === n.workspaceId))
         setActiveWorkspace(n.workspaceId, project?.id ?? null)
+      } else if (useProjectStore.getState().activeNodeId != null) {
+        // Notifications are this machine's chats: leave another machine's
+        // workspace, whose chat list and tabs are that machine's.
+        setActiveWorkspace(null, null)
       }
       setTab("chats")
       setDeepLink({ chatId: n.chatId, title: n.title, subAgent: n.subAgent })
@@ -352,12 +388,12 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
       }),
       // Same rules as MobileContextSwitcher: a workspace activates its project
       // too; a project with no workspaces is activated on its own.
-      NativeShell.addListener("contextPicked", ({ projectId, workspaceId, specId, chatId, title }) => {
+      NativeShell.addListener("contextPicked", ({ projectId, workspaceId, specId, chatId, title, nodeId }) => {
         if (specId != null) {
           selectSpec(projectId, specId)
         } else if (chatId != null) {
           openContextChat({ chatId, workspaceId, title })
-        } else selectWorkspace(projectId, workspaceId ?? null)
+        } else selectWorkspace(projectId, workspaceId ?? null, nodeId || undefined)
       }),
     ]
     return () => {
@@ -572,12 +608,12 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
   // mirroring App.tsx so chats are scoped to the selected workspace.
   const activeInfo = useMemo(() => {
     if (activeWorkspaceId == null) return null
-    for (const project of projects) {
+    for (const project of activeProjects) {
       const workspace = project.workspaces.find((w) => w.id === activeWorkspaceId)
       if (workspace) return { project, workspace }
     }
     return null
-  }, [projects, activeWorkspaceId])
+  }, [activeProjects, activeWorkspaceId])
 
   // List screens draw their own one-row header (MobileHeader: context left,
   // actions + bell right), so the native bar is hidden there. It stays only as
@@ -708,11 +744,14 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
       if (!ok) setNativeInboxOpen(true)
     })
   }, [openNativeInbox])
+  // Another machine's workspace says whose it is in the header.
+  const activeMachineLabel = activeNodeId ? machineTrees.find((t) => t.machine.nodeId === activeNodeId)?.machine.label : undefined
+  const activeMachineName = activeMachineLabel ? machineDisplayName(activeMachineLabel) : null
   const headerShell: MobileHeaderShell = {
     topInset: headerInset,
-    projectName: specProject?.name ?? activeInfo?.project.name ?? null,
+    projectName: specProject?.name ?? (activeInfo && activeMachineName ? `${activeInfo.project.name} · ${activeMachineName}` : activeInfo?.project.name) ?? null,
     workspaceName: specTitle ?? activeInfo?.workspace.name ?? null,
-    openContext: () => (nativeTabBar ? void openNativeContextSheet() : setSwitcherOpen(true)),
+    openContext: () => (nativeTabBar ? void openNativeContextSheet() : openWebContextSheet()),
     bell: showBell ? (
       <InboxButton
         onOpen={handleOpenFocusEntry}
@@ -747,6 +786,8 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
           does: the lists show which chats are running with no panel mounted. */}
       <PendingInputSync />
       <ExternalAgentsSync />
+      {/* The same feeds from each other machine with a chat open here. */}
+      <RemoteNodeFeeds />
       {/* Every screen draws its own top: list screens a MobileHeader, an open
           conversation its own row, the assistant a header floating over its
           thread (handed the inset rather than pushed down). */}
@@ -766,14 +807,16 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
           keyboardOpen={keyboardOpen}
           onImmersiveChange={setImmersive}
           onExit={() => {
-            setActiveWorkspace(selectedSpec.returnWorkspaceId, selectedSpec.returnProjectId)
+            setActiveWorkspace(selectedSpec.returnWorkspaceId, selectedSpec.returnProjectId, selectedSpec.returnNodeId)
             setSelectedSpec(null)
           }}
           onOpenWorkspace={(workspaceId) => selectWorkspace(selectedSpec.projectId, workspaceId)}
         />}
         {tab === "chats" && !selectedSpec && (
+          // Bound to the current workspace's machine: its agents for New chat.
+          <WorkspaceApiProvider>
           <MobileChatsScreen
-            key={`workspace:${activeWorkspaceId}`}
+            key={`workspace:${activeNodeId ?? "local"}:${activeWorkspaceId}`}
             onOpenSpecChat={openContextChat}
             keyboardOpen={keyboardOpen}
             initialChatTabId={initialChatTabId}
@@ -783,6 +826,7 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
             onDeepLinkConsumed={() => setDeepLink(null)}
             onImmersiveChange={setImmersive}
           />
+          </WorkspaceApiProvider>
         )}
         {tab === "assistant" && <MobileAssistantScreen
             keyboardOpen={keyboardOpen}
@@ -809,7 +853,14 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
             }
           />
         )}
-        {tab === "changes" && <MobileReviewScreen worktreePath={activeInfo?.workspace.worktreePath ?? null} />}
+        {tab === "changes" && (
+          <WorkspaceApiProvider>
+            <MobileReviewScreen
+              key={activeNodeId ?? "local"}
+              worktreePath={activeInfo?.workspace.worktreePath ?? null}
+            />
+          </WorkspaceApiProvider>
+        )}
         {tab === "more" && <MobileMoreScreen />}
       </main>
       </MobileHeaderContext.Provider>
@@ -820,6 +871,8 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
         selectedSpecId={selectedSpec?.id ?? null}
         onSelectSpec={selectSpec}
         onSelectWorkspace={selectWorkspace}
+        machineTrees={machineTrees}
+        thisMachineLabel={thisMachineLabel}
         open={switcherOpen}
         onClose={() => setSwitcherOpen(false)}
       />

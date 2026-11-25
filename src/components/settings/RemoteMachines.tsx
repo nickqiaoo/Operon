@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { FormattedMessage, useIntl, type IntlShape } from 'react-intl'
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
-import { Check, Copy, KeyRound, Link2, Loader2, Monitor, RefreshCw, Unlink, X } from 'lucide-react'
+import { Check, Copy, KeyRound, Link2, Loader2, Monitor, RefreshCw, Server, Unlink, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { api } from '@/lib/api'
@@ -30,7 +30,9 @@ export function RemoteMachines() {
   const queryClient = useQueryClient()
   const machines = useDelegationMachines({ refetchInterval: 10_000 })
   const peers = useMachinePeers()
-  const [shown, setShown] = useState<MachinePairingCode | null>(null)
+  // `server`: the code is for `operon node join` on a headless server, which also
+  // signs that server in; it pairs through the same code this machine shows.
+  const [shown, setShown] = useState<(MachinePairingCode & { kind: 'pair' | 'server' }) | null>(null)
   const [entering, setEntering] = useState(false)
   const [code, setCode] = useState('')
   const [justPaired, setJustPaired] = useState<MachinePeer | null>(null)
@@ -39,7 +41,8 @@ export function RemoteMachines() {
   const now = useNow(shown !== null)
 
   const showCode = useMutation({
-    mutationFn: api.startMachinePairing,
+    mutationFn: async (kind: 'pair' | 'server') =>
+      ({ ...(await (kind === 'server' ? api.startNodeEnrollment() : api.startMachinePairing())), kind }),
     onSuccess: (data) => {
       queryClient.removeQueries({ queryKey: machinePeerKeys.code() })
       clearCopied()
@@ -76,10 +79,11 @@ export function RemoteMachines() {
     setShown(null)
     void api.cancelMachinePairing().catch(() => undefined)
   }
+  const serverCommand = shown?.kind === 'server' ? `operon node join ${shown.code}` : undefined
   const copyCode = async () => {
     if (!shown) return
     try {
-      await navigator.clipboard.writeText(shown.code)
+      await navigator.clipboard.writeText(serverCommand ?? shown.code)
       flashCopied()
     } catch { /* the code stays on screen to type */ }
   }
@@ -108,13 +112,17 @@ export function RemoteMachines() {
         </div>
         {!busy && (
           <div className="flex shrink-0 gap-1.5">
-            <Button size="sm" variant="secondary" className="h-8 gap-1.5" disabled={showCode.isPending} onClick={() => showCode.mutate()}>
-              {showCode.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
+            <Button size="sm" variant="secondary" className="h-8 gap-1.5" disabled={showCode.isPending} onClick={() => showCode.mutate('pair')}>
+              {showCode.isPending && showCode.variables === 'pair' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
               <FormattedMessage id="settings.remote.machines.showCode" defaultMessage="Show code" />
             </Button>
             <Button size="sm" variant="ghost" className="h-8 gap-1.5" onClick={() => { setJustPaired(null); join.reset(); setEntering(true) }}>
               <Link2 className="h-3.5 w-3.5" />
               <FormattedMessage id="settings.remote.machines.enterCode" defaultMessage="Enter code" />
+            </Button>
+            <Button size="sm" variant="ghost" className="h-8 gap-1.5" disabled={showCode.isPending} onClick={() => showCode.mutate('server')}>
+              {showCode.isPending && showCode.variables === 'server' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Server className="h-3.5 w-3.5" />}
+              <FormattedMessage id="settings.remote.machines.addServer" defaultMessage="Add a server" />
             </Button>
           </div>
         )}
@@ -126,22 +134,32 @@ export function RemoteMachines() {
             <div className="text-sm font-medium">
               {expired
                 ? <FormattedMessage id="settings.remote.machines.codeExpired" defaultMessage="Pairing code expired" />
-                : <FormattedMessage id="settings.remote.machines.codeShownTitle" defaultMessage="Enter this code on your other machine" />}
+                : serverCommand
+                  ? <FormattedMessage id="settings.remote.machines.serverTitle" defaultMessage="Run this on the server" />
+                  : <FormattedMessage id="settings.remote.machines.codeShownTitle" defaultMessage="Enter this code on your other machine" />}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               {expired
                 ? <FormattedMessage id="settings.remote.machines.codeLifetime" defaultMessage="Codes last five minutes." />
-                : <FormattedMessage
-                    id="settings.remote.machines.codeShownDesc"
-                    defaultMessage="There: Settings → Remote → Enter code. It works once and expires in {time}."
-                    values={{ time: formatRemaining(shown.expiresAt - now) }}
-                  />}
+                : serverCommand
+                  ? <FormattedMessage
+                      id="settings.remote.machines.serverDesc"
+                      defaultMessage="It signs the server in to your account and pairs it with this machine. The server must be running operon (operon service install). It works once and expires in {time}."
+                      values={{ time: formatRemaining(shown.expiresAt - now) }}
+                    />
+                  : <FormattedMessage
+                      id="settings.remote.machines.codeShownDesc"
+                      defaultMessage="There: Settings → Remote → Enter code. It works once and expires in {time}."
+                      values={{ time: formatRemaining(shown.expiresAt - now) }}
+                    />}
             </p>
           </div>
-          {!expired && <div className="select-all font-mono text-lg tracking-[0.2em]" aria-label={intl.formatMessage({ id: 'settings.remote.machines.codeLabel', defaultMessage: 'Pairing code' })}>{shown.code}</div>}
+          {!expired && (serverCommand
+            ? <div className="select-all break-all rounded-lg border border-border/40 bg-background/40 px-3 py-2 font-mono text-xs" aria-label={intl.formatMessage({ id: 'settings.remote.machines.serverCommandLabel', defaultMessage: 'Command to run on the server' })}>{serverCommand}</div>
+            : <div className="select-all font-mono text-lg tracking-[0.2em]" aria-label={intl.formatMessage({ id: 'settings.remote.machines.codeLabel', defaultMessage: 'Pairing code' })}>{shown.code}</div>)}
           <div className="flex gap-1.5">
             {expired ? (
-              <Button size="sm" variant="secondary" className="h-8 gap-1.5" disabled={showCode.isPending} onClick={() => showCode.mutate()}>
+              <Button size="sm" variant="secondary" className="h-8 gap-1.5" disabled={showCode.isPending} onClick={() => showCode.mutate(shown.kind)}>
                 <RefreshCw className="h-3.5 w-3.5" />
                 <FormattedMessage id="settings.remote.machines.newCode" defaultMessage="New code" />
               </Button>
@@ -320,7 +338,12 @@ function errorText(intl: IntlShape, error: Error): string {
     case 'pairing_code_invalid':
       return intl.formatMessage({
         id: 'settings.remote.machines.error.invalidCode',
-        defaultMessage: 'That is not a pairing code. It has 16 letters and digits.',
+        defaultMessage: 'That is not a pairing code. A code is 16 letters or digits, in groups of four.',
+      })
+    case 'not_signed_in':
+      return intl.formatMessage({
+        id: 'settings.remote.machines.error.notSignedIn',
+        defaultMessage: 'Sign this machine in first.',
       })
     case 'node_unreachable':
       return intl.formatMessage({

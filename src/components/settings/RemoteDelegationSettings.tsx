@@ -32,7 +32,7 @@ export function RemoteDelegationSettings() {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-sm font-medium">
-            <FormattedMessage id="settings.remote.delegation.title" defaultMessage="Run agents for other machines" />
+            <FormattedMessage id="settings.remote.delegation.title" defaultMessage="Let other machines use this one" />
           </h3>
           <p className="text-xs text-muted-foreground">
             <FormattedMessage
@@ -41,7 +41,7 @@ export function RemoteDelegationSettings() {
             />
           </p>
         </div>
-        <Switch aria-label={intl.formatMessage({ id: 'settings.remote.delegation.title', defaultMessage: 'Run agents for other machines' })} checked={settings.data?.enabled ?? false}
+        <Switch aria-label={intl.formatMessage({ id: 'settings.remote.delegation.title', defaultMessage: 'Let other machines use this one' })} checked={settings.data?.enabled ?? false}
           disabled={update.isPending || !settings.data} onCheckedChange={(enabled) => update.mutate(enabled)} />
       </div>
       {!!settings.data?.recent.length && (

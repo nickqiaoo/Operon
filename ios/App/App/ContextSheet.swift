@@ -20,6 +20,34 @@ struct ContextSheetProject: Identifiable {
     }
     let workspaces: [Workspace]
     let specs: [Spec]
+    /// Another machine of the account the project is on (nil: this one).
+    let nodeId: String?
+    /// Set on every project once the account has other machines: the sheet
+    /// groups projects under it, in the order they arrive.
+    let machine: String?
+}
+
+/// Consecutive projects of one machine, under its name (nil: not grouped).
+struct ContextSheetMachineGroup: Identifiable {
+    let id: Int
+    let machine: String?
+    let projects: [ContextSheetProject]
+
+    static func group(_ projects: [ContextSheetProject]) -> [ContextSheetMachineGroup] {
+        var groups: [ContextSheetMachineGroup] = []
+        var current: [ContextSheetProject] = []
+        func flush() {
+            guard let first = current.first else { return }
+            groups.append(.init(id: groups.count, machine: first.machine, projects: current))
+            current = []
+        }
+        for project in projects {
+            if let last = current.last, last.nodeId != project.nodeId || last.machine != project.machine { flush() }
+            current.append(project)
+        }
+        flush()
+        return groups
+    }
 }
 
 /// `--color-brand` from globals.css (light / dark).
@@ -34,11 +62,14 @@ struct ContextSheetView: View {
     let title: String
     let emptyText: String
     let projects: [ContextSheetProject]
+    let activeNodeId: String?
     let activeProjectId: Int?
     let activeWorkspaceId: Int?
     let activeSpecId: Int?
-    /// `(projectId, workspaceId, specId)`; selecting a Spec opens its Chats list.
-    let onPick: (Int, Int?, Int?) -> Void
+    /// `(projectId, workspaceId, specId, nodeId)`; selecting a Spec opens its Chats list.
+    let onPick: (Int, Int?, Int?, String?) -> Void
+
+    private var groups: [ContextSheetMachineGroup] { ContextSheetMachineGroup.group(projects) }
 
     var body: some View {
         ScrollView {
@@ -55,8 +86,14 @@ struct ContextSheetView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 28)
                 } else {
-                    ForEach(projects) { project in
-                        projectCard(project)
+                    ForEach(groups) { group in
+                        if let machine = group.machine {
+                            machineHeader(machine)
+                                .padding(.top, group.id == 0 ? 0 : 8)
+                        }
+                        ForEach(group.projects) { project in
+                            projectCard(project)
+                        }
                     }
                 }
             }
@@ -67,10 +104,24 @@ struct ContextSheetView: View {
         .background(Color(.systemGroupedBackground))
     }
 
+    /// A machine's name over its projects: quiet, it groups projects rather than being one.
+    private func machineHeader(_ name: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "desktopcomputer")
+                .font(.system(size: 12, weight: .regular))
+            Text(name)
+                .font(.footnote.weight(.medium))
+                .lineLimit(1)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
+    }
+
     private func projectCard(_ project: ContextSheetProject) -> some View {
-        VStack(spacing: 0) {
+        let here = project.nodeId == activeNodeId
+        return VStack(spacing: 0) {
             Button {
-                onPick(project.id, project.workspaces.first?.id, nil)
+                onPick(project.id, project.workspaces.first?.id, nil, project.nodeId)
             } label: {
                 HStack(spacing: 12) {
                     // Monochrome like every other icon in the app: brand colour
@@ -84,7 +135,7 @@ struct ContextSheetView: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
-                    if activeSpecId == nil, project.workspaces.isEmpty, project.id == activeProjectId {
+                    if here, activeSpecId == nil, project.workspaces.isEmpty, project.id == activeProjectId {
                         check
                     }
                 }
@@ -95,10 +146,10 @@ struct ContextSheetView: View {
             .buttonStyle(RowButtonStyle())
 
             ForEach(project.workspaces) { workspace in
-                let active = activeSpecId == nil && workspace.id == activeWorkspaceId
+                let active = here && activeSpecId == nil && workspace.id == activeWorkspaceId
                 Divider().padding(.leading, 54)
                 Button {
-                    onPick(project.id, workspace.id, nil)
+                    onPick(project.id, workspace.id, nil, project.nodeId)
                 } label: {
                     HStack(spacing: 10) {
                         subRowIcon(Image(systemName: "arrow.triangle.branch").font(.system(size: 14)))
@@ -119,7 +170,7 @@ struct ContextSheetView: View {
             ForEach(project.specs) { spec in
                 Divider().padding(.leading, 54)
                 Button {
-                    onPick(project.id, nil, spec.id)
+                    onPick(project.id, nil, spec.id, project.nodeId)
                 } label: {
                     HStack(spacing: 10) {
                         // The app's own Spec glyph (src/components/icons/SpecIcon.tsx),
@@ -174,10 +225,11 @@ extension ContextSheetView {
         title: String,
         emptyText: String,
         projects: [ContextSheetProject],
+        activeNodeId: String?,
         activeProjectId: Int?,
         activeWorkspaceId: Int?,
         activeSpecId: Int?,
-        onPick: @escaping (Int, Int?, Int?) -> Void,
+        onPick: @escaping (Int, Int?, Int?, String?) -> Void,
         onDismiss: @escaping () -> Void
     ) {
         let dismisser = SheetDismisser()
@@ -185,18 +237,23 @@ extension ContextSheetView {
             title: title,
             emptyText: emptyText,
             projects: projects,
+            activeNodeId: activeNodeId,
             activeProjectId: activeProjectId,
             activeWorkspaceId: activeWorkspaceId,
             activeSpecId: activeSpecId,
-            onPick: { projectId, workspaceId, specId in
-                onPick(projectId, workspaceId, specId)
+            onPick: { projectId, workspaceId, specId, nodeId in
+                onPick(projectId, workspaceId, specId, nodeId)
                 dismisser.dismiss()
             }
         )
-        // Title + per-project card (row + workspaces), plus paddings.
+        // Title + per-project card (row + workspaces), plus paddings, plus a
+        // header line (and the gap above it) per machine when grouped.
         let rows = projects.reduce(0) { $0 + 1 + $1.workspaces.count + $1.specs.count }
+        let machineHeaders = ContextSheetMachineGroup.group(projects).filter { $0.machine != nil }.count
         let height = NativeSheet.titleHeight + CGFloat(rows) * NativeSheet.rowHeight
-            + CGFloat(max(projects.count - 1, 0)) * 12 + (projects.isEmpty ? 76 : 0)
+            + CGFloat(max(projects.count + machineHeaders - 1, 0)) * 12
+            + CGFloat(machineHeaders) * 18 + CGFloat(max(machineHeaders - 1, 0)) * 8
+            + (projects.isEmpty ? 76 : 0)
         NativeSheet.present(from: presenter, content: view, contentHeight: height, dismisser: dismisser, onDismiss: onDismiss)
     }
 }

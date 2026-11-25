@@ -209,7 +209,7 @@ const NODE_DENIED = /^\/api\/(e2ee|saas|remote|delegations\/local|integrations\/
 
 /**
  * Every path one machine may call on another (checked by the target and by
- * Broker). A machine that turned on "Run agents for other machines" serves the
+ * Broker). A machine that turned on "Let other machines use this one" serves the
  * account's other machines its whole API — files, git, terminal included — the
  * way it serves its own window.
  */

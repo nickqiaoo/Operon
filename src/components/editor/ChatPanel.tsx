@@ -775,7 +775,9 @@ function ChatPanelContent({
     cwd: reviewCwd,
     model: selectedModel?.label,
     effort: thinkingEffortLabel,
-  }), [reviewCwd, selectedModel?.label, thinkingEffortLabel]);
+    nodeId: chatNodeId,
+    sshName: sshEnvironment?.name,
+  }), [reviewCwd, selectedModel?.label, thinkingEffortLabel, chatNodeId, sshEnvironment?.name]);
   const openTab = useTabsStore((s) => s.openTab);
   const setRightPanelOpen = useAppShellStore((s) => s.setRightPanelOpen);
   const turnDiffs = useTurnDiffs(dbChatId, reviewCwd, status, liveTurnActive);
@@ -1589,12 +1591,6 @@ function ChatPanelContent({
             onResume={resumeGoal}
           />
         )}
-        <SteerTray
-          items={liveSteers}
-          canRetry={isGenerating}
-          onRetry={handleRetrySteer}
-          onDismiss={handleDismissSteer}
-        />
         {showDraftBar ? (
           <DraftChatBar tabId={chatId} providerId={tab?.providerId ?? providerId} workspaceId={currentWorkspaceId} sshEnvironment={sshEnvironment} isMobile={isMobile} />
         ) : sshEnvironment ? (
@@ -1614,7 +1610,15 @@ function ChatPanelContent({
           >
             {readOnlyReason}
           </div>
-        ) : <ChatComposer
+        ) : <>
+        {/* Sits right on the composer's top edge, so nothing goes between them. */}
+        <SteerTray
+          items={liveSteers}
+          canRetry={isGenerating}
+          onRetry={handleRetrySteer}
+          onDismiss={handleDismissSteer}
+        />
+        <ChatComposer
           // `invisible` above only hides the web composer: the packaged apps draw a native
           // one over its spacer, which keeps its box, so it has to be told to hide too.
           visible={visible && !historyLoading && !historyFailed}
@@ -1657,7 +1661,8 @@ function ChatPanelContent({
           onPendingSkillConsumed={consumePendingSkill}
           initialSkills={initialSkills}
           onSkillsChange={saveDraftSkills}
-        />}
+        />
+        </>}
       </div>
       {showHistoryLoading && (
         <div
@@ -1674,10 +1679,10 @@ function ChatPanelContent({
         live={visible}
         chatId={tab?.chatId ?? dbChatIdRef.current}
         providerId={sessionPanelProviderId}
+        running={status === 'submitted' || status === 'streaming'}
         variant={isMobile ? 'overlay' : 'inline'}
         usageCards={sessionUsageCards}
         facts={sessionFacts}
-        allowDispatch={!tab?.isSubAgent && !tab?.isSideChat && !runsElsewhere && currentWorkspaceId != null}
         onClose={closeSessionPanel}
         onUseSkill={handleSessionPanelSkill}
       />

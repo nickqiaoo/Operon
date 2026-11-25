@@ -10,10 +10,19 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
+/** Another machine of the account this browser is asked to pair with. */
+export interface PairMachineRequest {
+  nodeId: string
+  label: string
+  onPaired: () => void
+}
+
 interface MachineActions {
   label: string
   onSwitch: () => void
   onSignOut: () => void
+  /** Pair this browser with another machine, over the app: the selected one stays. */
+  onPairMachine: (request: PairMachineRequest) => void
 }
 
 export const MachineActionsContext = createContext<MachineActions | null>(null)

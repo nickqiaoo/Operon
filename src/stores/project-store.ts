@@ -26,6 +26,8 @@ export interface Workspace {
   originChatId?: number | null
   /** The board task whose agent runs here, when one does (absent in a tree cached before the field existed). */
   task?: WorkspaceTask
+  /** Its directory no longer exists (deleted outside operon): there is nothing to ask git about. */
+  missing?: true
 }
 
 /** A dispatched task, a spec, or one of a spec's tickets — mirrors the server's WorkspaceTask. */
@@ -121,7 +123,18 @@ export interface RemoteProjectTree {
    * no delegation key, receiving turned off, an older version — is not.
    */
   retryable?: boolean
+  /**
+   * With `error`, web only: the machine wants this browser paired with it first.
+   * The browser reaches every machine itself, with its own key for each.
+   */
+  needsPairing?: boolean
   loaded: boolean
+}
+
+/** The machine refused this browser: it wants a paired device, or the key it holds was dropped. */
+export function isPairingRequiredError(error: unknown): boolean {
+  return error instanceof ApiError
+    && (error.code === "e2ee_required" || error.code === "e2ee_device_untrusted" || error.code === "e2ee_key_invalid")
 }
 
 /** A failed remote request that may succeed later without anyone changing anything. */
@@ -364,6 +377,7 @@ export const useProjectStore = create<ProjectStore>()(
                 projects: state.remoteProjects[nodeId]?.projects ?? [],
                 error: error instanceof Error ? error.message : String(error),
                 retryable: isTransientRemoteError(error),
+                needsPairing: __APP_TARGET__ === "web" && isPairingRequiredError(error),
                 loaded: true,
               },
             },

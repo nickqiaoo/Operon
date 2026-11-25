@@ -118,8 +118,7 @@ export function startAgent(opts: AgentOptions): AgentHandle {
         case 'ping':
           // No reply. The ping's job is to force a periodic write on the broker's SSE
           // downlink so a dead socket surfaces; uplink liveness rides on the batches
-          // themselves, including the uploader's idle keepalive. Ponging every ping
-          // would cost an HTTP request per node per 15s for no added signal.
+          // themselves, including the uploader's idle keepalive (see IDLE_KEEPALIVE_MS).
           break
         case 'req':
           void handleReq(f as ReqFrame, send, opts.localBase, inflight, opts.localToken, opts.delegationTunnelToken)

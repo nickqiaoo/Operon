@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { Activity, ArrowLeft, Loader2, MessageSquarePlus, SquarePen } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { queryClient } from "@/lib/query-client"
-import { providersQuery, useProviders } from "@/lib/provider-queries"
+import { providersQueryFor, useProviders } from "@/lib/provider-queries"
 import { cn } from "@/lib/utils"
 import { useChatHistoryList, type ChatHistoryListItem } from "@/lib/chat-queries"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useEditorStore } from "@/stores/editor-store"
 import { useChatPresenceStore } from "@/stores/chat-presence-store"
-import { chatKey, localChat, type ChatRef } from "@/lib/chat-ref"
+import { chatKey, chatRefFromTabId, chatTabId, type ChatRef } from "@/lib/chat-ref"
 import { useSessionPanelStore } from "@/stores/session-panel-store"
 import { useBackHandler } from "@/hooks/useAndroidBackButton"
 import { MobileHeader, useMobileContentBottom, useMobileContentOffset } from "./MobileHeader"
@@ -82,6 +82,9 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
   const contentBottom = useMobileContentBottom()
   const tabs = useEditorStore((s) => s.tabs)
   const currentWorkspaceId = useEditorStore((s) => s.currentWorkspaceId)
+  // Another machine's workspace: its conversations are listed, opened and
+  // started on that machine.
+  const nodeId = useEditorStore((s) => s.currentNodeId ?? undefined)
   const createChatTab = useEditorStore((s) => s.createChatTab)
   const openChatTab = useEditorStore((s) => s.openChatTab)
   const setTabChatId = useEditorStore((s) => s.setTabChatId)
@@ -121,6 +124,7 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
     refresh: refreshHistory,
   } = useChatHistoryList({
     workspaceId: currentWorkspaceId,
+    nodeId,
     tp: currentWorkspaceId == null ? "chat" : undefined,
     pageSize: CHATS_PAGE_SIZE,
     enabled: specId == null && openId === null,
@@ -141,8 +145,9 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
     () =>
       chatTabs.filter((t) => {
         if (t.chatId != null && historyIds.has(t.chatId)) return false
-        const m = /^chat:(\d+)$/.exec(t.id)
-        if (m && historyIds.has(Number(m[1]))) return false
+        // `chat:12`, or `chat:<nodeId>:12` in another machine's workspace.
+        const ref = chatRefFromTabId(t.id)
+        if (ref && historyIds.has(ref.chatId)) return false
         return true
       }),
     [chatTabs, historyIds]
@@ -205,13 +210,14 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
   // background for next time; only a cold cache waits for the request.
   const loadProviders = async (): Promise<Provider[]> => {
     const toRows = (list: { id: string; label: string }[]) => list.map((p) => ({ id: p.id, label: p.label }))
-    const cached = queryClient.getQueryData(providersQuery.queryKey)
+    const query = providersQueryFor(nodeId)
+    const cached = queryClient.getQueryData(query.queryKey)
     if (cached) {
-      void queryClient.prefetchQuery(providersQuery)
+      void queryClient.prefetchQuery(query)
       return toRows(cached)
     }
     try {
-      return toRows(await queryClient.fetchQuery(providersQuery))
+      return toRows(await queryClient.fetchQuery(query))
     } catch {
       // Leave the picker empty; the user can retry by reopening it.
       return []
@@ -290,7 +296,7 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
   // every other row opened fine.
   const openHistory = (item: ChatHistoryItem) => {
     const isSubAgent = item.tp === "subagent" || item.tp === "workflow-agent"
-    const tabId = openChatTab(`chat:${item.id}`, item.title, undefined, item.providerId ?? undefined, isSubAgent || undefined)
+    const tabId = openChatTab(chatTabId({ nodeId, chatId: item.id }), item.title, undefined, item.providerId ?? undefined, isSubAgent || undefined)
     setTabChatId(tabId, item.id)
     setActiveTab(tabId)
     setOpenId(tabId)
@@ -475,7 +481,7 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
             >
               <AgentAvatar provider={item.providerId} size="sm" />
               <span className="truncate text-base text-foreground/85">{item.title}</span>
-              {isRunning(localChat(item.id)) ? (
+              {isRunning({ nodeId, chatId: item.id }) ? (
                 <Loader2 className="ml-auto size-4 shrink-0 animate-spin text-status-info" aria-label="Running" />
               ) : (
                 <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground/60">

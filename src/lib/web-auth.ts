@@ -672,7 +672,7 @@ export function installFetchAuthInterceptor(): void {
     } satisfies RequestInit
 
     const res = await secureBrokerFetch(orig, input, requestInit)
-    await notifyIfNodeOffline(res)
+    await notifyIfNodeOffline(url, res)
     if (res.status !== 401 || !shouldAttachBearer || !canRetryWithFreshToken(input, init)) {
       return res
     }
@@ -682,7 +682,7 @@ export function installFetchAuthInterceptor(): void {
     const retryHeaders = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
     retryHeaders.set('authorization', `Bearer ${fresh}`)
     const retryRes = await secureBrokerFetch(orig, input, { ...init, headers: retryHeaders })
-    await notifyIfNodeOffline(retryRes)
+    await notifyIfNodeOffline(url, retryRes)
     return retryRes
   }
 }
@@ -692,8 +692,25 @@ function canRetryWithFreshToken(input: RequestInfo | URL, init?: RequestInit): b
   return method === 'GET' || method === 'HEAD'
 }
 
-async function notifyIfNodeOffline(res: Response): Promise<void> {
+/** The machine a Broker tunnel URL (`/u/:user/n/:node/api/...`) goes to. */
+export function brokerNodeIdOf(url: string): string | null {
+  try {
+    const match = new URL(url).pathname.match(/^\/u\/[^/]+\/n\/([^/]+)\/api(?:\/|$)/)
+    return match?.[1] ? decodeURIComponent(match[1]) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The selected machine going offline takes the whole app to the offline screen.
+ * Another machine of the account (its tree in the sidebar) only drops out of
+ * that tree, the way it does on desktop.
+ */
+async function notifyIfNodeOffline(url: string, res: Response): Promise<void> {
   if (res.status !== 503) return
+  const nodeId = brokerNodeIdOf(url)
+  if (nodeId && nodeId !== getSelectedNodeId()) return
   const headerCode = res.headers.get('X-Operon-Error-Code')
   if (headerCode === NODE_OFFLINE_CODE) {
     notifyNodeOffline()

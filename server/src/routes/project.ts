@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { Hono } from 'hono'
 import type { AgentBindingStorageAdapter, ChatStorageAdapter, ProjectStorageAdapter, TaskStorageAdapter } from '../storage/interface.js'
 import type { CreateProjectInput, CreateWorkspaceInput, TaskChildSession, Workspace, WorkspaceChat, WorkspaceTask } from '../types/project.js'
@@ -106,7 +107,7 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
     }
     return storage.listWorkspaces(projectId).map((w) => {
       const task = owners.get(w.id)
-      return task ? { ...w, task } : w
+      return { ...w, ...(task ? { task } : {}), ...(existsSync(w.worktreePath) ? {} : { missing: true as const }) }
     })
   }
 

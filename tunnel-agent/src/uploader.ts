@@ -35,11 +35,15 @@ const FRAME_OVERHEAD_BYTES = 256
 
 /**
  * How long a quiet uplink may stay silent. The broker has no socket to probe on this
- * leg, so an empty batch is the only evidence it gets that the uplink still works;
- * its own stall backstop is far longer than this (see uplinkStallTimeout).
+ * leg, so an empty batch is the only evidence it gets that this node is still there
+ * — and it is how fast another machine finds out this one went away (lid closed,
+ * network gone): the broker drops the node after uplinkStallTimeout (45s) without
+ * one, failing the requests waiting on it. The worst gap between two keepalives is
+ * IDLE + CHECK = 20s, so one lost POST plus its retries still fits inside that.
+ * A busy uplink sends nothing extra; idle, it is one tiny POST every ~15s.
  */
-const IDLE_KEEPALIVE_MS = 60_000
-const KEEPALIVE_CHECK_MS = 20_000
+const IDLE_KEEPALIVE_MS = 15_000
+const KEEPALIVE_CHECK_MS = 5_000
 /**
  * Generous, because a slow POST is not a failed one: the broker holds the request
  * open while a slow consumer drains the batch, and that backpressure is intentional.

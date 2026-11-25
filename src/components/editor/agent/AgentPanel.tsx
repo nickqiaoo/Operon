@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ChevronRight,
@@ -9,6 +9,7 @@ import {
   GitBranch,
   Loader2,
   MessageSquare,
+  Monitor,
   Plug,
   Plus,
   Power,
@@ -16,6 +17,7 @@ import {
   Puzzle,
   Blocks,
   Radar,
+  Server,
   RefreshCw,
   Sparkles,
   SquareStack,
@@ -29,11 +31,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { cn } from '@/lib/utils'
+import { useRemoteMachine } from '@/lib/machine-reachability'
+import { MachineActionsContext } from '@/components/web/MachineSwitcher'
 import { openExternalUrl } from '@/lib/open-external'
 import { openPluginsPage, openSettingsTab } from '@/lib/open-settings'
 
 import { useGitStatus } from '@/lib/git-queries'
-import { useAgentSessionState, useTaskOutput, type SessionResource } from '@/lib/agent-session-queries'
+import { NO_SESSION, useAgentSessionState, useTaskOutput, type SessionResource } from '@/lib/agent-session-queries'
 import { formatDuration } from '@/lib/format'
 import { useChatTasks } from '@/stores/chat-background-task-store'
 import { useChatChildren } from '@/hooks/useChatChildren'
@@ -70,6 +74,8 @@ interface AgentPanelProps {
   live?: boolean
   chatId: number | undefined
   providerId: string | undefined
+  /** The chat has a turn in progress (its session may have just started). */
+  running?: boolean
   onClose: () => void
   /** Add a skill to the composer as a chip — how a skill row hands itself over. */
   onUseSkill?: (skill: OperonSkillDTO) => void
@@ -87,8 +93,6 @@ interface AgentPanelProps {
   usageCards?: SessionUsageCard[]
   /** Where and with what the chat runs — read out at the top of the overview. */
   facts?: SessionFacts
-  /** The conversation can start external agents (a regular workspace chat). */
-  allowDispatch?: boolean
 }
 
 export interface SessionFacts {
@@ -96,6 +100,10 @@ export interface SessionFacts {
   cwd?: string | null
   model?: string
   effort?: string
+  /** Another machine of the account the chat runs on; absent = this one. */
+  nodeId?: string | null
+  /** The SSH environment the chat runs in, when it does. */
+  sshName?: string
 }
 
 export interface SessionUsageCard {
@@ -127,7 +135,6 @@ const GIT_POLL_MS = 15000
 
 // `agentControl` answers this when the chat has no runtime session yet — every
 // section would show the same error, so we swap the whole body for one message.
-const NO_SESSION = /no active session/i
 
 function isMcpProblem(server: McpServerDTO): boolean {
   return (
@@ -150,7 +157,7 @@ function isMcpProblem(server: McpServerDTO): boolean {
  */
 // Memoized: ChatPanel re-renders on every streamed chunk, and redrawing the open
 // panel (MCP rows, skills, usage cards) each time cost ~30ms a chunk in dev.
-export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, providerId, onClose, onUseSkill, variant = 'inline', usageCards = EMPTY_USAGE_CARDS, facts, allowDispatch = false }: AgentPanelProps) {
+export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, providerId, running = false, onClose, onUseSkill, variant = 'inline', usageCards = EMPTY_USAGE_CARDS, facts }: AgentPanelProps) {
   const intl = useIntl()
   // Two-phase open/close so the panel can animate both IN and OUT:
   //   `render` keeps it mounted a beat longer than `open`, so the slide-out has
@@ -211,6 +218,7 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
     open: open && live,
     fullInspector: fullSessionInspector,
     pollMs: LIVE_POLL_MS,
+    running,
   })
 
   // Claude Code's task list arrives on the live-status stream, not from a poll.
@@ -287,7 +295,7 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
         )}
       </div>
       {/* Workspace facts first: they hold before the first message, too. */}
-      <SessionFactRows cwd={cwd} git={git.data} model={facts?.model} effort={facts?.effort} />
+      <SessionFactRows cwd={cwd} git={git.data} model={facts?.model} effort={facts?.effort} nodeId={facts?.nodeId ?? undefined} sshName={facts?.sshName} />
       {noSession ? (
         <div className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
           <div className="font-medium text-foreground/80"><FormattedMessage id="editor.session.none" defaultMessage="No active session" /></div>
@@ -338,9 +346,8 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
     </section>
   )
 
-  const canDispatch = allowDispatch && id > 0
-  const agentsSection = !skillDetail && (childAgents.length > 0 || canDispatch) ? (
-    <ChildrenSection key={`agents:${sessionKey}`} chatId={id} agents={childAgents} allowDispatch={canDispatch} />
+  const agentsSection = !skillDetail && childAgents.length > 0 ? (
+    <ChildrenSection key={`agents:${sessionKey}`} chatId={id} agents={childAgents} />
   ) : null
 
   // Not behind `noSession`: the quota is the account's, and is worth reading before
@@ -477,17 +484,21 @@ function SessionFactRows({
   git,
   model,
   effort,
+  nodeId,
+  sshName,
 }: {
   cwd: string | null
   git?: { current: string | null; ahead: number; behind: number; files: unknown[] }
   model?: string
   effort?: string
+  nodeId?: string
+  sshName?: string
 }) {
-  if (!cwd && !model) return null
   const row = 'flex min-w-0 items-center gap-1.5'
   const icon = 'h-3 w-3 shrink-0 text-muted-foreground/70'
   return (
     <div className="mt-1.5 space-y-1 text-xs text-muted-foreground">
+      <MachineFactRow nodeId={nodeId} sshName={sshName} row={row} icon={icon} />
       {git && (
         <div className={row}>
           <GitBranch className={icon} />
@@ -520,6 +531,35 @@ function SessionFactRows({
           <span className="truncate">{effort ? `${model} · ${effort}` : model}</span>
         </div>
       )}
+    </div>
+  )
+}
+
+/** The machine the session runs on: this one, an SSH host, or another machine of the account. */
+function MachineFactRow({ nodeId, sshName, row, icon }: { nodeId?: string; sshName?: string; row: string; icon: string }) {
+  const remote = useRemoteMachine(nodeId)
+  // In the browser, "this machine" is the one it is signed in to — name it.
+  const webMachine = useContext(MachineActionsContext)
+  const Icon = sshName ? Server : Monitor
+  const name = sshName
+    ?? (nodeId ? remote.label : webMachine?.label)
+  return (
+    <div className={row} data-testid="session-machine">
+      <Icon className={icon} />
+      <span className="truncate text-foreground/85">
+        {name ?? (nodeId
+          ? <FormattedMessage id="editor.chat.remote.otherMachine" defaultMessage="Another machine" />
+          : <FormattedMessage id="editor.session.thisMachine" defaultMessage="This machine" />)}
+      </span>
+      {sshName ? (
+        <span className="shrink-0 text-muted-foreground/70">SSH</span>
+      ) : nodeId ? (
+        remote.unreachable ? (
+          <span className="shrink-0 text-status-warn"><FormattedMessage id="editor.chat.remote.offline" defaultMessage="Offline" /></span>
+        ) : (
+          <span className="shrink-0 text-muted-foreground/70"><FormattedMessage id="editor.chat.remote.badge" defaultMessage="Remote" /></span>
+        )
+      ) : null}
     </div>
   )
 }

@@ -15,7 +15,7 @@ import { DelegationHttpError, delegationSocket, relayRequest } from '../services
  * The renderer only ever talks to this server, with this server's token; this
  * server then speaks to the other machine end to end encrypted through Broker,
  * as itself (its delegation key). The other machine decides what it lets
- * through (`nodeDelegationRoute`, the "Run agents for other machines" switch).
+ * through (`nodeDelegationRoute`, the "Let other machines use this one" switch).
  */
 export function remoteMachineRoutes(upgradeWebSocket: NodeWebSocket['upgradeWebSocket']) {
   const app = new Hono()

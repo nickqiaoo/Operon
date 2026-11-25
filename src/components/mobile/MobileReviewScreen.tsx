@@ -2,8 +2,9 @@ import { useCallback, useMemo, useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Check, CircleDashed, FileDiff, GitCommitHorizontal, History } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
-import { api } from "@/lib/api"
+import type { Api } from "@/lib/api"
 import type { GitCommitEntry } from "@/lib/api-client"
+import { onNode, useChatApi, useChatNodeId } from "@/lib/chat-api-context"
 import { gitKeys, useGitCommits, useGitStatus } from "@/lib/git-queries"
 import { queryClient } from "@/lib/query-client"
 import { cn } from "@/lib/utils"
@@ -45,6 +46,10 @@ export function MobileReviewScreen({ worktreePath }: MobileReviewScreenProps) {
   const contentOffset = useMobileContentOffset()
   const contentBottom = useMobileContentBottom()
   const root = worktreePath ?? ""
+  // The current workspace's machine (WorkspaceApiProvider): another machine's
+  // worktree is read there.
+  const api = useChatApi()
+  const nodeId = useChatNodeId()
 
   // The picked commit belongs to the workspace it was picked in: switching
   // workspaces falls back to that workspace's uncommitted changes.
@@ -57,11 +62,11 @@ export function MobileReviewScreen({ worktreePath }: MobileReviewScreenProps) {
   const statusQuery = useGitStatus(root, { enabled: !!worktreePath && commitSha == null })
   const commitsQuery = useGitCommits(root, { enabled: !!worktreePath && (pickerOpen || commitSha != null) })
   const commitFilesQuery = useQuery({
-    queryKey: gitKeys.commitFiles(root, commitSha ?? ""),
+    queryKey: onNode(gitKeys.commitFiles(root, commitSha ?? ""), nodeId),
     queryFn: async () => {
       const sha = commitSha ?? ""
       const parent = await api.gitCommitParent(root, sha)
-      return loadRangeFiles(root, parent, sha)
+      return loadRangeFiles(root, parent, sha, api)
     },
     enabled: !!worktreePath && commitSha != null,
     staleTime: 60_000,
@@ -108,11 +113,11 @@ export function MobileReviewScreen({ worktreePath }: MobileReviewScreenProps) {
     if (file.kind === "commit") return Promise.resolve(file.diff)
     if (!worktreePath) return Promise.resolve("")
     return queryClient.fetchQuery({
-      queryKey: gitKeys.fileDiff(worktreePath, file.path, `${file.status}|${file.index}|${file.workingDir}`),
-      queryFn: () => loadFileDiff(worktreePath, file),
+      queryKey: onNode(gitKeys.fileDiff(worktreePath, file.path, `${file.status}|${file.index}|${file.workingDir}`), nodeId),
+      queryFn: () => loadFileDiff(api, worktreePath, file),
       staleTime: 5_000,
     })
-  }, [worktreePath])
+  }, [api, nodeId, worktreePath])
 
   if (!worktreePath) {
     return (
@@ -344,7 +349,7 @@ function buildUntrackedDiff(relativePath: string, content: string): string {
   return [...header, ...lines.map((line) => `+${line}`)].join("\n")
 }
 
-async function loadFileDiff(worktreePath: string, file: ChangedFile): Promise<string> {
+async function loadFileDiff(api: Api, worktreePath: string, file: ChangedFile): Promise<string> {
   if (isUntracked(file)) {
     const content = await api.readFile(joinPath(worktreePath, file.path))
     return buildUntrackedDiff(file.path, content)

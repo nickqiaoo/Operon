@@ -22,6 +22,12 @@ export interface Workspace {
   originChatId?: number | null
   /** Who named it; see `WorkspaceNameSource`. Absent on rows read before the field existed. */
   nameSource?: WorkspaceNameSource
+  /**
+   * Set by the project routes when its directory no longer exists — deleted
+   * outside operon (a temp dir cleaned up, a worktree removed by hand). Nothing
+   * can run or be read there; callers skip it instead of asking git.
+   */
+  missing?: true
   createdAt: number
   updatedAt: number
 }

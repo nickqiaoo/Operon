@@ -10,6 +10,7 @@ import {
   QueueItemDescription,
   QueueItemIndicator,
 } from '@/components/ai-elements/queue';
+import { cn } from '@/lib/utils';
 import type { LiveSteerItem } from './steer-message';
 
 type SteerTrayProps = {
@@ -24,9 +25,11 @@ export const SteerTray = memo(function SteerTray({ items, canRetry, onRetry, onD
   if (items.length === 0) return null;
 
   return (
+    // A strip tucked onto the composer's top edge, a little narrower than it:
+    // open at the bottom so it reads as part of the composer, not another card.
     <Queue
       data-testid="steer-tray"
-      className="mb-1 max-h-24 gap-1 overflow-y-auto rounded-lg border border-tint/15 bg-tint/5 px-2.5 py-1.5 code-scrollbar"
+      className="mx-4 w-auto max-h-28 gap-0 overflow-y-auto rounded-t-xl border border-b-0 border-border/50 bg-muted/30 px-3 py-1 code-scrollbar dark:border-border/35"
     >
       {items.map((item) => (
         <QueueItem
@@ -34,18 +37,18 @@ export const SteerTray = memo(function SteerTray({ items, canRetry, onRetry, onD
           data-testid="steer-tray-item"
           data-status={item.status}
           status={item.status === 'sending' ? 'running' : item.status === 'failed' ? 'error' : undefined}
-          className="w-full text-xs"
+          className="h-7 w-full"
         >
           <QueueItemIndicator>
             {item.status === 'sending' ? (
               <LoaderCircle className="size-3.5 animate-spin" />
             ) : item.status === 'sent' ? (
-              <Check className="size-3.5 text-tint" />
+              <Check className="size-3.5" />
             ) : (
               <AlertCircle className="size-3.5" />
             )}
           </QueueItemIndicator>
-          <QueueItemContent title={item.text} className="text-foreground/80">
+          <QueueItemContent title={item.text} className="text-foreground">
             {item.text || (
               <FormattedMessage
                 id="editor.steer.attachmentsOnly"
@@ -54,7 +57,7 @@ export const SteerTray = memo(function SteerTray({ items, canRetry, onRetry, onD
               />
             )}
           </QueueItemContent>
-          <QueueItemDescription className={item.status === 'failed' ? 'text-status-error' : undefined}>
+          <QueueItemDescription className={cn('ml-auto shrink-0 text-xs', item.status === 'failed' && 'text-status-error')}>
             {item.status === 'sending' ? (
               <FormattedMessage id="editor.steer.sending" defaultMessage="Sending…" />
             ) : item.status === 'sent' ? (
@@ -66,7 +69,7 @@ export const SteerTray = memo(function SteerTray({ items, canRetry, onRetry, onD
             )}
           </QueueItemDescription>
           {item.status === 'failed' || item.status === 'unknown' ? (
-            <QueueItemActions className="ml-auto">
+            <QueueItemActions className="-mr-1">
               {canRetry && item.status === 'failed' ? (
                 <QueueItemAction
                   data-testid="steer-retry"

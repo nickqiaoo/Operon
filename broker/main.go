@@ -150,6 +150,7 @@ func main() {
 	mux.HandleFunc("POST /auth/nodes", s.handleCreateNode)
 	mux.HandleFunc("GET /auth/nodes", s.handleListUserNodes)
 	mux.HandleFunc("DELETE /auth/nodes/{id}", s.handleRevokeNode)
+	mux.HandleFunc("POST /auth/nodes/enroll/redeem", s.handleRedeemEnrollCode)
 	mux.HandleFunc("DELETE /auth/account", s.handleDeleteAccount)
 	mux.HandleFunc("POST /auth/push/devices", s.handleRegisterPushDevice)
 	mux.HandleFunc("DELETE /auth/push/devices", s.handleDeletePushDevice)
@@ -180,6 +181,8 @@ func main() {
 	mux.HandleFunc("POST /agent/up", s.handleAgentUp)
 	mux.HandleFunc("POST /agent/push", s.handleAgentPush)
 	mux.HandleFunc("GET /agent/delegation-nodes", s.handleDelegationNodes)
+	mux.HandleFunc("POST /agent/enroll", s.handleCreateEnrollCode)
+	mux.HandleFunc("DELETE /agent/self", s.handleRevokeSelf)
 	// Stream resilience (web/mobile): resume replays a buffered chat turn after a
 	// dropped connection; cancel is the explicit user-stop path. Registered before
 	// the catch-all — these literal patterns are more specific, so ServeMux routes

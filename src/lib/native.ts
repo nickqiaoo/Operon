@@ -42,6 +42,10 @@ export interface NativeContextProject {
     id: number
     name: string
   }[]
+  /** Another machine of the account the project is on (absent: this one). */
+  nodeId?: string
+  /** The machine's name, set on every project once there are other machines: the sheet groups by it. */
+  machine?: string
 }
 
 // ---- keychain ----
@@ -199,13 +203,15 @@ export interface NativeShellPlugin {
     title: string
     emptyText: string
     projects: NativeContextProject[]
+    /** The current workspace's machine, when it is another one. */
+    activeNodeId?: string
     activeProjectId?: number
     activeWorkspaceId?: number
     activeSpecId?: number
   }): Promise<void>
   addListener(
     eventName: 'contextPicked',
-    listener: (event: { projectId: number; workspaceId?: number; specId?: number; chatId?: number; title?: string }) => void,
+    listener: (event: { projectId: number; workspaceId?: number; specId?: number; chatId?: number; title?: string; nodeId?: string }) => void,
   ): Promise<PluginListenerHandle>
   addListener(eventName: 'contextSheetDismissed', listener: () => void): Promise<PluginListenerHandle>
   /**

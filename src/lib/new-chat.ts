@@ -1,4 +1,5 @@
-import { getChatDraft } from "@/lib/chat-drafts"
+import { create } from "zustand"
+import { getChatDraft, moveChatDraft } from "@/lib/chat-drafts"
 import { providersQueryFor } from "@/lib/provider-queries"
 import { queryClient } from "@/lib/query-client"
 import { useEditorStore } from "@/stores/editor-store"
@@ -36,14 +37,38 @@ function lastChatProvider(): string | null {
 }
 
 /**
- * The last agent if it is still available, else the first available one — on
- * the machine of the current workspace, where the chat will run.
+ * The workspace whose new chat is on its way: picking the agent may first ask
+ * another machine which it has. Until the tab opens, the workbench shows that
+ * instead of its empty state.
  */
-async function resolveProvider(): Promise<string> {
-  const last = lastChatProvider()
+export const useOpeningChatStore = create<{ pending: boolean; workspaceId: number | null; nodeId: string | null }>(() => ({
+  pending: false,
+  workspaceId: null,
+  nodeId: null,
+}))
+
+/** Mark `workspaceId` (on `nodeId`) as opening a chat; the returned call ends it, unless another began since. */
+function markOpening(workspaceId: number | null, nodeId: string | null): () => void {
+  useOpeningChatStore.setState({ pending: true, workspaceId, nodeId })
+  return () => {
+    const opening = useOpeningChatStore.getState()
+    if (opening.workspaceId === workspaceId && opening.nodeId === nodeId) {
+      useOpeningChatStore.setState({ pending: false, workspaceId: null, nodeId: null })
+    }
+  }
+}
+
+/**
+ * `preferred` (else the last agent) if it is still available, else the first
+ * available one — on the machine of the current workspace, where the chat will
+ * run. A list read before is used as it is: it rarely changes, and waiting on
+ * another machine for it is what kept a new chat from opening.
+ */
+async function resolveProvider(preferred?: string): Promise<string> {
+  const last = preferred ?? lastChatProvider()
   try {
     const nodeId = useProjectStore.getState().activeNodeId ?? undefined
-    const providers = await queryClient.fetchQuery(providersQueryFor(nodeId))
+    const providers = await queryClient.ensureQueryData(providersQueryFor(nodeId))
     const available = providers.filter((p) => p.available)
     return available.find((p) => p.id === last)?.id ?? available[0]?.id ?? last ?? FALLBACK_PROVIDER_ID
   } catch {
@@ -112,15 +137,21 @@ export async function startNewChatInWorkspace(workspaceId: number, projectId: nu
   return openBlankChat()
 }
 
-async function openBlankChat(): Promise<string> {
+async function openBlankChat(preferredProvider?: string): Promise<string> {
   // Pressing ⌘N twice must not stack empty tabs: reuse the blank one.
   const existing = useEditorStore.getState().tabs.find(isBlankDraft)
   if (existing) {
     useEditorStore.getState().setActiveTab(existing.id)
     return existing.id
   }
-  const providerId = await resolveProvider()
-  return useEditorStore.getState().createChatTab(providerId, "Chat")
+  const { activeWorkspaceId, activeNodeId } = useProjectStore.getState()
+  const done = markOpening(activeWorkspaceId, activeNodeId)
+  try {
+    const providerId = await resolveProvider(preferredProvider)
+    return useEditorStore.getState().createChatTab(providerId, "Chat")
+  } finally {
+    done()
+  }
 }
 
 /**
@@ -130,4 +161,33 @@ async function openBlankChat(): Promise<string> {
 export function moveDraftToWorkspace(tabId: string, workspaceId: number, projectId: number, nodeId?: string): void {
   useEditorStore.getState().moveTabToWorkspace(tabId, workspaceId)
   useProjectStore.getState().setActiveWorkspace(workspaceId, projectId, nodeId)
+}
+
+/**
+ * Take a not-yet-sent chat to a workspace on another machine. A tab is bound to
+ * its machine, so this opens a new draft there with what was typed (text, files,
+ * skills) and the same agent when that machine has it, and closes this one.
+ */
+export async function moveDraftToMachine(tabId: string, workspaceId: number, projectId: number, nodeId: string | null): Promise<void> {
+  const editor = useEditorStore.getState()
+  const tab = editor.tabs.find((t) => t.id === tabId)
+  if (!tab) return
+  // Kept aside while the old tab closes (closing drops its draft and files).
+  const held = `${tabId}:moving`
+  moveChatDraft(tabId, held)
+  editor.closeTab(tabId)
+  useProjectStore.getState().setActiveWorkspace(workspaceId, projectId, nodeId)
+  // A blank draft already there would show nothing of what was typed: its
+  // composer read its own (empty) draft when it mounted.
+  const blank = useEditorStore.getState().tabs.find(isBlankDraft)
+  if (blank) useEditorStore.getState().closeTab(blank.id)
+  const done = markOpening(workspaceId, nodeId)
+  try {
+    const providerId = await resolveProvider(tab.providerId)
+    // Same tick as the tab: its composer reads the draft when it mounts.
+    const nextId = useEditorStore.getState().createChatTab(providerId, "Chat")
+    moveChatDraft(held, nextId)
+  } finally {
+    done()
+  }
 }

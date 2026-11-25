@@ -36,7 +36,8 @@ export function useWorkspaceDiffStats(): void {
     // Dispatched agents' worktrees do: the agent's row under its parent shows it.
     () => [...new Set(projects.flatMap((p) => {
       const entries = projectSidebarEntries(p, [], [])
-      return [...entries.workspaces, ...entries.dispatched].map((w) => w.worktreePath)
+      // A workspace whose directory is gone has nothing to diff.
+      return [...entries.workspaces, ...entries.dispatched].filter((w) => !w.missing).map((w) => w.worktreePath)
     }).filter(Boolean))].sort().join("\n"),
     [projects],
   )

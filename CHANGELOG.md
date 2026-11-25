@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-25
+
+### Added
+
+- Start external agents on another connected machine and follow their conversations, status, and approval requests from Operon.
+- Browse remote projects and workspaces, start and review chats on the machine that owns the workspace, and move a draft to another machine without losing what you typed.
+- Pair machines and browsers with a code. Linux servers can join as headless nodes using the package attached to this release.
+- Rename workspaces, manage agents from the Agents settings tab, and open chat images in an expanded viewer.
+
+### Changed
+
+- The mobile workspace picker groups workspaces by machine and keeps the current machine visible when you switch projects.
+
+### Fixed
+
+- Unreachable machines back off before retrying and reappear when they reconnect.
+- Chats retain their machine and workspace when opened, and the composer stays hidden while an existing conversation loads.
+
 ## [1.5.39] - 2026-11-24
 
 ### Added

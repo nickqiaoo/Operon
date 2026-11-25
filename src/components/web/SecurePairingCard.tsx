@@ -10,9 +10,11 @@ interface SecurePairingCardProps {
   nodeLabel: string
   onPaired: () => void
   onBack: () => void
+  /** The way out; by default back to the machine picker. */
+  backLabel?: string
 }
 
-export function SecurePairingCard({ nodeId, nodeLabel, onPaired, onBack }: SecurePairingCardProps) {
+export function SecurePairingCard({ nodeId, nodeLabel, onPaired, onBack, backLabel = 'Choose another machine' }: SecurePairingCardProps) {
   const [code, setCode] = useState('')
   const [status, setStatus] = useState<'idle' | 'submitting' | 'pending'>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -172,7 +174,7 @@ export function SecurePairingCard({ nodeId, nodeLabel, onPaired, onBack }: Secur
         <Button variant="ghost" size="sm" onClick={() => {
           pairingAbortRef.current?.abort()
           onBack()
-        }}>Choose another machine</Button>
+        }}>{backLabel}</Button>
       </div>
     </div>
   )

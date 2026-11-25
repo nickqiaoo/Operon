@@ -31,7 +31,7 @@ import {
 } from '@/lib/web-auth'
 import { resetNodeScopedCaches } from '@/lib/node-cache-reset'
 import { syncAnalyticsIdentity } from '@/lib/analytics'
-import { MachineActionsContext } from './MachineSwitcher'
+import { MachineActionsContext, type PairMachineRequest } from './MachineSwitcher'
 import { hasRemotePairing } from '@/lib/e2ee/device-store'
 import { nodeRequiresPairing } from '@/lib/e2ee/node-mode'
 import { SecurePairingCard } from './SecurePairingCard'
@@ -65,6 +65,8 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
   const [loadingNodes, setLoadingNodes] = useState(false)
   const [nodesError, setNodesError] = useState<string | null>(null)
   const [pairingNode, setPairingNode] = useState<{ nodeId: string; label: string } | null>(null)
+  // Another machine being paired from its group in the sidebar, over the app.
+  const [pairingOther, setPairingOther] = useState<PairMachineRequest | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deletingAccount, setDeletingAccount] = useState(false)
   const theme = useThemeStore((s) => s.theme)
@@ -102,8 +104,11 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const onPairingRequired = (event: Event) => {
-      const nodeId = (event as CustomEvent<{ nodeId?: string }>).detail?.nodeId ?? getSelectedNodeId()
-      if (!nodeId) return
+      const selected = getSelectedNodeId()
+      const nodeId = (event as CustomEvent<{ nodeId?: string }>).detail?.nodeId ?? selected
+      // Another machine's tree in the sidebar asks for pairing itself; only the
+      // selected machine is the whole app.
+      if (!nodeId || nodeId !== selected) return
       setPairingNode({ nodeId, label: getSelectedNodeLabel() ?? nodeId.slice(0, 8) })
       setPhase('pairing')
     }
@@ -257,8 +262,25 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
         label: getSelectedNodeLabel() ?? intl.formatMessage({ id: 'web.auth.machineFallback', defaultMessage: 'machine' }),
         onSwitch: switchMachine,
         onSignOut: logout,
+        onPairMachine: setPairingOther,
       }}>
         {children}
+        {pairingOther && (
+          <div className="fixed inset-0 z-50 overflow-auto bg-background">
+            <SecurePairingCard
+              key={pairingOther.nodeId}
+              nodeId={pairingOther.nodeId}
+              nodeLabel={pairingOther.label}
+              backLabel={intl.formatMessage({ id: 'web.auth.pairOther.cancel', defaultMessage: 'Cancel' })}
+              onPaired={() => {
+                const done = pairingOther.onPaired
+                setPairingOther(null)
+                done()
+              }}
+              onBack={() => setPairingOther(null)}
+            />
+          </div>
+        )}
       </MachineActionsContext.Provider>
     )
   }

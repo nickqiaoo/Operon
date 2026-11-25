@@ -18,6 +18,7 @@ import { shutdownOperonTracing } from '../server/src/services/operon-runtime/tra
 import { shutdownTelemetry } from '../server/src/services/analytics/telemetry.js'
 import { SqliteVecStore } from '../server/src/services/vector/sqlite-vec-store.js'
 import { stopComputerUseEngine } from '../server/src/services/computer-use-lifecycle.js'
+import { isSaasRuntimeRunning, startSaasRuntime, stopSaasRuntime } from '../server/src/services/saas-runtime.js'
 import { ensureComputerUseService } from '../server/src/routes/node-repl-mcp.js'
 import { registerComputerUsePermissions } from './computer-use-permissions.js'
 import { isUserAtDesktop, setDesktopPresenceProbe } from '../server/src/services/desktop-presence.js'
@@ -936,6 +937,21 @@ app.whenReady().then(async () => {
       idleState: powerMonitor.getSystemIdleState(DESKTOP_IDLE_THRESHOLD_S),
     })
   )
+
+  // Going to sleep (lid closed): leave Broker now instead of vanishing. Closing the
+  // downlink makes Broker drop this machine at once, so another machine opening one
+  // of its chats gets "offline" instead of loading until the uplink heartbeat lapses
+  // (~45s, the backstop for an exit nobody announced). Back on wake.
+  let saasRuntimeSuspended = false
+  powerMonitor.on('suspend', () => {
+    saasRuntimeSuspended = isSaasRuntimeRunning()
+    if (saasRuntimeSuspended) stopSaasRuntime()
+  })
+  powerMonitor.on('resume', () => {
+    if (!saasRuntimeSuspended) return
+    saasRuntimeSuspended = false
+    startSaasRuntime()
+  })
 
   // html_preview renders agents' pages offscreen here; headless nodes have no such host.
   registerHtmlSnapshotter()

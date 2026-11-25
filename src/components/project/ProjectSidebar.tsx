@@ -434,7 +434,7 @@ const ChatRow = memo(function ChatRow({ chat, workspaceId, nodeId, onOpen }: {
       className={cn(
         treeRowClassName,
         // Room for the agents toggle, so it never covers the title.
-        hasChildren && "pr-12",
+        hasChildren && "pr-8",
         current && "bg-row-selected hover:bg-row-selected",
       )}
     >
@@ -521,17 +521,12 @@ function ChatWithAgents({ chatId, workspaceId, current, children: row }: {
           aria-label={expanded
             ? intl.formatMessage({ id: "sidebar.agents.hide", defaultMessage: "Hide agents" })
             : intl.formatMessage({ id: "sidebar.agents.show", defaultMessage: "Show {count, plural, one {# agent} other {# agents}}" }, { count: counts.total })}
-          title={intl.formatMessage(
-            { id: "sidebar.agents.summary", defaultMessage: "{finished} of {total} agents finished" },
-            { finished: counts.finished, total: counts.total },
-          )}
           onClick={() => setOverride(!expanded)}
           className={cn(
-            "absolute right-1.5 top-1/2 flex h-5 -translate-y-1/2 items-center gap-0.5 rounded-md px-1 text-[11px] tabular-nums transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+            "absolute right-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-md transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
             counts.needsYou > 0 ? "text-status-warn" : counts.failed > 0 ? "text-status-error" : "text-muted-foreground hover:text-foreground",
           )}
         >
-          {counts.finished}/{counts.total}
           <ChevronRight className={cn("size-3 transition-transform", expanded && "rotate-90")} strokeWidth={1.75} />
         </button>
       </div>
