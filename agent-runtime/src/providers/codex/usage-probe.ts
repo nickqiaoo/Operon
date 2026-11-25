@@ -13,11 +13,10 @@
 
 import type { RuntimeContext } from '../../context.js'
 import { createRuntimeLogger } from '../../logger.js'
-import {
-  acquireAppServerClient,
-  type AppServerLease,
-} from './sdk/client-registry.js'
+import type { AppServerLease } from './sdk/client-registry.js'
 import type { AccountRateLimitsReadResult } from './sdk/protocol/index.js'
+
+import { codexAccounts } from './accounts.js'
 
 const logger = createRuntimeLogger('codex-usage')
 
@@ -32,14 +31,18 @@ class CodexUsageProbe {
 
   constructor(private readonly ctx: RuntimeContext) {}
 
+  private generation = -1
   client(): AppServerLease['client'] | undefined {
+    const accounts = codexAccounts(this.ctx)
+    if (this.generation !== accounts.generation) this.dispose()
+    this.generation = accounts.generation
     if (!this.lease) {
       const codexPath = this.ctx.resolveBinary('codex')
       if (!codexPath) {
         logger.info('Codex CLI not available, skipping usage probe')
         return undefined
       }
-      this.lease = acquireAppServerClient({ codexPath, env: this.ctx.env() })
+      this.lease = accounts.acquire({ codexPath, env: this.ctx.env() })
       logger.info('Usage probe connection opened')
     }
 

@@ -23,7 +23,7 @@ import {
 } from "@/lib/active-conversations"
 import { cn } from "@/lib/utils"
 import { useChatPendingInputStore } from "@/stores/chat-pending-input-store"
-import { useChatPresenceStore } from "@/stores/chat-presence-store"
+import { useChatRunningStore } from "@/stores/chat-running-store"
 import { LOCAL_NODE, chatKey, chatRefFromTabId, chatRefOfTab, localChat, nodeChatIds, nodeEntries, parseWorkspaceBucketKey, sameChat, workspaceBucketKey } from "@/lib/chat-ref"
 import { useEditorStore } from "@/stores/editor-store"
 import { useInboxStore } from "@/stores/inbox-store"
@@ -58,7 +58,7 @@ export function useActiveConversations({ includeInfo = false }: { includeInfo?: 
   })))
   const projects = useProjectStore((s) => s.projects)
   const pendingByChat = useChatPendingInputStore((s) => s.pendingByChat)
-  const runningChats = useChatPresenceStore((s) => s.runningChats)
+  const runningChats = useChatRunningStore((s) => s.runningChats)
   // The sidebar lists this machine's conversations.
   const runningChatIds = useMemo(() => nodeChatIds(runningChats, LOCAL_NODE), [runningChats])
   const { streamingTabIds, unseenTabIds } = useStreamingStore(useShallow((s) => ({
@@ -250,7 +250,7 @@ function ActiveRow({ entry, current, location, showLocation = false, onOpen }: {
       )}
     >
       <AgentIcon providerId={entry.providerId} group={entry.group} />
-      <span className={cn("min-w-0 flex-1 truncate text-sm", wantsYou ? "font-medium text-foreground" : "text-foreground/70")}>
+      <span className={cn("min-w-0 flex-1 sidebar-title-fade text-sm", wantsYou ? "font-medium text-foreground" : "text-foreground/70")}>
         {title}
       </span>
       {showLocation ? location && (
@@ -335,7 +335,7 @@ export function useChatAttention(chatId: number, nodeId?: string): ActiveGroup |
     return null
   })
   const pending = useChatPendingInputStore((s) => s.pendingByChat.has(chatKey(ref)))
-  const present = useChatPresenceStore((s) => s.runningChats.has(chatKey(ref)))
+  const present = useChatRunningStore((s) => s.runningChats.has(chatKey(ref)))
   const streaming = useStreamingStore((s) => tabId != null && s.streamingTabIds.has(tabId))
   const unseen = useStreamingStore((s) => tabId != null && s.unseenTabIds.has(tabId))
   const { data: unread } = useInboxUnread()

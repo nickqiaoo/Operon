@@ -81,36 +81,25 @@ function TaskRow({
     <button
       onClick={onClick}
       className={cn(
-        'w-full flex items-center gap-3 px-4 md:px-5 py-2 text-left border-b border-border/40 hover:bg-row-hover transition-colors',
+        'w-full flex items-center gap-2 px-4 md:gap-3 md:px-5 py-2 text-left border-b border-border/40 hover:bg-row-hover transition-colors',
         archived && 'opacity-55',
       )}
     >
       <PriorityIcon priority={task.priority} />
       <TaskRef projectId={task.projectId} number={task.number} className="text-xs text-muted-foreground/50 min-w-12 max-w-32 shrink-0" />
       {archived && <Archive className="w-3 h-3 text-muted-foreground/50 shrink-0" />}
-      <span className="flex min-w-0 flex-1 flex-col items-start gap-1">
-        <span className={cn("w-full truncate text-sm text-foreground/90", task.titlePending && "shimmer motion-reduce:shimmer-none")}>{task.title}</span>
-        {/* On the phone the spec badge sits under the title: as a column of its
-            own it squeezed the title to a few letters. A spec task's badge also
-            carries its running state, so it never shows the chip as well. */}
-        <span className="flex w-full min-w-0 items-center gap-1.5 empty:hidden md:contents">
-          {!specCardBadgeShown(task) && <TaskExecutionIndicator task={task} className="max-w-full overflow-hidden" />}
-          <SpecCardBadge task={task} className="shrink-0 md:hidden" />
-        </span>
-      </span>
-      {/* Badges hug the timestamp: a fixed column of its own left the spec
-          badge floating mid-row whenever the row had no labels. A spec at a
-          gate is waiting on the reader — on the phone this list is the only board. */}
-      <div className="flex shrink-0 items-center justify-end gap-1.5 overflow-hidden md:w-60">
+      <span className={cn('min-w-0 flex-1 truncate text-sm text-foreground/90', task.titlePending && 'shimmer motion-reduce:shimmer-none')}>{task.title}</span>
+      {!specCardBadgeShown(task) && <TaskExecutionIndicator task={task} className="shrink-0 whitespace-nowrap" />}
+      <div className="contents shrink-0 items-center justify-end gap-1.5 overflow-hidden whitespace-nowrap md:flex md:w-60">
         {task.pullRequest && <PullRequestBadge pr={task.pullRequest} />}
-        <SpecCardBadge task={task} className="hidden md:inline-flex" />
+        <SpecCardBadge task={task} className={cn('shrink-0', task.specStage === 'failed' && 'hidden md:inline-flex')} />
         <span className="hidden md:contents">
           {task.labels.slice(0, 3).map((l) => (
             <LabelChip key={l.id} label={l} />
           ))}
         </span>
       </div>
-      <span className="text-[11px] text-muted-foreground/40 tabular-nums w-12 text-right shrink-0 whitespace-nowrap">
+      <span className="w-10 shrink-0 truncate text-right text-[11px] tabular-nums text-muted-foreground/40 md:w-12">
         {formatRelativeTime(intl, task.updatedAt, { compact: true })}
       </span>
       <span className="flex w-6 shrink-0 items-center justify-center">

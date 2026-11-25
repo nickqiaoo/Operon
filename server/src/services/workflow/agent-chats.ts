@@ -4,14 +4,14 @@
  * The run panel folds an agent's work through one reducer over UI message
  * chunks (`reduceAgentChunk` on the client). Agents now run as chats, so their
  * output is the chats' stored messages — except that, while a turn is still
- * going, its reply comes from the live-turn buffer: the stored copy is only its
+ * going, its reply comes from the turn stream: the stored copy is only its
  * last checkpoint. Both are turned back into the same chunks
  * here, so a chat-backed agent and an older recorded one render alike.
  */
 
 import type { UIMessage } from 'ai'
 import { getChatStorage } from '../ai/state.js'
-import { getLiveTurn } from '../ai/live-turn-hub.js'
+import { getChatTurnStream } from '../ai/chat-turn-lifecycle.js'
 
 const INJECTED_INPUT_PART = 'data-injected-input'
 
@@ -79,26 +79,42 @@ export function chunksFromMessages(messages: readonly UIMessage[]): unknown[] {
   return chunks
 }
 
-/** The chunks in a buffered UI message stream (`data: {…}` lines). */
-export function chunksFromSse(text: string): unknown[] {
-  const chunks: unknown[] = []
-  for (const line of text.split('\n')) {
-    if (!line.startsWith('data:')) continue
-    const body = line.slice(5).trim()
-    if (!body || body === '[DONE]') continue
-    try {
-      const chunk = JSON.parse(body) as { type?: string; id?: unknown; data?: { text?: unknown; notice?: unknown } }
-      // The live stream marks a steer the same way the saved reply does.
-      if (chunk.type === INJECTED_INPUT_PART) {
-        if (chunk.data?.notice !== true && typeof chunk.data?.text === 'string') chunks.push({ type: 'data-steer', data: { text: chunk.data.text } })
-        continue
-      }
-      chunks.push(chunk)
-    } catch {
-      // A partial line at the end of the buffer; the next read has it whole.
+/** A turn stream's chunks (the reply so far), as the run panel shows them. */
+export function chunksFromStream(chunks: readonly unknown[]): unknown[] {
+  const out: unknown[] = []
+  for (const value of chunks) {
+    const chunk = value as { type?: string; data?: { text?: unknown; notice?: unknown } }
+    // The stream marks a steer the same way the saved reply does.
+    if (chunk.type === INJECTED_INPUT_PART) {
+      if (chunk.data?.notice !== true && typeof chunk.data?.text === 'string') out.push({ type: 'data-steer', data: { text: chunk.data.text } })
+      continue
     }
+    out.push(chunk)
   }
-  return chunks
+  return out
+}
+
+/**
+ * The stored messages a running turn's stream already covers: its reply (the
+ * stream stands in for the saved checkpoint) and, for a `settled` reader that
+ * renders the stream itself, the steers sent into it. A steer is stored just
+ * before the reply it went into, and the stream marks where the agent took it
+ * in; left in, it would show twice.
+ */
+function runningTurnMessages(messages: readonly UIMessage[], replyId: string, settled: boolean): Set<string> {
+  const ids = new Set([replyId])
+  if (!settled) return ids
+  const index = messages.findIndex((m) => m.id === replyId)
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const metadata = messages[i]?.metadata as { steer?: unknown } | undefined
+    if (messages[i]?.role !== 'user' || metadata?.steer !== true) break
+    ids.add(messages[i]!.id)
+  }
+  for (const message of messages) {
+    const metadata = message.metadata as { steer?: unknown; turnMessageId?: unknown } | undefined
+    if (message.role === 'user' && metadata?.steer === true && metadata.turnMessageId === replyId) ids.add(message.id)
+  }
+  return ids
 }
 
 function textOf(message: UIMessage): string {
@@ -111,8 +127,11 @@ function textOf(message: UIMessage): string {
 /**
  * An agent's whole transcript across its chats, oldest first. A handoff to
  * another provider started a new chat; the panel marks where.
+ *
+ * `settled` leaves a running turn out entirely (its saved checkpoint too): the
+ * reader is watching that turn on the chat's stream.
  */
-export function readAgentChatChunks(chatIds: readonly number[]): unknown[] {
+export function readAgentChatChunks(chatIds: readonly number[], options: { settled?: boolean } = {}): unknown[] {
   const storage = getChatStorage()
   if (!storage) return []
   const chunks: unknown[] = []
@@ -123,13 +142,14 @@ export function readAgentChatChunks(chatIds: readonly number[]): unknown[] {
     const provider = entry.providerId ?? '?'
     if (previousProvider !== undefined) chunks.push({ type: 'data-replaced', data: { from: previousProvider, to: provider } })
     previousProvider = provider
-    // A turn still going has said more in its live buffer than its last saved
-    // checkpoint of the reply, so the buffer stands in for that message.
-    const turn = getLiveTurn(chatId)
-    const live = turn && !turn.isDone ? turn : undefined
+    // A turn still going has said more in its stream than its last saved
+    // checkpoint of the reply, so the stream stands in for that message.
+    const stream = getChatTurnStream(chatId)
+    const running = stream && !stream.isDone ? stream : undefined
     const messages = entry.messages as UIMessage[]
-    chunks.push(...chunksFromMessages(live?.messageId ? messages.filter((m) => m.id !== live.messageId) : messages))
-    if (live) chunks.push(...chunksFromSse(live.snapshot()))
+    const leftOut = running?.messageId ? runningTurnMessages(messages, running.messageId, options.settled === true) : undefined
+    chunks.push(...chunksFromMessages(leftOut ? messages.filter((m) => !leftOut.has(m.id)) : messages))
+    if (running && !options.settled) chunks.push(...chunksFromStream(running.snapshotChunks()))
   }
   return chunks
 }

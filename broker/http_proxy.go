@@ -167,16 +167,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	keepalive := time.NewTicker(streamKeepaliveInterval)
 	defer keepalive.Stop()
 
-	// buf is non-nil once we see an X-Chat-Id response header, marking this as an
-	// agent chat stream worth buffering for resume. handoff means a drain goroutine
-	// took over (browser left mid-turn) and owns p.cancel().
-	var buf *chatBuffer
-	handoff := false
-	defer func() {
-		if !handoff {
-			p.cancel()
-		}
-	}()
+	defer p.cancel()
 
 	for {
 		select {
@@ -190,34 +181,16 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 					strings.ToLower(headerValue(ev.frame.Headers, "Content-Type")),
 					"text/event-stream",
 				)
-				if cid := headerValue(ev.frame.Headers, "X-Chat-Id"); cid != "" {
-					buf = s.chatBufs.start(chatBufferKey(uid, nid, cid), conn, id)
-					buf.setEncryptionHeaders(
-						headerValue(ev.frame.Headers, "X-Operon-E2EE"),
-						headerValue(ev.frame.Headers, "X-Operon-E2EE-Context"),
-						headerValue(ev.frame.Headers, "X-Operon-E2EE-Framing"),
-						headerValue(ev.frame.Headers, "X-Operon-Inner-Content-Type"),
-					)
-				}
 			case evChunk:
 				if !headWritten {
 					w.WriteHeader(http.StatusOK)
 					headWritten = true
 				}
-				if buf != nil {
-					buf.append(ev.data)
-				}
 				_, _ = w.Write(ev.data)
 				flush(flusher) // flush every chunk or SSE buffers until the end
 			case evEnd:
-				if buf != nil {
-					buf.finish()
-				}
 				return
 			case evError:
-				if buf != nil {
-					buf.finish()
-				}
 				if !headWritten {
 					status := ev.frame.Status
 					if status == 0 {
@@ -230,8 +203,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 			}
 		case <-keepalive.C:
 			// Nudge the connection so idle intermediaries don't drop it mid-turn.
-			// Only SSE streams (headers seen, event-stream) get the comment; the
-			// buffer is NOT fed it — resume replays only real chunks.
+			// Only SSE streams (headers seen, event-stream) get the comment.
 			if headWritten && isEventStream {
 				if _, err := w.Write(sseKeepalive); err != nil {
 					return
@@ -244,23 +216,15 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 			// forever — silently for a plain request, or emitting keepalives into an SSE
 			// stream that never ends. The node's local turn is unaffected and keeps
 			// running (server/src/routes/ai.ts deliberately ignores the request signal),
-			// so a chat client recovers the rest through resume.
-			if buf != nil {
-				buf.finish()
-			}
+			// so a chat client recovers the rest from GET …/api/ai/chat/stream/{chatId}.
 			if !headWritten {
 				writeNodeOffline(w)
 			}
 			return
 		case <-r.Context().Done():
-			// Browser disconnected. For a chat stream, DON'T cancel the node — keep
-			// draining its output into the buffer so the client can resume. Any other
-			// request is best cancelled to stop the agent's local work.
-			if buf != nil {
-				handoff = true
-				go drainToBuffer(p, buf)
-				return
-			}
+			// Browser disconnected: cancel the node's request too. That only ends the
+			// browser's subscription: the chat turn keeps running on the node, and a
+			// reconnecting client attaches again at /api/ai/chat/stream/{chatId}.
 			conn.cancelRequest(id, "client_disconnected")
 			return
 		}
@@ -270,30 +234,6 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 func (s *Server) delegationNode(uid, nid string) (NodeRow, bool) {
 	node, found, err := s.store.GetNode(nid)
 	return node, err == nil && found && node.UserID == uid && node.RevokedAt == 0
-}
-
-// drainToBuffer continues consuming a tunneled response after the browser has gone,
-// recording chunks for a later resume. It owns p.cancel() once the handler hands off.
-func drainToBuffer(p *pendingReq, buf *chatBuffer) {
-	defer p.cancel()
-	for {
-		select {
-		case ev := <-p.events:
-			switch ev.kind {
-			case evChunk:
-				buf.append(ev.data)
-			case evEnd, evError:
-				buf.finish()
-				return
-			case evHead:
-				// already past the head; ignore
-			}
-		case <-p.ctx.Done():
-			// connection died → no more chunks are coming; let resume tailers stop.
-			buf.finish()
-			return
-		}
-	}
 }
 
 // headerValue does a case-insensitive lookup (tunneled headers may be normalized to

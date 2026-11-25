@@ -3,7 +3,7 @@ import { chatKey, replaceNodeEntries, type ChatKey, type ChatRef, type NodeKey }
 
 /**
  * Each conversation's next-prompt guess from Claude Code, mirrored from the
- * live-status stream (see lib/live-turn-events.ts). The server clears a chat's
+ * chat status stream (see lib/chat-status-events.ts). The server clears a chat's
  * entry as soon as its next turn starts. Keyed by `ChatKey`: each machine whose
  * stream is open reports its own chats.
  */

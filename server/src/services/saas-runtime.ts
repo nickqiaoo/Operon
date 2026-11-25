@@ -6,6 +6,7 @@ import { getApiToken, isApiTokenAuthDisabled } from './api-token.js'
 import { delegationTunnelToken } from './delegation-tunnel.js'
 import { getDelegationKeypair } from './mobile/identity.js'
 import { bytesToBase64 } from '@shared/e2ee/protocol'
+import { brokerEnabled } from './direct-link.js'
 
 // Runs the tunnel agent IN-PROCESS (Electron main) so that once the user has signed
 // in, this machine is reachable from the web app with zero manual steps. The agent
@@ -22,6 +23,8 @@ export function startSaasRuntime(): boolean {
   if (handle) return true
   const cfg = getSaasConfig()
   if (!cfg.nodeToken) return false
+  // "Use Broker" off: signed in, but not connected.
+  if (!brokerEnabled()) return false
 
   const port = process.env.OPERON_PORT
   if (!port) return false

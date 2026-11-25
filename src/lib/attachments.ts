@@ -1,3 +1,4 @@
+import { linkAttachmentThumbnail } from './attachment-thumbnails'
 import { localTransport, type ApiTransport } from './api-client'
 
 /**
@@ -131,6 +132,9 @@ export async function persistBlobUrl(
   transport: ApiTransport = localTransport,
 ): Promise<string | null> {
   const uploaded = await (startedUploads.get(uploadKey(blobUrl, transport)) ?? uploadBlobUrl(blobUrl, meta, transport))
-  if (uploaded) return uploaded.url
+  if (uploaded) {
+    linkAttachmentThumbnail(blobUrl, uploaded.url)
+    return uploaded.url
+  }
   return blobUrlToDataUrl(blobUrl)
 }

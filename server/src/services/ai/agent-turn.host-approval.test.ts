@@ -11,6 +11,14 @@ afterEach(() => {
   resetHostApprovalBroker()
 })
 
+const until = async (check: () => boolean, ms = 2_000): Promise<void> => {
+  const deadline = Date.now() + ms
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error('timed out')
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+}
+
 describe('runAgentTurn host approval bridge', () => {
   it('injects an external Browser Use approval while the provider stream is paused', async () => {
     let finishProvider: (() => void) | undefined
@@ -53,6 +61,7 @@ describe('runAgentTurn host approval bridge', () => {
       },
     }
 
+    const parts: RuntimeStreamPart[] = []
     const turn = runAgentTurn(session, {
       requestId: 'request-1',
       input: '',
@@ -64,10 +73,10 @@ describe('runAgentTurn host approval bridge', () => {
         providerId: 'fake',
         cwd: '/tmp',
       },
+      onPart: (part) => parts.push(part),
     })
-    const reader = turn.preparedParts.getReader()
-    expect((await reader.read()).value?.part?.type).toBe('start')
-    expect((await reader.read()).value?.part?.type).toBe('tool-call')
+    await until(() => parts.length >= 2)
+    expect(parts.map((p) => p.type)).toEqual(['start', 'tool-call'])
 
     const elicitation = requestHostElicitation(42, {
       message: 'Allow Browser Use to access https://example.com?',
@@ -77,7 +86,9 @@ describe('runAgentTurn host approval bridge', () => {
         origin: 'https://example.com',
       },
     })
-    const approvalPart = (await reader.read()).value?.part
+    // Injected while the provider stream is paused inside the tool.
+    await until(() => parts.length >= 3)
+    const approvalPart = parts[2]
     expect(approvalPart?.type).toBe('tool-approval-request')
     if (approvalPart?.type !== 'tool-approval-request') {
       throw new Error('Expected a host approval request')
@@ -91,11 +102,8 @@ describe('runAgentTurn host approval bridge', () => {
     })
 
     finishProvider?.()
-    expect((await reader.read()).value?.part?.type).toBe('tool-result')
-    while (!(await reader.read()).done) {
-      // Drain the provider finish part and close the stream.
-    }
     const completed = await turn.done
+    expect(parts[3]?.type).toBe('tool-result')
     expect(completed).toMatchObject({
       message: { id: 'assistant-1', role: 'assistant' },
     })

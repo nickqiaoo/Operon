@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react"
-import { CalendarClock, ChevronDown, ChevronRight, Loader2, Play, RefreshCcw, Wand2 } from "lucide-react"
+import { ChevronDown, ChevronRight, Loader2, Play, RefreshCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
@@ -182,7 +182,6 @@ export function MemoryMaintenanceSettings() {
   return (
     <div className="space-y-4">
       <SettingsSection
-        icon={CalendarClock}
         title={<FormattedMessage id="settings.maintenance.title" defaultMessage="Memory Maintenance" />}
         description={
           <FormattedMessage
@@ -378,15 +377,14 @@ export function MemoryMaintenanceSettings() {
       </SettingsSection>
 
       <SettingsSection
-        icon={Wand2}
         title={<FormattedMessage id="settings.maintenance.recentRuns" defaultMessage="Recent runs" />}
       >
         {runs.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border/40 px-4 py-6 text-center text-xs text-muted-foreground">
+          <div className="px-4 py-6 text-center text-xs text-muted-foreground">
             <FormattedMessage id="settings.maintenance.noRuns" defaultMessage='No runs yet. Click "Run now" to trigger one manually.' />
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-border/40 bg-background/40">
+          <div className="overflow-hidden">
             <table className="w-full text-xs">
               <thead className="bg-muted/20">
                 <tr className="text-left text-muted-foreground">

@@ -9,7 +9,8 @@ import { gitWatchRoutes } from './routes/git-watch.js'
 import { fsRoutes } from './routes/fs.js'
 import { attachmentRoutes } from './routes/attachments.js'
 import { chatHistoryRoutes } from './routes/chat-history.js'
-import { aiRoutes } from './routes/ai.js'
+import { ScheduledMessages } from './services/scheduled-messages.js'
+import { aiRoutes, enrichChatAgentContext } from './routes/ai.js'
 import { terminalRoutes } from './routes/terminal.js'
 import { fsWatchRoutes } from './routes/fs-watch.js'
 import { cronjobRoutes } from './routes/cronjob.js'
@@ -38,6 +39,7 @@ import { providerConfigRoutes } from './routes/provider-config.js'
 import { initProviderConfigService } from './services/provider-config.js'
 import { envRoutes } from './routes/env.js'
 import { initEnvConfigService } from './services/env-config.js'
+import { codexAccountRoutes } from './routes/codex-accounts.js'
 import { cliPathConfigRoutes } from './routes/cli-path-config.js'
 import { cliAutoUpdateRoutes } from './routes/cli-auto-update.js'
 import { acpAgentRoutes } from './routes/acp-agents.js'
@@ -114,7 +116,9 @@ import { initRemoteAgents } from './services/remote-agents.js'
 import { DELEGATED_AGENT_EVENTS_PATH, MACHINE_PEER_SYNC_PATH } from '@shared/delegations'
 import { DelegationHost } from './services/delegation-host.js'
 import { initMachinePeers } from './services/machine-peers.js'
-import { initMachinePairing, startPeerSync } from './services/machine-pairing.js'
+import { initMachinePairing, schedulePeerSync, startPeerSync } from './services/machine-pairing.js'
+import { initDirectLink } from './services/direct-link.js'
+import { initLocalIdentity } from './services/local-identity.js'
 
 export interface AppDeps {
   storage: StorageAdapter & ChatStorageAdapter & CronjobStorageAdapter & CanvasWorkflowStorageAdapter & ProjectStorageAdapter & ChannelStorageAdapter & TaskStorageAdapter & NotificationStorageAdapter & AssistantStorageAdapter & CheckpointStorageAdapter & IMStorageAdapter & AgentBindingStorageAdapter & MemoryMaintenanceStorageAdapter
@@ -266,6 +270,9 @@ export async function createApp(deps: AppDeps) {
       })
     },
   })
+  // Paired machines learn where this one listens over Tailscale from the next sync.
+  initLocalIdentity(deps.storage)
+  initDirectLink(deps.storage, { onAddressChange: () => schedulePeerSync() })
   stopPeerSync?.()
   stopPeerSync = startPeerSync()
   seedLegacyIMTokens(deps.storage)
@@ -279,8 +286,8 @@ export async function createApp(deps: AppDeps) {
   // file:// or the dev server, the web client from app.operon.* via the broker),
   // so a response header the client actually reads has to be listed here or
   // `response.headers.get(...)` silently returns null. X-Turn-Id is how a surface
-  // tells "the live turn I started" from "a turn a peer started" — without it the
-  // live-attach dedup in useChatRuntime degrades to re-attaching to its own turn
+  // tells "the turn I started" from "a turn a peer started" — without it the
+  // turn-attach dedup in useChatRuntime degrades to re-attaching to its own turn
   // after every reply. Keep in sync with broker/main.go's withCORS.
   //
   // Origin is a LOCAL-SURFACE allowlist, not '*': the packaged renderer loads
@@ -300,6 +307,7 @@ export async function createApp(deps: AppDeps) {
     exposeHeaders: [
       'X-Chat-Id',
       'X-Turn-Id',
+      'X-Message-Id',
       'X-Operon-E2EE',
       'X-Operon-E2EE-Context',
       'X-Operon-E2EE-Framing',
@@ -338,13 +346,16 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/attachments', attachmentRoutes())
   app.route('/api/chat-history', chatHistoryRoutes(deps.storage))
   // Kept as values: /api/events opens their feeds in process (see routes/events.ts).
-  const ai = aiRoutes(deps.storage)
+  const scheduledMessages = new ScheduledMessages(deps.storage, payload => enrichChatAgentContext(payload, deps.storage))
+  const ai = aiRoutes(deps.storage, scheduledMessages)
   const tasks = taskRoutes(deps.storage)
   const inbox = notificationRoutes(deps.storage)
   const externalAgents = externalAgentRoutes()
   const projects = projectRoutes(deps.storage)
+  const codexAccounts = codexAccountRoutes()
   app.route('/api/events', eventRoutes({
-    'live-status': () => ai.request('/chat/live-status'),
+    'codex-selection': () => codexAccounts.request('/selection'),
+    'chat-status': () => ai.request('/chat/status'),
     workflow: (query) => ai.request(`/workflow/feed?limit=${encodeURIComponent(query.get('limit') ?? '30')}`),
     'external-agents': () => externalAgents.request('/feed'),
     tasks: () => tasks.request('/stream'),
@@ -404,6 +415,7 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/workflow-mcp', workflowMcpRoutes())
   app.route('/api/provider-configs', providerConfigRoutes())
   app.route('/api/env', envRoutes())
+  app.route('/api/codex-accounts', codexAccounts)
   app.route('/api/cli-paths', cliPathConfigRoutes())
   app.route('/api/cli-auto-update', cliAutoUpdateRoutes())
   app.route('/api/acp-agents', acpAgentRoutes())
@@ -513,5 +525,5 @@ export async function createApp(deps: AppDeps) {
   // Reset stale agent sessions to idle (do NOT auto-wake on restart)
   resetAgentSessionsOnStartup(deps.storage)
 
-  return { app, injectWebSocket }
+  return { app, injectWebSocket, scheduledMessages }
 }

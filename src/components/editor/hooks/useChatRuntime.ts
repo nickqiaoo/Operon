@@ -2,15 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses, type UIMessage } from 'ai'
 import { useChat } from '@ai-sdk/react'
 import { useChatApi, useChatTransport } from '@/lib/chat-api-context'
-import { subscribeChatPresence } from '@/lib/live-turn-events'
+import { subscribeChatTurnStatus, type ChatTurnStatus } from '@/lib/chat-status-events'
 import { useEditorStore } from '@/stores/editor-store'
 import { normalizeOutboundMessagePaths } from '../utils/chatMetadata'
 import { mergeServerTail, TAIL_SYNC_SIZE } from '../utils/merge-server-tail'
 import { normalizeHistoryMessages } from './useChatHistory'
 import { trackEvent } from '@/lib/analytics'
 import { turnSettingsSaved } from '@/lib/turn-settings-saves'
-
-const IS_WEB = __APP_TARGET__ === 'web'
 
 /** Upper bound on how long a Stop may hold back transcript reconciliation. */
 const ABORT_SETTLE_TIMEOUT_MS = 8000
@@ -32,6 +30,22 @@ const isNetworkError = (error: unknown): boolean => {
     msg.includes('network') ||
     msg.includes('connection')
   )
+}
+
+/** A network drop we wait out rather than retry into: offline or in the background. */
+const unreachable = (): boolean =>
+  (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+  (typeof document !== 'undefined' && document.visibilityState === 'hidden')
+
+/**
+ * Before a turn's reply is rebuilt from its stream: drop an older copy of it that is not
+ * the last message (a steer sent after it). The SDK replaces the reply in place
+ * only when it is last; anywhere else it would be shown twice.
+ */
+const withoutStaleCopy = (messages: UIMessage[], messageId: string): UIMessage[] => {
+  const index = messages.findIndex((message) => message.id === messageId)
+  if (index === -1 || index === messages.length - 1) return messages
+  return messages.filter((message) => message.id !== messageId)
 }
 
 export function useChatRuntime({
@@ -87,18 +101,26 @@ export function useChatRuntime({
   const dbChatIdRef = useRef<number | undefined>(dbChatId)
   const chatBodyRef = useRef<Record<string, unknown>>({})
 
-  // Live-turn ownership. `handledTurnRef` is the latest turn whose stream this
-  // surface actually holds, learned from the X-Turn-Id header on both the POST
-  // that started it and the GET that attached to it. `pendingTurnRef` parks a
-  // turn announced while history is loading or this surface is still mid-stream.
-  const handledTurnRef = useRef<string | null>(null)
-  const pendingTurnRef = useRef<string | null>(null)
-  // Presence can connect before the initial history request settles. Wait for
-  // that request instead of issuing a second history fetch for the same open.
+  // Turn bookkeeping, used by the attach rule further down.
+  /** The turn whose stream this surface holds, from X-Turn-Id on the POST or GET that brought it. */
+  const heldTurnRef = useRef<string | null>(null)
+  /** The last turn the status stream announced that this surface tried to attach to (one try each). */
+  const triedTurnRef = useRef<string | null>(null)
+  /** The stream this surface held was cut off before the turn ended. */
+  const lostTurnRef = useRef(false)
+  /** The latest turn status the node reported for this chat. */
+  const turnStatusRef = useRef<ChatTurnStatus | null>(null)
+  /** Initial history has settled; attaching earlier would let that page land on the streamed reply. */
   const historyReadyRef = useRef(false)
+  /** The page just loaded is current, so the first attach need not fetch it again. */
+  const historyFreshRef = useRef(false)
+  /** The last turn-stream GET answered 204: nothing is running. */
+  const emptyAttachRef = useRef(false)
+  /** `setMessages`, for the transport (built before `useChat` returns it). */
+  const setMessagesRef = useRef<((update: (messages: UIMessage[]) => UIMessage[]) => void) | null>(null)
 
   /**
-   * Does the *node* have a turn running for this chat? `null` until presence
+   * Does the *node* have a turn running for this chat? `null` until the status stream
    * answers.
    *
    * Local `status` cannot answer this after a remount: `useChat` starts fresh at
@@ -106,7 +128,7 @@ export function useChatRuntime({
    * reopened mid-turn looks finished for a moment. Anything that keys off "the
    * turn is over" has to wait for this instead.
    */
-  const [liveTurnActive, setLiveTurnActive] = useState<boolean | null>(null)
+  const [nodeTurnActive, setNodeTurnActive] = useState<boolean | null>(null)
 
   useEffect(() => {
     if (dbChatId === undefined || historyDbChatId !== undefined) {
@@ -122,9 +144,9 @@ export function useChatRuntime({
   // `historyDbChatId`, not `dbChatId`. Resetting on every `dbChatId` change
   // stranded brand-new chats: their id arrives from the first POST while
   // `historyDbChatId` deliberately stays undefined, so no history request
-  // follows, `resumeOnAttach` is never called again, and this stayed false
-  // forever — parking every turn the node started (a delivered workflow result,
-  // a peer window's turn) instead of attaching to it.
+  // follows, `onHistoryLoaded` is never called again, and this stayed false
+  // forever — ignoring every turn the node started (a delivered workflow
+  // result, a peer window's turn) instead of attaching to it.
   useEffect(() => {
     historyReadyRef.current = false
   }, [historyDbChatId])
@@ -170,24 +192,29 @@ export function useChatRuntime({
           setTabChatId(chatId, newChatId)
         }
       }
-      // Both the send POST and the live-attach GET carry the turn they belong to.
+      // Both the send POST and the turn-stream GET carry the turn they belong to.
       // Recording it here — one place, whichever request got us the stream — is
-      // what makes "is this presence event my own turn?" answerable by identity
+      // what makes "is this announced turn my own?" answerable by identity
       // instead of by guessing from status.
       const turnIdHeader = response.headers.get('X-Turn-Id')
-      if (turnIdHeader) handledTurnRef.current = turnIdHeader
+      if (turnIdHeader) heldTurnRef.current = turnIdHeader
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (url.includes('/ai/chat/stream/')) {
+        if (response.status === 204) emptyAttachRef.current = true
+        const messageId = response.headers.get('X-Message-Id')
+        if (response.ok && messageId) setMessagesRef.current?.((messages) => withoutStaleCopy(messages, messageId))
+      }
       return response
     },
-    // Point the SDK's reconnect at the node's live-turn endpoint (keyed by the
+    // Point the SDK's reconnect at the node's turn-stream endpoint (keyed by the
     // node-assigned chat id) instead of the default `${api}/${id}/stream`, which
-    // the node does not implement. Both targets use it: the node buffers every
-    // turn's wire bytes, including turns *this* surface did not start, so the
-    // same reconnect path covers a dropped tunnel AND attaching to a turn the
-    // desktop (or the phone) kicked off. On web this resolves through the broker
-    // tunnel to the same node endpoint.
+    // the node does not implement. The node serves every turn there, including
+    // turns *this* surface did not start, so the same path covers a dropped
+    // tunnel AND attaching to a turn the desktop (or the phone) kicked off. On
+    // web this resolves through the broker tunnel to the same node endpoint.
     prepareReconnectToStreamRequest: async () => {
       const baseUrl = await backend.baseUrl()
-      return { api: `${baseUrl}/ai/chat/live/${dbChatIdRef.current}` }
+      return { api: `${baseUrl}/ai/chat/stream/${dbChatIdRef.current}` }
     },
     prepareSendMessagesRequest: async ({ messages, body }) => {
       // A model / mode pick made just before sending is saved on the server
@@ -233,16 +260,6 @@ export function useChatRuntime({
     },
   }), [chatId, setTabChatId, backend])
 
-  // Web stream-resume bookkeeping (all dead-code-eliminated on desktop).
-  const pendingResumeRef = useRef(false) // a turn was cut off by a network drop
-  const resumingRef = useRef(false) // a resume attempt is in flight
-  const resumeSettledRef = useRef(false) // onFinish fired during the current resume
-  // Covers the whole attach transaction, including its optional history refresh.
-  // `resumingRef` alone starts too late to dedupe two callers both refreshing
-  // history before they reach resumeStream().
-  const attachInFlightRef = useRef<Promise<void> | null>(null)
-  const attachTargetTurnRef = useRef<string | null>(null)
-
   /**
    * When the turn currently on screen started, or null if none is ours to time.
    *
@@ -284,20 +301,22 @@ export function useChatRuntime({
     onError: (error) => {
       console.error('Chat error:', error)
       trackTurnFinished('error')
-      // A mid-turn stream drop can surface here (fetch "Load failed") while the tab
-      // is still foreground + online — the wake-based resume never fires in that
-      // case. Mark the turn resumable so both the wake handler and the foreground
-      // effect below can rejoin it instead of parking the error on screen.
-      if (IS_WEB && isNetworkError(error)) pendingResumeRef.current = true
+      // A dropped connection (fetch "Load failed" and friends) is not the turn
+      // failing: it keeps running on the node, so this surface rejoins it.
+      if (isNetworkError(error)) {
+        lostTurnRef.current = true
+        heldTurnRef.current = null
+      }
     },
     onFinish: ({ isDisconnect }) => {
       trackTurnFinished(isDisconnect ? 'disconnected' : 'completed')
-      // A network drop (not a user stop, not a clean finish) leaves the turn running
-      // on the node; mark it so we resume when connectivity returns.
-      if (IS_WEB && isDisconnect) pendingResumeRef.current = true
-      resumeSettledRef.current = true
+      if (isDisconnect) {
+        lostTurnRef.current = true
+        heldTurnRef.current = null
+      }
     },
   })
+  setMessagesRef.current = setMessages
 
   // Start the clock when a turn we own begins. `submitted` is the first status
   // after send; a turn joined mid-stream never passes through it.
@@ -317,7 +336,7 @@ export function useChatRuntime({
 
   // The ONLY thing that should kill the node's generation is a deliberate Stop.
   // The node no longer ties a turn's life to the request that started it (other
-  // surfaces attach to the same live stream, and the requester itself can
+  // surfaces attach to the same turn stream, and the requester itself can
   // re-attach), so a real stop must be signalled out-of-band. Everything else —
   // unmounting the panel (mobile back / tab switch), a network blip,
   // backgrounding, closing the window that sent the message — leaves the turn
@@ -340,34 +359,27 @@ export function useChatRuntime({
         api.aiAbort(id).catch(() => {}),
         new Promise((resolve) => setTimeout(resolve, ABORT_SETTLE_TIMEOUT_MS)),
       ]).finally(() => setTurnSettling(false))
-      if (IS_WEB) {
-        // Also drop the broker's resume buffer for this turn, so a stale replay
-        // can't resurrect a stream the user just stopped.
-        void backend.baseUrl().then((baseUrl) => {
-          fetch(`${baseUrl}/ai/chat/cancel/${id}`, { method: 'POST', keepalive: true }).catch(() => {})
-        })
-      }
     }
     return rawStop()
   }, [rawStop, trackTurnFinished]) // dbChatIdRef is a stable ref
 
-  // Rejoin a turn — one this surface lost to a network drop, or one another
-  // surface started. The SDK's resume replays the node's buffered stream from the
-  // start; because UIMessageChunks reconcile by id, a full replay is safe — BUT
-  // only against a fresh assistant slot. A transient reconnect still holds the
-  // partial assistant message in memory, and the SDK would append the replayed
-  // parts onto it (text-start always pushes a new part), doubling the content. So
-  // after a drop, remove the trailing in-progress assistant message first, then
-  // resume; the replay rebuilds it cleanly. If the buffer is already gone the
-  // resume yields nothing (204) and we restore the persisted message from chat
-  // history.
+  // ---- Following the chat's turn on the node ----
   //
-  // Joining a turn this surface never streamed is different: the trailing
-  // assistant message is a finished reply, and the live turn is a NEW message —
-  // another surface's turn, or one the agent started on its own (Claude Code
-  // answering a background agent). Removing it would make that reply vanish
-  // until the next history load; the resumed message has its own id, so the SDK
-  // appends it after.
+  // The node runs every turn whoever is watching, and serves it to any surface
+  // from GET /ai/chat/stream/:chatId: the reply as it stands, then the rest, on
+  // one response. So this surface only decides WHEN to attach, by one rule that
+  // covers every case — a turn a peer (or the node itself) started, our own
+  // stream cut by a network drop, a chat reopened mid-turn:
+  //
+  //   attach once history is loaded and no stream is in flight here, when the
+  //   node reports a turn this surface does not hold, or the stream this
+  //   surface held was lost.
+  //
+  // Attaching is the same each time: refresh the history tail when the turn
+  // may have brought messages this surface never saw (a peer's prompt), then
+  // resume. The SDK replaces the reply it already shows (same message id); a
+  // 204 means the turn is over and history has the reply.
+
   const reloadHistoryFromServer = useCallback(async () => {
     const id = dbChatIdRef.current
     if (id === undefined) return
@@ -380,46 +392,130 @@ export function useChatRuntime({
       // up to load, which read as the app silently losing history.
       setMessages((current) => mergeServerTail(current, normalized))
     } catch (err) {
-      console.error('[resume] history fallback failed:', err)
+      console.error('[chat-turn] history refresh failed:', err)
     }
   }, [setMessages]) // dbChatIdRef is a stable ref
 
-  const runResume = useCallback(async ({ dropPartial }: { dropPartial: boolean }) => {
-    if (resumingRef.current) return
-    if (dbChatIdRef.current === undefined) return
-    if (statusRef.current === 'submitted' || statusRef.current === 'streaming') return
-    resumingRef.current = true
-    pendingResumeRef.current = false // this attempt consumes the pending flag
+  const attachingRef = useRef(false)
+  const attach = useCallback(async ({ refreshHistory }: { refreshHistory: boolean }) => {
+    if (attachingRef.current || dbChatIdRef.current === undefined) return
+    attachingRef.current = true
+    lostTurnRef.current = false
+    emptyAttachRef.current = false
     try {
-      if (dropPartial) {
-        setMessages((prev) => {
-          const last = prev[prev.length - 1]
-          return last?.role === 'assistant' ? prev.slice(0, -1) : prev
-        })
-      }
-      resumeSettledRef.current = false
+      if (refreshHistory) await reloadHistoryFromServer()
       await resumeStream()
-      // onFinish flips resumeSettledRef when a stream was actually processed; if it
-      // never fired the resume was a 204 (buffer expired) → fall back to history.
-      if (!resumeSettledRef.current) {
-        await reloadHistoryFromServer()
-      }
+      // Nothing running: the turn ended while we were away, and its reply is saved.
+      if (emptyAttachRef.current && !refreshHistory) await reloadHistoryFromServer()
     } catch (err) {
-      console.error('[resume] failed:', err)
+      console.error('[chat-turn] attach failed:', err)
     } finally {
-      resumingRef.current = false
+      attachingRef.current = false
     }
-  }, [resumeStream, setMessages, reloadHistoryFromServer]) // refs are stable
+    // The node may have moved on while we attached (a newer turn started).
+    reconcileRef.current()
+  }, [resumeStream, reloadHistoryFromServer]) // refs are stable
 
-  // Came back online / to the foreground: resume the turn THIS live instance saw
-  // drop (pendingResumeRef was set by onFinish's isDisconnect).
+  /** Apply the rule above to where things stand now. Safe to call any time. */
+  const reconcile = useCallback(() => {
+    if (!historyReadyRef.current || attachingRef.current) return
+    if (dbChatIdRef.current === undefined) return
+    const current = statusRef.current
+    if (current === 'submitted' || current === 'streaming') return // decided once our stream settles
+    // A dropped stream still on screen as an error retries on its own schedule (below).
+    if (current === 'error' && lostTurnRef.current) return
+
+    const turnStatus = turnStatusRef.current
+    const nodeTurnId = turnStatus?.active ? turnStatus.turnId : null
+    if (nodeTurnId && nodeTurnId !== heldTurnRef.current && nodeTurnId !== triedTurnRef.current) {
+      triedTurnRef.current = nodeTurnId // one try per turn: a 204 must not loop
+      void attach({ refreshHistory: !historyFreshRef.current })
+      historyFreshRef.current = false
+      return
+    }
+    if (lostTurnRef.current && !unreachable()) void attach({ refreshHistory: false })
+  }, [attach]) // refs are stable
+  const reconcileRef = useRef(reconcile)
+  reconcileRef.current = reconcile
+
+  // Our own stream settling is when a turn noticed meanwhile can be decided.
   useEffect(() => {
-    if (!IS_WEB) return
+    reconcileRef.current()
+  }, [status])
+
+  /**
+   * ChatPanel calls this once the initial history request settles: attaching
+   * before it would let that page land on top of the streamed reply.
+   */
+  const onHistoryLoaded = useCallback(() => {
+    historyReadyRef.current = true
+    // A page that failed to load is no reason to skip refreshing before attach.
+    historyFreshRef.current = messagesRef.current.length > 0 && turnStatusRef.current?.active === true
+    // The transcript ends on a prompt with no reply: a turn may be running that
+    // the status stream has not reported yet. Asking costs one request (204 if not).
+    if (messagesRef.current.at(-1)?.role === 'user') lostTurnRef.current = true
+    reconcileRef.current()
+  }, []) // refs are stable
+
+  useEffect(() => {
+    const id = dbChatId
+    if (id === undefined || id <= 0) return
+    setNodeTurnActive(null)
+    turnStatusRef.current = null
+    // Every chat's status arrives on ONE shared stream — this used to open an
+    // SSE connection per conversation, and those are what exhausted the
+    // renderer's 6-socket-per-origin budget. See `lib/chat-status-events.ts`.
+    const unsubscribe = subscribeChatTurnStatus(nodeId ? { nodeId, chatId: id } : { chatId: id }, {
+      onStatus: (event) => {
+        turnStatusRef.current = event
+        setNodeTurnActive(event.active === true)
+        reconcileRef.current()
+      },
+      // The status stream never answered (offline, tunnel down): report "no turn" so
+      // consumers fall back to local status instead of waiting forever. A drop
+      // *after* an answer keeps it — losing the connection mid-turn is not
+      // evidence the turn ended, and the shared stream reconnects with the truth.
+      onError: () => setNodeTurnActive((prev) => (prev === null ? false : prev)),
+    })
+    return unsubscribe
+  }, [dbChatId]) // refs are stable
+
+  // A dropped stream shows as a network error. Retry with a short backoff (the
+  // network is often not usable in the first second after a wake), bounded per
+  // drop; offline or backgrounded, wait for the wake below instead. While these
+  // attempts are pending the panel shows "Reconnecting…" rather than the raw
+  // fetch message; a non-network error is left on screen.
+  const resumeAttemptsRef = useRef(0)
+  /** The error whose automatic attempts are all used up. */
+  const [reconnectGaveUpOn, setReconnectGaveUpOn] = useState<Error | null>(null)
+  const networkDropped = status === 'error' && dbChatId !== undefined && isNetworkError(chatError)
+  useEffect(() => {
+    if (!networkDropped) {
+      resumeAttemptsRef.current = 0
+      return
+    }
+    if (unreachable()) return
+    const attempt = resumeAttemptsRef.current
+    if (attempt >= RESUME_RETRY_DELAYS_MS.length) {
+      setReconnectGaveUpOn(chatError ?? null)
+      return
+    }
+    // Counted when the attempt actually runs, so a re-render that clears the
+    // timer doesn't burn an attempt that never happened.
+    const timer = setTimeout(() => {
+      resumeAttemptsRef.current = attempt + 1
+      void attach({ refreshHistory: false })
+    }, RESUME_RETRY_DELAYS_MS[attempt])
+    return () => clearTimeout(timer)
+  }, [networkDropped, chatError, attach])
+
+  // Back online / in front again: pick a lost stream up now.
+  useEffect(() => {
     const onWake = () => {
-      if (document.visibilityState === 'hidden') return
-      if (!pendingResumeRef.current) return
-      pendingResumeRef.current = false
-      void runResume({ dropPartial: true })
+      if (unreachable() || !lostTurnRef.current) return
+      resumeAttemptsRef.current = 0
+      if (statusRef.current === 'error') void attach({ refreshHistory: false })
+      else reconcileRef.current()
     }
     window.addEventListener('online', onWake)
     document.addEventListener('visibilitychange', onWake)
@@ -427,202 +523,19 @@ export function useChatRuntime({
       window.removeEventListener('online', onWake)
       document.removeEventListener('visibilitychange', onWake)
     }
-  }, [runResume])
+  }, [attach])
 
-  // Web safety net: a mid-turn drop can land as an error while the tab is still
-  // foreground + online — the wake handler above never fires then. The common
-  // case is iOS: backgrounding the app kills the stream's fetch, and WebKit only
-  // reports it ("Load failed") once the app is back in front, i.e. after the
-  // visibilitychange wake already ran. Resume in place, with a short backoff
-  // because the network is often not usable yet in the first second after
-  // wake. Bounded per error episode (the counter re-arms once status leaves
-  // 'error'); a non-network error is left visible.
-  //
-  // While these attempts are pending the error is not a failure yet, so the
-  // panel shows "Reconnecting…" (`reconnecting` below) instead of the raw fetch
-  // message. Note that status stays 'error' for the whole reconnect request —
-  // the SDK only flips to 'submitted' once the live endpoint has answered.
-  const resumeAttemptsRef = useRef(0)
-  /** The error whose automatic resume attempts are all used up. */
-  const [reconnectGaveUpOn, setReconnectGaveUpOn] = useState<Error | null>(null)
-  useEffect(() => {
-    if (!IS_WEB) return
-    if (status !== 'error') {
-      resumeAttemptsRef.current = 0
-      return
-    }
-    if (dbChatIdRef.current === undefined) return
-    if (!chatError || !isNetworkError(chatError)) return
-    // Offline / backgrounded: the wake handler resumes on 'online' /
-    // visibilitychange (onError armed pendingResumeRef for it).
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) return
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-    const attempt = resumeAttemptsRef.current
-    if (attempt >= RESUME_RETRY_DELAYS_MS.length) {
-      setReconnectGaveUpOn(chatError)
-      return
-    }
-    // Counted when the attempt actually runs, so a re-render that clears the
-    // timer doesn't burn an attempt that never happened.
-    const timer = setTimeout(() => {
-      resumeAttemptsRef.current = attempt + 1
-      void runResume({ dropPartial: true })
-    }, RESUME_RETRY_DELAYS_MS[attempt])
-    return () => clearTimeout(timer)
-  }, [status, chatError, runResume])
-
-  const networkDropped =
-    IS_WEB && status === 'error' && dbChatId !== undefined && isNetworkError(chatError)
-  /** A network drop we are still trying to recover from (web only). */
+  /** A network drop we are still trying to recover from. */
   const reconnecting = networkDropped && reconnectGaveUpOn !== chatError
-  /** A network drop the automatic resume could not recover; offer a manual retry. */
+  /** A network drop the automatic attempts could not recover; offer a manual retry. */
   const reconnectFailed = networkDropped && reconnectGaveUpOn === chatError
 
   /** Manual retry after the automatic attempts gave up. */
   const retryReconnect = useCallback(() => {
     resumeAttemptsRef.current = 0
     setReconnectGaveUpOn(null)
-    void runResume({ dropPartial: true })
-  }, [runResume])
-
-  // One coordinator for both attach triggers:
-  //   1. the initial persisted-history check after opening a chat;
-  //   2. a live-status event for a turn another surface just started.
-  //
-  // The first caller owns the whole history-refresh + resume transaction. A
-  // second caller reuses it, while a genuinely newer turn is parked for the
-  // status-settled effect below.
-  const ensureLiveTurnAttached = useCallback(({
-    turnId,
-    refreshHistory = false,
-  }: {
-    turnId?: string
-    refreshHistory?: boolean
-  } = {}): Promise<void> => {
-    if (turnId && handledTurnRef.current === turnId) return Promise.resolve()
-
-    const inFlight = attachInFlightRef.current
-    if (inFlight) {
-      if (
-        turnId &&
-        turnId !== attachTargetTurnRef.current &&
-        turnId !== handledTurnRef.current
-      ) {
-        pendingTurnRef.current = turnId
-      }
-      return inFlight
-    }
-
-    attachTargetTurnRef.current = turnId ?? null
-    const task = (async () => {
-      if (refreshHistory) await reloadHistoryFromServer()
-      await runResume({ dropPartial: false })
-    })()
-    const clearTask = (): void => {
-      if (attachInFlightRef.current !== task) return
-      attachInFlightRef.current = null
-      attachTargetTurnRef.current = null
-    }
-    attachInFlightRef.current = task
-    void task.then(clearTask, clearTask)
-    return task
-  }, [reloadHistoryFromServer, runResume])
-
-  // ChatPanel calls this after the initial history request settles. If presence
-  // arrived first, consume the parked turn without fetching history again;
-  // otherwise the persisted trailing user message is the fallback evidence that
-  // a reply may still be live.
-  const resumeOnAttach = useCallback(() => {
-    historyReadyRef.current = true
-    const pendingTurn = pendingTurnRef.current
-    if (pendingTurn !== null) {
-      pendingTurnRef.current = null
-      // A failed initial history request also marks historyLoaded=true. Retry it
-      // only when it produced no messages; the normal successful path reuses the
-      // page already loaded by useChatHistory.
-      void ensureLiveTurnAttached({
-        turnId: pendingTurn,
-        refreshHistory: messagesRef.current.length === 0,
-      })
-      return
-    }
-
-    const msgs = messagesRef.current
-    if (msgs[msgs.length - 1]?.role !== 'user') return
-    void ensureLiveTurnAttached()
-  }, [ensureLiveTurnAttached]) // refs are stable
-
-  // Held in a ref so the subscription below depends only on the chat id. A
-  // stream that re-subscribes on every render would reconnect on each token.
-  const ensureLiveTurnAttachedRef = useRef(ensureLiveTurnAttached)
-  ensureLiveTurnAttachedRef.current = ensureLiveTurnAttached
-
-  useEffect(() => {
-    const id = dbChatId
-    if (id === undefined || id <= 0) return
-    setLiveTurnActive(null)
-    // Presence for every chat arrives on ONE shared stream — this used to open an
-    // SSE connection per conversation, and those are what exhausted the
-    // renderer's 6-socket-per-origin budget. See `lib/live-turn-events.ts`.
-    const unsubscribe = subscribeChatPresence(nodeId ? { nodeId, chatId: id } : { chatId: id }, {
-      onStatus: (event) => {
-        // The node's own view of this chat, snapshot on connect and updated on
-        // every turn start/end. Recorded before the attach logic below bails out,
-        // which it does for turns this surface already holds.
-        setLiveTurnActive(event.active === true)
-        if (!event.active || !event.turnId) return
-        // We already hold this turn's stream: either our own POST opened it, or
-        // we attached to it earlier. Attaching again would duplicate it.
-        if (handledTurnRef.current === event.turnId) return
-        if (!historyReadyRef.current) {
-          // The initial history request already in flight contains the peer's
-          // persisted user message. Let resumeOnAttach consume this turn once
-          // that request settles instead of issuing the same history GET again.
-          pendingTurnRef.current = event.turnId
-          return
-        }
-        if (statusRef.current === 'submitted' || statusRef.current === 'streaming') {
-          // Mid-stream, and this turn isn't one we've seen a response header for.
-          // Either our own POST's headers haven't landed yet (the presence frame
-          // and the response race), or a peer's new turn just preempted ours —
-          // the node aborts the running request when a second one arrives, and
-          // our status won't reflect that for another moment. Can't tell yet, and
-          // dropping it is unrecoverable: presence fires once per turn start, so
-          // a preempted surface would sit on its truncated reply forever. Park it
-          // and decide once our own stream settles.
-          pendingTurnRef.current = event.turnId
-          return
-        }
-        void ensureLiveTurnAttachedRef.current({
-          turnId: event.turnId,
-          refreshHistory: true,
-        })
-      },
-      // Presence never answered (offline, tunnel down): report "no live turn" so
-      // consumers fall back to local status instead of waiting forever. A drop
-      // *after* an answer keeps it — losing the connection mid-turn is not
-      // evidence the turn ended, and the shared stream reconnects with the truth.
-      onError: () => setLiveTurnActive((prev) => (prev === null ? false : prev)),
-    })
-    return unsubscribe
-  }, [dbChatId]) // refs are stable
-
-  // Settle a parked turn. By now our own stream has ended, so the ambiguity above
-  // is resolved: if the parked id is what our POST returned it was ours all along
-  // and there is nothing to do; otherwise a peer really did take the chat over and
-  // this is the only chance to join them.
-  useEffect(() => {
-    if (status === 'submitted' || status === 'streaming') return
-    if (!historyReadyRef.current) return
-    const pending = pendingTurnRef.current
-    if (pending === null) return
-    pendingTurnRef.current = null
-    if (handledTurnRef.current === pending) return
-    void ensureLiveTurnAttachedRef.current({
-      turnId: pending,
-      refreshHistory: true,
-    })
-  }, [status]) // refs are stable
+    void attach({ refreshHistory: false })
+  }, [attach])
 
   const isGenerating = status === 'submitted' || status === 'streaming'
   const lastMessage = messages[messages.length - 1]
@@ -648,8 +561,8 @@ export function useChatRuntime({
     stop,
     setMessages,
     addToolApprovalResponse,
-    resumeOnAttach,
-    liveTurnActive,
+    onHistoryLoaded,
+    nodeTurnActive,
     isGenerating,
     turnSettling,
     lastMessage,

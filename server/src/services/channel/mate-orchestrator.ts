@@ -28,7 +28,7 @@ import type {
 } from '../../storage/interface.js'
 import type { IMMessageRow, IMSource } from '../../types/im.js'
 import type { AgentBinding } from '../../types/agent-binding.js'
-import { startChat, abortChat } from '../ai.js'
+import { runChatTurn, abortChat, type ChatTurn } from '../ai.js'
 import {
   buildMateAgentSystemPrompt,
   buildMateWakeUpPrompt,
@@ -281,7 +281,12 @@ async function startMateChat(binding: AgentBinding, workspaceId: number | null):
     },
   ]
 
-  const ctx = await startChat({
+  // Approval requests go to the binding's channel as the turn asks them, in
+  // order — and only once the chat's id is known (a new chat gets it from the start).
+  let chatIdKnown!: (chatId: number) => void
+  const chatReady = new Promise<number>((resolve) => { chatIdKnown = resolve })
+  let approvals: Promise<void> = Promise.resolve()
+  const ctx = await runChatTurn({
     chatId: existingChatId,
     messages,
     providerId: agent.provider,
@@ -299,39 +304,32 @@ async function startMateChat(binding: AgentBinding, workspaceId: number | null):
       projectId,
       imBridge: true,
     },
+  }, {
+    onPart: (part) => {
+      if (part.type !== 'tool-approval-request') return
+      approvals = approvals
+        .then(() => chatReady)
+        .then((chatId) => forwardMateApproval(chatId, binding.id, part as ApprovalRequestPart))
+        .catch((err) => console.error(`[MateOrchestrator] forward approval failed binding=${binding.id}:`, err))
+    },
   })
-  drainMateChat(ctx, binding.id)
+  chatIdKnown(ctx.chatId)
+  followMateChat(ctx, binding.id, () => approvals)
   return ctx.chatId
 }
 
-function drainMateChat(
-  ctx: Awaited<ReturnType<typeof startChat>>,
-  bindingId: number,
-): void {
-  ;(async () => {
-    const reader = ctx.preparedParts.getReader()
-    try {
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
-        const part = value?.part
-        if (part?.type === 'tool-approval-request') {
-          await forwardMateApproval(ctx.chatId, bindingId, part)
-        }
-      }
-    } finally {
-      await ctx.persistDone
-      ctx.finish()
-      // handleMateFinish is also invoked by registerAgentFinishCallback
-      // (in chat-flow), but calling it here guarantees prompt follow-up
-      // for streams that bypass that callback. Both paths are idempotent.
-      handleMateFinish(bindingId).catch((err) => {
-        console.error(`[MateOrchestrator] handleMateFinish error binding=${bindingId}:`, err)
-      })
-    }
-  })().catch((err) => {
-    console.error(`[MateOrchestrator] drain error binding=${bindingId}:`, err)
-  })
+function followMateChat(ctx: ChatTurn, bindingId: number, forwarded: () => Promise<void>): void {
+  void ctx.ended
+    .then(forwarded)
+    .then(() => {
+      // handleMateFinish is also invoked by registerAgentFinishCallback for
+      // user-facing turns, but calling it here guarantees prompt follow-up for
+      // this one. Both paths are idempotent.
+      return handleMateFinish(bindingId)
+    })
+    .catch((err) => {
+      console.error(`[MateOrchestrator] handleMateFinish error binding=${bindingId}:`, err)
+    })
 }
 
 /**

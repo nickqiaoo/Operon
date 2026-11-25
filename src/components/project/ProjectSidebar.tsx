@@ -433,8 +433,7 @@ const ChatRow = memo(function ChatRow({ chat, workspaceId, nodeId, onOpen }: {
       title={title}
       className={cn(
         treeRowClassName,
-        // Room for the agents toggle, so it never covers the title.
-        hasChildren && "pr-8",
+        hasChildren && "pr-5",
         current && "bg-row-selected hover:bg-row-selected",
       )}
     >
@@ -442,7 +441,7 @@ const ChatRow = memo(function ChatRow({ chat, workspaceId, nodeId, onOpen }: {
       {/* Running shimmers the title, not the row: a lead and its agents often
           run at once, and stacked full-row sweeps merged into one blue block. */}
       <span className={cn(
-        "min-w-0 flex-1 truncate text-sm",
+        "min-w-0 flex-1 sidebar-title-fade text-sm",
         current || wantsYou ? "font-medium text-foreground" : "text-foreground/70",
         attention === "running" && "shimmer",
       )}>
@@ -523,11 +522,11 @@ function ChatWithAgents({ chatId, workspaceId, current, children: row }: {
             : intl.formatMessage({ id: "sidebar.agents.show", defaultMessage: "Show {count, plural, one {# agent} other {# agents}}" }, { count: counts.total })}
           onClick={() => setOverride(!expanded)}
           className={cn(
-            "absolute right-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-md transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-            counts.needsYou > 0 ? "text-status-warn" : counts.failed > 0 ? "text-status-error" : "text-muted-foreground hover:text-foreground",
+            "absolute inset-y-0 right-0 flex w-6 items-center justify-end pr-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50",
+            counts.needsYou > 0 ? "text-status-warn" : counts.failed > 0 ? "text-status-error" : "text-foreground/75 hover:text-foreground",
           )}
         >
-          <ChevronRight className={cn("size-3 transition-transform", expanded && "rotate-90")} strokeWidth={1.75} />
+          <ChevronRight className={cn("size-4 transition-transform", expanded && "rotate-90")} strokeWidth={2.25} />
         </button>
       </div>
       {expanded && (
@@ -592,7 +591,7 @@ function AgentRow({ agent, parentWorkspaceId, current }: {
         <AgentIcon providerId={agent.providerId} group={AGENT_DOT[agent.state] ?? null} />
       </span>
       <span className={cn(
-        "min-w-0 flex-1 truncate text-sm",
+        "min-w-0 flex-1 sidebar-title-fade text-sm",
         offline ? "text-muted-foreground/70" : current || agent.state === "needs-you" ? "font-medium text-foreground" : finished ? "text-muted-foreground" : "text-foreground/70",
         agent.state === "running" && "shimmer",
       )}>

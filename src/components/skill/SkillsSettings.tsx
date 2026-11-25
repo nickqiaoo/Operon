@@ -605,7 +605,7 @@ function SkillSection({
       {loading ? (
         <SkillListSkeleton />
       ) : items.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border/50 p-6 text-center text-xs text-muted-foreground">
+        <div className="p-6 text-center text-xs text-muted-foreground">
           {count > 0 ? "No skills match the filter." : empty}
         </div>
       ) : (
@@ -635,7 +635,7 @@ function SkillListSkeleton() {
   return (
     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="h-[68px] animate-pulse rounded-xl border border-border/40 bg-muted/30" />
+        <div key={i} className="h-[68px] animate-pulse rounded-xl bg-muted/10" />
       ))}
     </div>
   )
@@ -678,8 +678,8 @@ function SkillCard({
         }
       }}
       className={cn(
-        "group flex cursor-pointer items-start gap-3 rounded-xl border border-border/60 bg-popover/95 p-3 text-left",
-        "shadow-card transition-colors hover:bg-row-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+        "group flex min-w-0 cursor-pointer items-start gap-3 rounded-xl p-3 text-left",
+        "transition-colors hover:bg-row-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
       )}
     >
       <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-tint-muted text-tint">
@@ -1046,7 +1046,7 @@ function SkillDetailView({
         </div>
       ) : detail ? (
         <>
-          <div className="rounded-xl border border-border/60 bg-popover/95 p-5 shadow-card">
+          <div className="py-3">
             {detail.content ? (
               <MarkdownRenderer content={detail.content} />
             ) : (
@@ -1064,7 +1064,7 @@ function SkillDetailView({
                   { count: detail.files.length },
                 )}
               </h2>
-              <div className="divide-y divide-border/40 rounded-xl border border-border/60 bg-popover/95 px-3 shadow-card">
+              <div className="divide-y divide-border/40">
                 {detail.files.map((file) => (
                   <div key={file.path} className="flex items-center gap-2 py-2 text-xs">
                     <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />

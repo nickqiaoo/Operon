@@ -5,7 +5,7 @@
 // host elicitations, and detached workflow sub-agents' requests (forwarded onto
 // the conversation that launched them). This is the one registry of those, keyed
 // by chat. Surfaces subscribe to it rather than to each other: the inbox raises
-// notifications, the live-status stream marks tabs, external agents report
+// notifications, the chat status stream marks tabs, external agents report
 // `waiting_for_user`.
 //
 // Entries clear when the request is answered (POST /permission-response) or the
@@ -24,7 +24,7 @@ export interface PendingApproval extends PendingInputSummary {
    * show the form itself; a detached sub-agent's stream is not on screen anywhere,
    * so for it this is the only copy. The answer goes back through the ordinary
    * permission response (`updatedInput.answers` for a question). Not sent on the
-   * live-status stream.
+   * chat status stream.
    */
   toolInput?: unknown
 }

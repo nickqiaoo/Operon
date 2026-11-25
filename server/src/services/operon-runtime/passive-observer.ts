@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import type { UIMessage } from 'ai'
 import type { AgentEvent, ApprovalResponse, HarnessSession, QuestionResult } from 'operon-agents'
 import type { PermissionDecision, RuntimeStreamPart } from '@operon/agent-runtime'
-import { observePendingInputPart } from '../ai/chat-pending-input.js'
-import { replySnippet, runDetachedTurn } from '../ai/detached-turn.js'
+import { replySnippet } from '../ai/message-utils.js'
+import { runChatTurn } from '../ai/chat-flow.js'
 import { persistInjectedUserMessage } from '../ai/persistence.js'
 import { getChatStorage, getNotificationStorage } from '../ai/state.js'
 import { notify } from '../notification-service.js'
@@ -27,7 +27,7 @@ export { peerSender, transcriptUserText }
  * turns: while the UI is driving the session (`markDriven`) it stays silent; otherwise each
  * `turn.started` … `turn.ended` window is mapped through the same `OperonStreamMapper` →
  * `runAgentTurn` pipeline as a normal reply, persisted onto the chat whose `sessionId` is
- * this session, and tee'd into the live-turn hub so an open tab renders it as it streams.
+ * this session, and published to the chat's turn stream so an open tab renders it as it streams.
  *
  * Such a turn can stop for an approval or a question like any other. The harness only asks a
  * live handler, and the UI-driven turn removes its own when it ends, so a passive turn
@@ -171,7 +171,7 @@ export function observeSession(session: HarnessSession, options: ObserveOptions 
       }
       activeRuns.set(session.id, run)
       installHandlers(session, run)
-      void runPassiveTurn(session, run, options)
+      void runPassiveTurn(run, options)
       return
     }
     // The inbound message lands BEFORE `turn.started` (it is what starts the turn), so
@@ -209,7 +209,7 @@ function resolveChat(sessionId: string): ChatRef | undefined {
   return { chatId: row.id, workspaceId: row.workspaceId, model: row.model, title: row.title, tp: row.tp }
 }
 
-async function runPassiveTurn(session: HarnessSession, run: ActiveRun, options: ObserveOptions): Promise<void> {
+async function runPassiveTurn(run: ActiveRun, options: ObserveOptions): Promise<void> {
   const chat = run.chat
   if (!chat) {
     // No chat row for this session: drain so the queue never backs up.
@@ -219,18 +219,16 @@ async function runPassiveTurn(session: HarnessSession, run: ActiveRun, options: 
     return
   }
 
-  const message = await runDetachedTurn(
+  const turn = await runChatTurn(
+    { chatId: chat.chatId, messages: [], modelId: chat.model, providerId: 'custom', workspaceId: chat.workspaceId ?? undefined },
     {
-      chatId: chat.chatId,
-      modelId: chat.model,
-      providerId: 'custom',
-      sessionId: session.id,
-      logTag: 'operon.peers',
+      output: run.queue,
       // A request waiting on the person marks the tab and reaches the inbox, as for any turn.
-      onPart: (part) => observePendingInputPart(chat.chatId, part, { userFacing: chat.tp === 'chat' }),
+      notifyInbox: chat.tp === 'chat',
     },
-    run.queue,
   )
+  const { message, status, error } = await turn.ended
+  if (status === 'failed') console.warn(`[operon.peers] passive turn on chat ${chat.chatId} failed: ${error}`)
   if (!message) return
 
   if (options.notifyOnTurnEnd) {

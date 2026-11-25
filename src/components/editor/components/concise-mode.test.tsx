@@ -66,6 +66,23 @@ describe('concise mode', () => {
     expect(html).toContain('All done, the final answer.');
   });
 
+  it.each([false, true])('keeps the external agent visible once when folded (Code Mode: %s)', (inProgram) => {
+    display.conciseMode = true;
+    const program: UIMessage['parts'][number] = {
+      type: 'dynamic-tool', toolName: 'RunCode', toolCallId: 'program', state: 'output-available', input: {}, output: 'ok',
+    };
+    const agent: UIMessage['parts'][number] = {
+      type: 'dynamic-tool', toolName: 'external_agent_run', toolCallId: 'agent', state: 'output-available',
+      input: { description: 'Prepare TestFlight build' }, output: { agent_id: 'ext-1', chat_id: 42 },
+      ...(inProgram && { callProviderMetadata: { codex: { programToolCallId: 'program' } } }),
+    };
+    const html = render([user, { ...reply, parts: [reply.parts[0], ...(inProgram ? [program] : []), agent, reply.parts[2]] }]);
+    expect(html).toContain('Worked for 4m 47s');
+    expect(html).not.toContain('Looking into it first.');
+    expect(html.match(/Prepare TestFlight build/g)).toHaveLength(1);
+    expect(html.indexOf('Prepare TestFlight build')).toBeLessThan(html.indexOf('All done, the final answer.'));
+  });
+
   it('leaves a reply that is still streaming unfolded', () => {
     display.conciseMode = true;
     const html = render([user, reply], 'streaming');

@@ -63,7 +63,8 @@ export function ThreadPanel({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const viewport = bottomRef.current?.closest('[data-slot="scroll-area-viewport"]')
+    viewport?.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' })
   }, [replies, mobileKeyboardOpen])
 
   const handleSend = (text?: string) => {

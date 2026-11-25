@@ -123,7 +123,7 @@ export function SpecWorkflow({ spec, onOpenChat, onOpenArtifact }: {
     <Dialog open={selectedCall != null} onOpenChange={(open) => { if (!open) setSelectedCall(null) }}>
       <DialogContent className="max-h-[80vh] overflow-y-auto" aria-describedby={undefined}>
         <DialogHeader><DialogTitle>{selectedCall ? agentLabel(selectedCall) : 'Agent'}</DialogTitle></DialogHeader>
-        {selectedCall && <AgentRow runId={selectedCall.runId} agent={{ ...selectedCall, chatIds: selectedCall.chats?.map((chat) => chat.chatId) }} stream={undefined} referenceRootPath={selectedCall.chats?.at(-1)?.cwd ?? null} />}
+        {selectedCall && <AgentRow runId={selectedCall.runId} agent={{ ...selectedCall, chatIds: selectedCall.chats?.map((chat) => chat.chatId) }} referenceRootPath={selectedCall.chats?.at(-1)?.cwd ?? null} />}
       </DialogContent>
     </Dialog>
   </section>

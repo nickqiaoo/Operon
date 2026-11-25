@@ -404,17 +404,43 @@ func (s *Server) handleCreateNode(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Label  string `json:"label"`
 		NodeID string `json:"nodeId"`
+		// Sent with an id the machine derived from it (localNodeID): a machine
+		// that was used without an account keeps its id when it signs in.
+		DelegationPublicKey string `json:"delegationPublicKey"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
 	nodeID := ""
+	_, derived := derivedNodeIDFor(body.NodeID, body.DelegationPublicKey)
 	if body.NodeID != "" {
-		if node, ok, gErr := s.store.GetNode(body.NodeID); gErr == nil && ok &&
-			node.UserID == claims.Subject && node.RevokedAt == 0 {
+		node, ok, gErr := s.store.GetNode(body.NodeID)
+		if gErr == nil && ok && node.UserID == claims.Subject && (node.RevokedAt == 0 || derived) {
 			nodeID = node.ID
+			// The machine that holds the key signing in again with this account
+			// brings back a node that was signed out of the web.
+			if node.RevokedAt != 0 {
+				if err := s.store.ReviveNode(nodeID, claims.Subject); err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "create failed"})
+					return
+				}
+			}
 			if body.Label != "" && body.Label != node.Label {
 				s.store.UpdateNodeLabel(nodeID, body.Label)
 			}
+		} else if gErr == nil && derived {
+			if ok {
+				// Another account holds a node by this id. Only a machine with
+				// this key could have registered it honestly, so say so rather
+				// than quietly hand out another id the machine's pairings do not know.
+				writeBrokerError(w, http.StatusConflict, "node_id_taken",
+					"This machine's id is registered to another account. Sign in with that account, or reset this machine's identity.")
+				return
+			}
+			if err := s.store.CreateNodeWithID(body.NodeID, claims.Subject, body.Label); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "create failed"})
+				return
+			}
+			nodeID = body.NodeID
 		}
 	}
 	if nodeID == "" {

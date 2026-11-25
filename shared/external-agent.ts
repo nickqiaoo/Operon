@@ -28,6 +28,7 @@ export interface ExternalAgentBinding {
 export interface ExternalAgentView extends ExternalAgentBinding {
   childChatId: number
   modelId?: string
+  effort?: string
   modeId?: string
   providerId: string
   workspaceId?: number

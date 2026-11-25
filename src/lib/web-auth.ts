@@ -15,6 +15,7 @@ import {
 } from './native'
 import { unregisterPushDevice } from './push-device'
 import { secureBrokerFetch } from './e2ee/secure-fetch'
+import { isAccountless, isDirectOnlyUrl, setAccountless } from './remote-route'
 
 const BROKER = (import.meta.env.VITE_BROKER_URL ?? '').replace(/\/$/, '')
 
@@ -218,6 +219,14 @@ export function clearSelectedNode(): void {
 }
 
 export async function logout(): Promise<void> {
+  // Without an account there is nothing to sign out of: leave that mode.
+  if (isAccountless()) {
+    setAccountless(false)
+    localStorage.removeItem(NODE_KEY)
+    localStorage.removeItem(NODE_LABEL_KEY)
+    window.location.href = '/'
+    return
+  }
   // On native the session to revoke is the token we hold, not a cookie — read
   // it before the local wipe, and await the keychain clear before navigating
   // away, or the reload races the delete and the app comes back signed in.
@@ -644,11 +653,16 @@ export function getBrokerWsProtocols(): string[] | undefined {
  * sites (api-client, api, SSE helpers, the chat transport) without editing each.
  */
 export function installFetchAuthInterceptor(): void {
-  if (!BROKER) return
   const orig = window.fetch.bind(window)
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-    if (!url.startsWith(BROKER)) return orig(input, init)
+    // Without an account: no token to attach, and secure-fetch sends it directly.
+    if (isDirectOnlyUrl(url)) {
+      const res = await secureBrokerFetch(orig, input, init)
+      await notifyIfDirectUnreachable(url, res)
+      return res
+    }
+    if (!BROKER || !url.startsWith(BROKER)) return orig(input, init)
 
     const isRefresh = url.startsWith(`${BROKER}/auth/refresh`)
     const isToken = url.startsWith(`${BROKER}/auth/token`)
@@ -700,6 +714,13 @@ export function brokerNodeIdOf(url: string): string | null {
   } catch {
     return null
   }
+}
+
+/** Without an account, the selected machine not answering over Tailscale is what offline means. */
+async function notifyIfDirectUnreachable(url: string, res: Response): Promise<void> {
+  if (res.status !== 503 || brokerNodeIdOf(url) !== getSelectedNodeId()) return
+  const body = asRecord(await res.clone().json().catch(() => null))
+  if (body?.error === 'direct_unreachable') notifyNodeOffline(typeof body.message === 'string' ? body.message : undefined)
 }
 
 /**

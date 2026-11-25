@@ -11,6 +11,7 @@ interface ProviderConfigOptionItem {
   providerLogo?: string
   // Per-model capabilities (only populated for the 'model' category).
   supportedEffortLevels?: string[]
+  defaultEffort?: string
   supportsAutoMode?: boolean
   supportsFastMode?: boolean
   supportsAdaptiveThinking?: boolean
@@ -26,6 +27,8 @@ export interface ProviderModelsResult {
   models: Array<{ modelId: string; name: string; description?: string; providerId?: string }>
   modelsPending?: boolean
   currentModelId: string
+  /** From a fresh provider, before any open session overrides its selection. */
+  defaultEffort?: string
   modes: Array<{ id: string; name: string; description?: string }>
   currentModeId: string
   serviceTiers: Array<{ id: string; name: string; description?: string }>
@@ -79,6 +82,7 @@ export const buildProviderModelsResult = (
         providerLabel: model.providerLabel,
         providerLogo: model.providerLogo,
         supportedEffortLevels: model.supportedEffortLevels,
+        defaultEffort: model.defaultEffort,
         supportsAutoMode: model.supportsAutoMode,
         supportsFastMode: model.supportsFastMode,
         supportsAdaptiveThinking: model.supportsAdaptiveThinking,
@@ -130,6 +134,7 @@ export const buildProviderModelsResult = (
     })),
     modelsPending: descriptor.modelsPending,
     currentModelId: descriptor.currentModelId,
+    defaultEffort: descriptor.currentThinkingLevel,
     modes: descriptor.modes.map((mode) => ({
       id: mode.id,
       name: mode.name,

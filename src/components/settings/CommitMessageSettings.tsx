@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { FormattedMessage, useIntl } from "react-intl"
-import { GitCommitHorizontal, Loader2, Check } from "lucide-react"
+import { Loader2, Check } from "lucide-react"
 import { api } from "@/lib/api"
 import { useProviderModels, useProviders } from "@/lib/provider-queries"
 import { setSettingsData, settingsKeys, useCommitMessageConfig } from "@/lib/settings-queries"
@@ -75,9 +75,8 @@ export function CommitMessageSettings() {
   }
 
   return (
-    <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+    <section className="space-y-4 settings-section">
       <div className="flex items-start gap-3">
-        <GitCommitHorizontal className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
         <div className="flex-1">
           <h2 className="text-sm font-semibold mb-1"><FormattedMessage id="settings.commitMsg.title" defaultMessage="Commit message generation" /></h2>
           <p className="text-xs text-muted-foreground leading-relaxed">
@@ -92,7 +91,7 @@ export function CommitMessageSettings() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 items-center text-xs text-muted-foreground rounded-lg bg-background/40 border border-border/40 p-3">
+          <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 items-center text-xs text-muted-foreground py-3">
             <span className="font-medium"><FormattedMessage id="settings.provider" defaultMessage="Provider" /></span>
             <Select value={providerId} onValueChange={handleProviderChange}>
               <SelectTrigger className="h-8 text-xs w-full max-w-[280px] bg-background/80 border-border/50">

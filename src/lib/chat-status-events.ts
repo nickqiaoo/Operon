@@ -2,32 +2,34 @@ import type { BackgroundTaskSummary } from '@shared/background-tasks'
 import type { PendingInputSummary } from '@shared/pending-input'
 import { useChatBackgroundTaskStore } from '@/stores/chat-background-task-store'
 import { useChatPendingInputStore } from '@/stores/chat-pending-input-store'
-import { useChatPresenceStore } from '@/stores/chat-presence-store'
+import { useChatRunningStore } from '@/stores/chat-running-store'
 import { useChatPromptSuggestionStore } from '@/stores/chat-prompt-suggestion-store'
 import { subscribeEvents } from './event-stream'
 import { nodeKeyOf, type ChatRef, type NodeKey } from './chat-ref'
 import type { SseSubscription } from './sse.js'
 
 /**
- * One stream carrying turn presence for EVERY chat, fanned out to per-chat
- * listeners here.
+ * What every chat is doing, on one stream (`GET /api/ai/chat/status`): whether
+ * it has a turn, what it waits on a person for, its background sub-agents and
+ * its next-prompt guess. Turn status is fanned out to per-chat listeners here;
+ * the rest is written into the stores.
  *
- * This used to be one SSE connection per open conversation, which filled
- * Chromium's 6-connections-per-host budget on the plain HTTP/1.1 local API and
- * queued every other request. It is now one channel of the app's shared event
- * stream (`lib/event-stream.ts`), for the same reason: Electron lifts the cap
- * (`ignore-connections-limit` in `electron/main.ts`), a plain browser cannot.
+ * One stream for every chat, not one per open conversation: per-chat streams
+ * filled Chromium's 6-connections-per-host budget on the plain HTTP/1.1 local
+ * API and queued every other request. It is one channel of the app's shared
+ * event stream (`lib/event-stream.ts`) for the same reason: Electron lifts the
+ * cap (`ignore-connections-limit` in `electron/main.ts`), a plain browser cannot.
  *
- * The per-chat contract is preserved exactly, so callers did not have to change:
- * subscribing yields a status for that chat immediately, then one per turn
- * start/end.
+ * Subscribing to a chat yields its turn status immediately, then one per turn
+ * start/end. A chat's turn is reported from the moment it is admitted, before
+ * its provider has started.
  *
  * Per machine: this machine's stream is always the one the app shell watches;
  * another machine's opens while a tab shows one of its chats. Each keeps its own
  * subscribers and snapshot, and writes only its own chats into the stores.
  */
 
-export interface LiveTurnStatus {
+export interface ChatTurnStatus {
   chatId: number
   active: boolean
   turnId: string | null
@@ -36,16 +38,15 @@ export interface LiveTurnStatus {
 
 type Frame =
   | {
+      /** The whole picture, on connect and on every reconnect. */
       type: 'sync'
-      statuses: LiveTurnStatus[]
-      /** Absent from servers that predate pending input. */
-      pendingInput?: Array<{ chatId: number; pending: PendingInputSummary[] }>
-      /** Absent from servers that predate background tasks. */
-      backgroundTasks?: Array<{ chatId: number; tasks: BackgroundTaskSummary[] }>
-      /** Absent from servers that predate prompt suggestions. */
-      promptSuggestions?: Array<{ chatId: number; text: string }>
+      turns: ChatTurnStatus[]
+      pendingInput: Array<{ chatId: number; pending: PendingInputSummary[] }>
+      backgroundTasks: Array<{ chatId: number; tasks: BackgroundTaskSummary[] }>
+      promptSuggestions: Array<{ chatId: number; text: string }>
     }
-  | { type: 'presence'; status: LiveTurnStatus }
+  /** A chat's turn started or ended. */
+  | { type: 'turn'; status: ChatTurnStatus }
   /** A chat's whole pending list after any change; empty means nothing left. */
   | { type: 'pending-input'; chatId: number; pending: PendingInputSummary[] }
   /** A chat's whole background sub-agent list after any change. */
@@ -54,7 +55,7 @@ type Frame =
   | { type: 'prompt-suggestion'; chatId: number; text: string | null }
 
 interface Subscriber {
-  onStatus: (status: LiveTurnStatus) => void
+  onStatus: (status: ChatTurnStatus) => void
   onError?: () => void
 }
 
@@ -66,7 +67,7 @@ interface NodeState {
    * chat subscribed later can be answered from here without asking the server —
    * that is what replaces the old per-connection snapshot.
    */
-  activeByChat: Map<number, LiveTurnStatus>
+  activeByChat: Map<number, ChatTurnStatus>
   subscription: SseSubscription | null
   /** App-level watchers of pending input; they hold the stream open like chat subscribers do. */
   pendingInputWatchers: number
@@ -84,18 +85,18 @@ function nodeState(nodeId: string | undefined): NodeState {
   return state
 }
 
-const idleStatus = (chatId: number): LiveTurnStatus => ({
+const idleStatus = (chatId: number): ChatTurnStatus => ({
   chatId,
   active: false,
   turnId: null,
   startedAt: null,
 })
 
-function statusFor(node: NodeState, chatId: number): LiveTurnStatus {
+function statusFor(node: NodeState, chatId: number): ChatTurnStatus {
   return node.activeByChat.get(chatId) ?? idleStatus(chatId)
 }
 
-function deliver(node: NodeState, status: LiveTurnStatus): void {
+function deliver(node: NodeState, status: ChatTurnStatus): void {
   const targets = node.subscribers.get(status.chatId)
   if (!targets) return
   for (const subscriber of targets) subscriber.onStatus(status)
@@ -106,17 +107,17 @@ function ensureStream(node: NodeState): void {
   const key = nodeKeyOf(node.nodeId)
   const { nodeId } = node
   const ref = (chatId: number): ChatRef => (nodeId ? { nodeId, chatId } : { chatId })
-  node.subscription = subscribeEvents<Frame>('live-status', {
+  node.subscription = subscribeEvents<Frame>('chat-status', {
     onEvent: (frame) => {
       if (frame.type === 'sync') {
-        useChatPendingInputStore.getState().sync(key, frame.pendingInput ?? [])
-        useChatBackgroundTaskStore.getState().sync(key, frame.backgroundTasks ?? [])
-        useChatPromptSuggestionStore.getState().sync(key, frame.promptSuggestions ?? [])
-        const next = new Map<number, LiveTurnStatus>()
-        for (const status of frame.statuses) next.set(status.chatId, status)
+        useChatPendingInputStore.getState().sync(key, frame.pendingInput)
+        useChatBackgroundTaskStore.getState().sync(key, frame.backgroundTasks)
+        useChatPromptSuggestionStore.getState().sync(key, frame.promptSuggestions)
+        const next = new Map<number, ChatTurnStatus>()
+        for (const status of frame.turns) next.set(status.chatId, status)
         const previous = node.activeByChat
         node.activeByChat = next
-        useChatPresenceStore.getState().sync(key, next.keys())
+        useChatRunningStore.getState().sync(key, next.keys())
         // A reconnect's sync is also the recovery path: tell every subscriber
         // where its chat stands now, including the ones whose turn ended while
         // the stream was down (present before, absent now → idle).
@@ -136,11 +137,11 @@ function ensureStream(node: NodeState): void {
         useChatPromptSuggestionStore.getState().set(ref(frame.chatId), frame.text)
         return
       }
-      if (frame.type !== 'presence') return
+      if (frame.type !== 'turn') return
       const { status } = frame
       if (status.active) node.activeByChat.set(status.chatId, status)
       else node.activeByChat.delete(status.chatId)
-      useChatPresenceStore.getState().set(ref(status.chatId), status.active)
+      useChatRunningStore.getState().set(ref(status.chatId), status.active)
       deliver(node, status)
     },
     onError: () => {
@@ -159,7 +160,7 @@ function releaseStream(node: NodeState): void {
   // sends a fresh sync anyway.
   node.activeByChat = new Map()
   const key = nodeKeyOf(node.nodeId)
-  useChatPresenceStore.getState().sync(key, [])
+  useChatRunningStore.getState().sync(key, [])
   useChatPendingInputStore.getState().sync(key, [])
   useChatBackgroundTaskStore.getState().sync(key, [])
   useChatPromptSuggestionStore.getState().sync(key, [])
@@ -167,12 +168,12 @@ function releaseStream(node: NodeState): void {
 }
 
 /**
- * Keep `useChatPendingInputStore` and `useChatPresenceStore` current for every
+ * Keep `useChatPendingInputStore` and `useChatRunningStore` current for every
  * chat of one machine (`nodeId` undefined: this one) — tab markers,
  * external-agent cards and the sidebar's Active list read them, including for
  * chats no panel is showing. Returns a release.
  */
-export function watchPendingInput(nodeId?: string): () => void {
+export function watchChatStatus(nodeId?: string): () => void {
   const node = nodeState(nodeId)
   node.pendingInputWatchers += 1
   ensureStream(node)
@@ -186,12 +187,12 @@ export function watchPendingInput(nodeId?: string): () => void {
 }
 
 /**
- * Watch one chat's live-turn presence. Returns an unsubscribe.
+ * Watch one chat's turn status. Returns an unsubscribe.
  *
  * `onStatus` fires once synchronously with the current state — matching the
  * snapshot the old per-chat stream sent on connect — and then on every change.
  */
-export function subscribeChatPresence(chat: ChatRef, subscriber: Subscriber): () => void {
+export function subscribeChatTurnStatus(chat: ChatRef, subscriber: Subscriber): () => void {
   const node = nodeState(chat.nodeId)
   const { chatId } = chat
   let targets = node.subscribers.get(chatId)

@@ -4,7 +4,7 @@ import { chatKey, replaceNodeEntries, type ChatKey, type ChatRef, type NodeKey }
 
 /**
  * What each conversation is waiting on a person for, mirrored from the
- * live-status stream (see `watchPendingInput` in lib/live-turn-events.ts). A chat
+ * chat status stream (see `watchChatStatus` in lib/chat-status-events.ts). A chat
  * absent from the map has nothing pending. Keyed by `ChatKey`: each machine
  * whose stream is open reports its own chats.
  */

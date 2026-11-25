@@ -163,3 +163,13 @@ export function inputText(input: AgentInput): string {
   if (typeof input === 'string') return input
   return input.map((part) => (part.type === 'text' ? part.text : '')).join('\n').trim()
 }
+
+/** The reply's text, flattened and cut for a notification body. */
+export function replySnippet(message: UIMessage): string | undefined {
+  const text = message.parts
+    .map((p) => (p.type === 'text' ? p.text : ''))
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return text ? text.slice(0, 140) : undefined
+}

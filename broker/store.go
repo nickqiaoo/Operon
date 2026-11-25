@@ -451,6 +451,22 @@ func (s *Store) CreateNode(userID, label string) (string, error) {
 	return id, err
 }
 
+// CreateNodeWithID registers a node under an id the machine derived from its
+// key (localNodeID); the caller has checked the two match.
+func (s *Store) CreateNodeWithID(id, userID, label string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO nodes (id, user_id, label, created_at) VALUES ($1, $2, $3, $4)`,
+		id, userID, label, time.Now().UnixMilli(),
+	)
+	return err
+}
+
+// ReviveNode clears a node's revocation, for its own machine signing in again.
+func (s *Store) ReviveNode(id, userID string) error {
+	_, err := s.db.Exec(`UPDATE nodes SET revoked_at = NULL WHERE id = $1 AND user_id = $2`, id, userID)
+	return err
+}
+
 // GetNode looks up a node by id.
 func (s *Store) GetNode(nodeID string) (NodeRow, bool, error) {
 	var n NodeRow

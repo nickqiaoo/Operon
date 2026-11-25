@@ -26,7 +26,6 @@ export function AgentSettings() {
 
   return (
     <SettingsSection
-      icon={Bot}
       title={<FormattedMessage id="settings.agents.title" defaultMessage="Agents" />}
       description={
         <FormattedMessage
@@ -36,7 +35,7 @@ export function AgentSettings() {
         />
       }
     >
-      <div className="flex items-center justify-between rounded-lg border border-border/40 bg-background/40 px-4 py-3">
+      <div className="flex items-center justify-between py-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex items-center justify-center w-8 h-8 rounded-full bg-tint/15 shrink-0">
             <Bot className="w-4 h-4 text-tint" />

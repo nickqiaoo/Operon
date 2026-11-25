@@ -1,5 +1,5 @@
 import { api } from "@/lib/api"
-import { ChevronDown, Trash2, RefreshCcw } from "lucide-react"
+import { Trash2, RefreshCcw } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { Button } from "@/components/ui/button"
 import { useProjectStore } from "@/stores/project-store"
@@ -56,17 +56,15 @@ export function RepoDetail({ projectId, onBack }: RepoDetailProps) {
             <div className="space-y-6">
                 <div>
                     <div className="text-sm font-medium mb-1.5"><FormattedMessage id="settings.repo.rootPath" defaultMessage="Root path" /></div>
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/30 border border-border/60 text-xs font-mono text-muted-foreground">
+                    <div className="break-all text-xs font-mono text-muted-foreground">
                         {project.rootPath}
-                        <ChevronDown className="h-3 w-3 ml-auto opacity-50" />
                     </div>
                 </div>
 
                 <div>
                     <div className="text-sm font-medium mb-1.5"><FormattedMessage id="settings.repo.workspacesPath" defaultMessage="Workspaces path" /></div>
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/30 border border-border/60 text-xs font-mono text-muted-foreground">
+                    <div className="break-all text-xs font-mono text-muted-foreground">
                         {getParentPath(project.rootPath)}
-                        <ChevronDown className="h-3 w-3 ml-auto opacity-50" />
                     </div>
                 </div>
             </div>
@@ -78,18 +76,16 @@ export function RepoDetail({ projectId, onBack }: RepoDetailProps) {
                 <div>
                     <div className="text-sm font-medium mb-1.5"><FormattedMessage id="settings.repo.branchFrom" defaultMessage="Branch new workspaces from" /></div>
                     <div className="text-xs text-muted-foreground mb-3"><FormattedMessage id="settings.repo.branchFromDesc" defaultMessage="Each workspace is an isolated copy of your codebase." /></div>
-                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-border/60 bg-background text-sm">
+                    <div className="font-mono text-xs text-muted-foreground">
                         <span>origin/dev</span>
-                        <ChevronDown className="h-3 w-3 opacity-50" />
                     </div>
                 </div>
 
                 <div>
                     <div className="text-sm font-medium mb-1.5"><FormattedMessage id="settings.repo.remoteOrigin" defaultMessage="Remote origin" /></div>
                     <div className="text-xs text-muted-foreground mb-3"><FormattedMessage id="settings.repo.remoteOriginDesc" defaultMessage="Where should we push, pull, and create PRs?" /></div>
-                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-border/60 bg-background text-sm">
+                    <div className="font-mono text-xs text-muted-foreground">
                         <span>origin</span>
-                        <ChevronDown className="h-3 w-3 opacity-50" />
                     </div>
                 </div>
             </div>
@@ -106,7 +102,7 @@ export function RepoDetail({ projectId, onBack }: RepoDetailProps) {
                         <div className="text-sm text-muted-foreground italic"><FormattedMessage id="settings.repo.noWorkspaces" defaultMessage="No active workspaces." /></div>
                     ) : (
                         project.workspaces.map(workspace => (
-                            <div key={workspace.id} className="flex items-center justify-between p-3 rounded-lg border border-border/60 bg-background">
+                            <div key={workspace.id} className="flex items-center justify-between border-b border-border/40 py-3 last:border-b-0">
                                 <div>
                                     <div className="text-sm font-medium">{workspace.name}</div>
                                     <div className="text-xs text-muted-foreground font-mono mt-0.5">{workspace.branchName}</div>

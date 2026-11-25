@@ -58,8 +58,157 @@ export interface MachinePeerRecord {
  */
 export interface MachinePeerSync {
   peers: MachinePeerRecord[]
+  /**
+   * Where the sender itself can be reached directly over Tailscale
+   * (`DirectLinkStatus.address`), or null when it does not listen. Absent from
+   * builds that predate direct connections: the receiver keeps what it knew.
+   */
+  direct?: string | null
 }
 export const MACHINE_PEER_SYNC_PATH = '/api/delegations/peers/sync'
+
+// ── Direct connections between machines (Tailscale) ─────────────────────────
+//
+// Two paired machines that are both on the user's tailnet can reach each other
+// without Broker. The request is sealed exactly as it is through Broker, so the
+// trust model does not change: Tailscale only carries it. Each machine listens
+// on its own tailnet address only, and tells the machines it trusts where that
+// is in `MachinePeerSync.direct`.
+
+/** How this machine reaches one other machine. */
+export type DirectRouteMode = 'auto' | 'direct' | 'broker'
+
+/** This machine's view of its Tailscale client. */
+export interface TailscaleInfo {
+  /** `needs_login`: installed but signed out; `stopped`: signed in, disconnected. */
+  state: 'running' | 'needs_login' | 'stopped' | 'not_found'
+  /** Its tailnet IPv4 address, while running. */
+  ipv4?: string
+  /** Its MagicDNS name, e.g. `my-mac.tail1234.ts.net`. */
+  dnsName?: string
+  /**
+   * Whether the tailnet issues HTTPS certificates (`CertDomains` in
+   * `tailscale status --json`), which publishing an address for phones needs.
+   * Turned on once per tailnet in the Tailscale admin console.
+   */
+  https?: boolean
+}
+
+/**
+ * Phones reaching this machine over Tailscale. A phone's web view only takes
+ * HTTPS without an exception, so the direct listener is published through
+ * Tailscale Serve at `https://<MagicDNS name>:<httpsPort>`, which proxies to
+ * the listener's loopback side. Pairing still goes through Broker.
+ */
+export interface DirectPhoneStatus {
+  /** The user asked for phones to connect directly. */
+  enabled: boolean
+  httpsPort: number
+  /** Where paired phones reach this machine, while it is published. */
+  address?: string
+  /** Why it is enabled but not published. */
+  error?: string
+  /** The tailnet does not issue HTTPS certificates yet (see `TailscaleInfo.https`). */
+  needsHttps?: boolean
+}
+
+export interface DirectPeerStatus {
+  nodeId: string
+  /** Where that machine said it listens; absent until it says. */
+  address?: string
+  mode: DirectRouteMode
+  /** What the last attempt used; `unknown` before any. */
+  route: 'direct' | 'broker' | 'unknown'
+  checkedAt?: number
+  /** Why the direct route was not used, when it was not. */
+  error?: string
+}
+
+export interface DirectLinkStatus {
+  enabled: boolean
+  port: number
+  tailscale: TailscaleInfo
+  /** Where the account's other machines reach this one, while it listens. */
+  address?: string
+  /** Why it is enabled but not listening. */
+  error?: string
+  peers: DirectPeerStatus[]
+  phones: DirectPhoneStatus
+  /** "Use Broker": off, everything goes directly. `signedIn`: this machine has an account to use it with. */
+  broker: { enabled: boolean; signedIn: boolean }
+}
+
+/**
+ * GET (sealed, from a paired phone or browser): where this machine can be
+ * reached directly. The client keeps it and tries it before Broker.
+ */
+export const DIRECT_INFO_PATH = '/api/e2ee/direct'
+export interface DirectInfo {
+  /** `https://<name>.ts.net:<port>`, or null while not published. */
+  address: string | null
+}
+
+/** Tailscale Serve publishes the phone address one port above the direct listener. */
+export function directHttpsPort(port: number): number {
+  return port + 1
+}
+
+/** A phone may only be pointed at HTTPS on a MagicDNS name. */
+export function isPhoneDirectAddress(value: unknown): value is string {
+  return isDirectAddress(value) && value.startsWith('https://') && /\.ts\.net:\d+$/i.test(value)
+}
+
+/** Answered by a machine's direct listener without authentication: which machine this is. */
+export const DIRECT_PING_PATH = '/direct/ping'
+/** What `DIRECT_PING_PATH` answers. `label` is what the machine calls itself, for finding it on the tailnet. */
+export interface DirectPing {
+  v: 1
+  nodeId: string
+  label?: string
+}
+
+/**
+ * The id of a machine that never signed in to Broker: the first 128 bits of
+ * SHA-256 over a fixed prefix and its delegation public key, in hex (the same
+ * shape as Broker's ids). Broker accepts such an id only from a machine
+ * registering that key (broker/auth_routes.go), so it cannot be claimed by
+ * anyone who does not hold the key, and two machines share one only if they
+ * share a key.
+ */
+export function localNodeIdFor(publicKey: Uint8Array, sha256: (data: Uint8Array) => Uint8Array): string {
+  const prefix = new TextEncoder().encode('operon.node-id.v1\n')
+  const data = new Uint8Array(prefix.length + publicKey.length)
+  data.set(prefix)
+  data.set(publicKey, prefix.length)
+  return Array.from(sha256(data).subarray(0, 16), (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+export const DEFAULT_DIRECT_PORT = 47_420
+
+/**
+ * Whether `value` is a direct address another machine may point this one at:
+ * plain http on a Tailscale address (100.64.0.0/10 or fd7a:115c:a1e0::/48) or
+ * a MagicDNS name, with an explicit port and no path. Anything else would let a
+ * paired machine aim this one's requests at the user's LAN.
+ */
+export function isDirectAddress(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 300) return false
+  let url: URL
+  try { url = new URL(value) } catch { return false }
+  if ((url.protocol !== 'http:' && url.protocol !== 'https:') || !url.port || url.username || url.password) return false
+  if (url.pathname !== '/' || url.search || url.hash || value.endsWith('/')) return false
+  const host = url.hostname.toLowerCase()
+  if (/^\[fd7a:115c:a1e0:/.test(host)) return true
+  if (host.endsWith('.ts.net')) return /^[a-z0-9-]+(\.[a-z0-9-]+)*\.ts\.net$/.test(host)
+  return isTailnetIPv4(host)
+}
+
+/** 100.64.0.0/10, the range Tailscale assigns its IPv4 addresses from. */
+export function isTailnetIPv4(host: string): boolean {
+  const parts = host.split('.')
+  if (parts.length !== 4 || !parts.every((part) => /^\d{1,3}$/.test(part))) return false
+  const [a, b, c, d] = parts.map(Number)
+  return a === 100 && b >= 64 && b <= 127 && c <= 255 && d <= 255
+}
 
 /**
  * POST /api/delegations/pair/claim (machine entering the code → machine showing
@@ -152,6 +301,7 @@ export interface DelegatedAgentStarted {
   workspaceId: number
   providerId: string
   modelId?: string
+  effort?: string
   modeId?: string
   turnId: string
   status: 'running' | 'queued'
@@ -172,6 +322,7 @@ export interface DelegatedAgentCall {
  * serve other machines, but only for agents it started there.
  */
 export type DelegatedAgentEvent =
+  | { type: 'settings'; childChatId: number; eventId: string; modelId?: string; effort?: string }
   | { type: 'turn'; childChatId: number; turnId: string; status: 'running' | 'queued' }
   | {
       type: 'result'

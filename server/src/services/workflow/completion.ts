@@ -10,8 +10,8 @@
  * what the UI happens to be rendering.
  *
  * So the node delivers it. The turn it starts goes through the ordinary chat path
- * (`handleChat`), which means it is persisted, tee'd into the live-turn hub, and
- * announced over the presence channel — every surface attached to that chat picks
+ * (`runChatTurn`), which means it is persisted, published to the chat's turn stream,
+ * and announced over the presence channel — every surface attached to that chat picks
  * it up and streams it live, exactly as if a peer window had sent it. The message
  * carries `metadata.workflowResult` so the UI can render it as a workflow-result
  * card instead of a user bubble.
@@ -19,9 +19,9 @@
 
 import { randomUUID } from 'node:crypto'
 import type { UIMessage } from 'ai'
-import { handleChat } from '../ai/chat-flow.js'
+import { runChatTurn } from '../ai/chat-flow.js'
 import { getChatHistoryService, getChatStorage } from '../ai/state.js'
-import { getLiveTurnStatus, subscribeLiveTurnPresence } from '../ai/live-turn-hub.js'
+import { waitForChatTurnIdle } from '../ai/chat-turn-lifecycle.js'
 import { readRunResult } from './store.js'
 import type { WorkflowRunView } from './types.js'
 
@@ -67,24 +67,7 @@ function buildText(run: WorkflowRunView, resultText: string | null): string {
  * is lost by landing a minute later.
  */
 function waitForIdle(chatId: number, signal?: AbortSignal): Promise<boolean> {
-  if (!getLiveTurnStatus(chatId).active) return Promise.resolve(true)
-  return new Promise((resolve) => {
-    let settled = false
-    const done = (ok: boolean) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      unsubscribe()
-      signal?.removeEventListener('abort', onAbort)
-      resolve(ok)
-    }
-    const onAbort = () => done(false)
-    const timer = setTimeout(() => done(false), BUSY_TIMEOUT_MS)
-    const unsubscribe = subscribeLiveTurnPresence(chatId, (status) => {
-      if (!status.active) done(true)
-    })
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
+  return waitForChatTurnIdle(chatId, BUSY_TIMEOUT_MS, signal)
 }
 
 /** A notice for a spec the personal assistant started. */
@@ -129,7 +112,7 @@ export async function deliverChatNotice(
     }
     const message: UIMessage = { id: randomUUID(), role: 'user', parts: [{ type: 'text', text }], metadata }
     if (!(await waitForIdle(chatId, signal))) return false
-    const response = await handleChat({
+    await runChatTurn({
       requestId,
       chatId,
       messages: [message],
@@ -138,10 +121,7 @@ export async function deliverChatNotice(
       modeId: meta.metadata?.modeId,
       thinkingLevel: meta.thinkingLevel,
       workspaceId: meta.workspaceId,
-    })
-    // Drain our own branch. The bytes that matter went to the live-turn hub via
-    // tee inside handleChat; this side just has to not hold the stream open.
-    await response.body?.cancel().catch(() => {})
+    }, { userFacing: true, notifyInbox: true, admission: 'reject' })
     return true
   } catch (error) {
     console.warn(`[chat-notice] could not deliver ${requestId} to chat ${chatId}: ${error instanceof Error ? error.message : String(error)}`)

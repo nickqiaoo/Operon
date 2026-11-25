@@ -234,19 +234,19 @@ export const turnDiffKeys = {
     ['turn-diffs', chatId ?? null, cwd] as const,
 }
 
-export function turnDiffsEnabled(chatId: number | undefined, cwd: string | null, status: ChatStatus, liveTurnActive: boolean | null) {
-  // Reopened chats start locally ready before resume attaches. Wait for presence:
+export function turnDiffsEnabled(chatId: number | undefined, cwd: string | null, status: ChatStatus, nodeTurnActive: boolean | null) {
+  // Reopened chats start locally ready before resume attaches. Wait for the node's turn status:
   // null means the node has not yet answered whether a turn is still running.
-  return chatId !== undefined && !!cwd && status !== 'streaming' && status !== 'submitted' && liveTurnActive === false
+  return chatId !== undefined && !!cwd && status !== 'streaming' && status !== 'submitted' && nodeTurnActive === false
 }
 
-export function useTurnDiffs(chatId: number | undefined, cwd: string | null, status: ChatStatus, liveTurnActive: boolean | null) {
+export function useTurnDiffs(chatId: number | undefined, cwd: string | null, status: ChatStatus, nodeTurnActive: boolean | null) {
   const chatApi = useChatApi()
   const nodeId = useChatNodeId()
   const { data } = useQuery({
     queryKey: onNode(turnDiffKeys.detail(chatId, cwd), nodeId),
     queryFn: () => chatApi.aiGetTurnDiffs(chatId!, cwd!),
-    enabled: turnDiffsEnabled(chatId, cwd, status, liveTurnActive),
+    enabled: turnDiffsEnabled(chatId, cwd, status, nodeTurnActive),
     staleTime: 0,
     retry: false,
     refetchOnWindowFocus: false,

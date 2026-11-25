@@ -36,7 +36,7 @@ function RuleSection({
     }
 
     return (
-        <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+        <section className="space-y-4 settings-section">
             <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                     <h2 className="text-sm font-semibold">{title}</h2>
@@ -73,7 +73,7 @@ function RuleSection({
             {allowed.length + denied.length > 0 && (
                 <ul className="space-y-1.5">
                     {[...allowed.map((site) => ({ site, decision: "Allowed" })), ...denied.map((site) => ({ site, decision: "Blocked" }))].map(({ site, decision }) => (
-                        <li key={`${decision}:${site}`} className="flex items-center gap-3 rounded-lg border border-border/40 bg-background/60 px-3 py-2">
+                        <li key={`${decision}:${site}`} className="flex items-center gap-3 border-b border-border/40 py-2 last:border-b-0">
                             <span className="min-w-0 flex-1 truncate font-mono text-xs" title={site}>{site}</span>
                             <span className="text-xs text-muted-foreground">{decision}</span>
                             <Button size="icon" variant="ghost" className="size-7 shrink-0" disabled={busy} aria-label={`Remove ${decision.toLowerCase()} rule for ${site}`} onClick={() => onRevoke(resource, site)}>
@@ -135,7 +135,7 @@ export function BrowserPermissionsSettings() {
             {error && <div role="alert" className="flex items-center gap-2 text-xs text-destructive"><AlertCircle className="size-4" />{error}</div>}
 
             {data && (
-                <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+                <section className="space-y-4 settings-section">
                     <div className="flex items-start gap-3">
                         <ShieldCheck className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
                         <div className="flex-1">
@@ -164,7 +164,7 @@ export function BrowserPermissionsSettings() {
             ))}
 
             {data && (
-                <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+                <section className="space-y-4 settings-section">
                     <div className="flex items-start justify-between gap-3">
                         <div>
                             <h2 className="text-sm font-semibold">Browsing history</h2>
@@ -182,7 +182,7 @@ export function BrowserPermissionsSettings() {
             )}
 
             {data && data.rememberedFromConversations > 0 && (
-                <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/40 bg-muted/10 p-5">
+                <section className="flex flex-wrap items-center justify-between gap-3 settings-section">
                     <div>
                         <h2 className="text-sm font-semibold">Saved conversation permissions</h2>
                         <p className="mt-1 text-xs text-muted-foreground">

@@ -1,14 +1,12 @@
 import { randomUUID } from 'crypto'
-import { readUIMessageStream, type UIMessage, type UIMessageChunk } from 'ai'
+import type { UIMessage } from 'ai'
 import type {
   CanvasAINodeData,
   CanvasAISessionNodeData,
   CanvasNode,
 } from '../../../types/canvas-workflow.js'
 import { validateValue } from 'operon-agents/advanced'
-import { getSessionManager, startChat } from '../../ai.js'
-import { readPreparedTextStreamParts } from '../../ai/prepared-stream-parts.js'
-import { toUIMessageStream } from '@operon/agent-runtime/ai-sdk'
+import { getSessionManager, runChatTurn, type ChatTurn } from '../../ai.js'
 import type { NodeExecutionContext, NodeExecutorDefinition } from '../types.js'
 
 function createCanvasTextMessage(role: 'user' | 'assistant', content: string): UIMessage {
@@ -42,14 +40,6 @@ function stripEchoedPrompt(message: UIMessage, userPrompt: string): UIMessage {
   return { ...message, parts: cleaned }
 }
 
-async function collectAssistantMessage(stream: ReadableStream<UIMessageChunk>): Promise<UIMessage | undefined> {
-  let latestMessage: UIMessage | undefined
-  for await (const message of readUIMessageStream({ stream })) {
-    latestMessage = message
-  }
-  return latestMessage
-}
-
 function requireWorkspaceId(workspaceId?: number): number {
   if (workspaceId === undefined) {
     throw new Error('Canvas AI nodes require a workspace to use the unified chat flow')
@@ -79,14 +69,11 @@ export function collectSessionParentIds(nodes: CanvasNode[]): Set<string> {
 }
 
 async function runTurn(
-  chatCtx: Awaited<ReturnType<typeof startChat>>,
+  chatCtx: ChatTurn,
   userPrompt: string
 ): Promise<string> {
-  const assistantMessage = await collectAssistantMessage(toUIMessageStream(readPreparedTextStreamParts(chatCtx.preparedParts), {
-    originalMessages: chatCtx.normalizedMessages,
-    messageId: chatCtx.assistantMessageId,
-  }))
-  await chatCtx.persistDone
+  const { status, message: assistantMessage, error } = await chatCtx.ended
+  if (status === 'failed' && !assistantMessage) throw new Error(`ai failed: ${error ?? 'the turn failed'}`)
 
   const cleanedAssistant = assistantMessage?.role === 'assistant'
     ? stripEchoedPrompt(assistantMessage, userPrompt)
@@ -150,7 +137,7 @@ async function executeAINode(ctx: NodeExecutionContext): Promise<string> {
   const userPrompt = schema === undefined ? basePrompt : `${basePrompt}\n\n${schemaInstruction(schema)}`
   const workspaceId = requireWorkspaceId(ctx.workspaceId)
   const isShared = ctx.run.sessionParentIds.has(ctx.nodeId)
-  let chatCtx: Awaited<ReturnType<typeof startChat>> | undefined
+  let chatCtx: ChatTurn | undefined
   let chatId: number | undefined
 
   const session = {
@@ -163,7 +150,7 @@ async function executeAINode(ctx: NodeExecutionContext): Promise<string> {
   }
 
   try {
-    chatCtx = await startChat({ ...session, messages: [createCanvasTextMessage('user', userPrompt)] })
+    chatCtx = await runChatTurn({ ...session, messages: [createCanvasTextMessage('user', userPrompt)] })
     chatId = chatCtx.chatId
     ctx.run.nodeChatIds.set(ctx.nodeId, chatId)
     if (isShared) ctx.run.nodeSessionChatIds.set(ctx.nodeId, chatId)
@@ -176,11 +163,10 @@ async function executeAINode(ctx: NodeExecutionContext): Promise<string> {
     const maxRetries = data.maxRetries ?? DEFAULT_SCHEMA_RETRIES
     let verdict = checkStructured(reply, schema)
     for (let attempt = 0; !verdict.ok && attempt < maxRetries; attempt++) {
-      chatCtx.finish()
       const correction =
         `Your previous reply was invalid: ${verdict.error}. ` +
         `Return ONLY the corrected JSON matching the schema.`
-      chatCtx = await startChat({ ...session, chatId, messages: [createCanvasTextMessage('user', correction)] })
+      chatCtx = await runChatTurn({ ...session, chatId, messages: [createCanvasTextMessage('user', correction)] })
       reply = await runTurn(chatCtx, correction)
       verdict = checkStructured(reply, schema)
     }
@@ -189,7 +175,6 @@ async function executeAINode(ctx: NodeExecutionContext): Promise<string> {
     }
     return verdict.json
   } finally {
-    chatCtx?.finish()
     if (chatId !== undefined && !isShared) {
       await getSessionManager().destroy(chatId).catch(() => {})
     }
@@ -208,23 +193,17 @@ async function executeAISessionNode(ctx: NodeExecutionContext): Promise<string> 
 
   const userPrompt = ctx.render(data.prompt)
   const workspaceId = requireWorkspaceId(ctx.workspaceId)
-  let chatCtx: Awaited<ReturnType<typeof startChat>> | undefined
-
-  try {
-    chatCtx = await startChat({
-      chatId,
-      messages: [createCanvasTextMessage('user', userPrompt)],
-      providerId: rootData.providerId,
-      modelId: rootData.modelId,
-      workspaceId,
-      modeId: rootData.modeId ?? 'auto',
-      tp: 'canvas',
-      skipSnapshot: true,
-    })
-    return await runTurn(chatCtx, userPrompt)
-  } finally {
-    chatCtx?.finish()
-  }
+  const chatCtx = await runChatTurn({
+    chatId,
+    messages: [createCanvasTextMessage('user', userPrompt)],
+    providerId: rootData.providerId,
+    modelId: rootData.modelId,
+    workspaceId,
+    modeId: rootData.modeId ?? 'auto',
+    tp: 'canvas',
+    skipSnapshot: true,
+  })
+  return runTurn(chatCtx, userPrompt)
 }
 
 export const aiNode: NodeExecutorDefinition = { execute: executeAINode }

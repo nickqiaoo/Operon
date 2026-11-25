@@ -1,18 +1,21 @@
 /**
  * `runAgentTurn` — the shared, HTTP-agnostic core for running ONE agent turn on
- * a session and producing a standard event stream.
+ * a session.
  *
  * Every provider's `session.stream()` yields the same `RuntimeStreamPart`; this
- * normalizes that into `PreparedTextStreamPart` (the existing shared currency —
- * already consumed by chat-flow, cronjob, canvas-workflow, mobile) and assembles
- * the final `UIMessage`. It knows nothing about chat vs workflow, HTTP, chatId,
- * persistence, or workspaceId — those are the consumers' concern:
+ * normalizes them, renders them into the AI SDK's `UIMessageChunk`s and
+ * assembles the final `UIMessage` — in ONE pipeline that the turn drives
+ * itself. Nothing the caller does (or fails to do) can stall or buffer it:
+ * observers get callbacks, not a stream they are obliged to drain.
  *
- *   - chat (`startChat`): preparedParts → SSE; done → revision-aware persist.
- *   - workflow agent:     preparedParts → hub (tagged); done → persist subagent chat.
+ *   - `onPart`  — every raw runtime part (approvals, errors, telemetry, IM relays).
+ *   - `onChunk` — every UI chunk (the chat's turn stream, a run panel).
+ *   - `done`    — the assembled reply (persistence, "give me the answer" callers).
  *
- * Tools/model/provider/cwd are all baked into the `session` the caller passes,
- * so this works identically for custom / claude-code / codex / … .
+ * It knows nothing about chat vs workflow, HTTP, chatId, persistence, or
+ * workspaceId — those are the consumers' concern. Tools/model/provider/cwd are
+ * all baked into the `session` the caller passes, so this works identically for
+ * custom / claude-code / codex / … .
  */
 
 import {
@@ -30,7 +33,7 @@ import { writeInjectedInput, writeMessageMetadata, writeTextStreamPart } from '@
 import { getSessionIdFromProviderMetadata } from '@operon/agent-runtime'
 import { createTrafficRecorder } from '@operon/agent-runtime'
 import { readStreamAsAsyncIterable } from '@operon/agent-runtime'
-import { extractAssistantText, inputText } from './message-utils.js'
+import { inputText } from './message-utils.js'
 import {
   attachHostApprovalStream,
   observeHostApprovalStreamPart,
@@ -90,7 +93,7 @@ const prepareTextStreamPart = ({
 }
 
 /** Render a prepared part onto a UIMessageStream writer (prepared → UIMessageChunk). */
-export const writePreparedPartToUiStream = (
+const writePreparedPartToUiStream = (
   writer: Parameters<NonNullable<Parameters<typeof createUIMessageStream>[0]['execute']>>[0]['writer'],
   preparedPart: PreparedTextStreamPart<UiMessageMetadata>,
   assistantMessageId: string,
@@ -106,32 +109,6 @@ export const writePreparedPartToUiStream = (
   if (preparedPart.metadata) {
     writeMessageMetadata(writer, preparedPart.metadata)
   }
-}
-
-/**
- * Render the normalized prepared-part stream (`runAgentTurn`'s `preparedParts`)
- * into the AI-SDK `UIMessageChunk` stream that consumers pipe to SSE or a run
- * hub. Shared by every caller that needs UI chunks rather than the assembled
- * message (workflow subagent hub, custom worker pool, …). `onError`, when
- * provided, surfaces the real stream error in the emitted error chunk (the SDK
- * otherwise replaces it with a generic message).
- */
-export function preparedToUIChunks(
-  preparedParts: ReadableStream<PreparedTextStreamPart<UiMessageMetadata>>,
-  assistantMessageId: string,
-  originalMessages: UIMessage[] = [],
-  onError?: (error: unknown) => string,
-): ReadableStream<UIMessageChunk> {
-  return createUIMessageStream({
-    originalMessages,
-    generateId: () => assistantMessageId,
-    ...(onError ? { onError } : {}),
-    execute: async ({ writer }) => {
-      for await (const preparedPart of readStreamAsAsyncIterable(preparedParts)) {
-        writePreparedPartToUiStream(writer, preparedPart, assistantMessageId)
-      }
-    },
-  })
 }
 
 export interface AgentTurnTrafficContext {
@@ -160,10 +137,22 @@ export interface AgentTurnInput {
   onUsage?: (usage: LanguageModelUsage) => void
   /**
    * Observe every raw stream part server-side (host-injected approval parts
-   * included). Driven by the assembly branch, so it keeps firing after the SSE
-   * client disconnects — used for the inbox's pending-approval tracking.
+   * included). Driven by the turn itself, so it keeps firing whoever is or is
+   * not watching — used for the inbox's pending-approval tracking, error
+   * detection, IM relays.
    */
   onPart?: (part: RuntimeStreamPart) => void
+  /**
+   * Every UI chunk of the reply, in order, as the turn produces it. Called
+   * synchronously; a throw is logged and does not affect the turn.
+   */
+  onChunk?: (chunk: UIMessageChunk) => void
+  /**
+   * The text of the error chunk written when the stream itself fails. The SDK's
+   * default hides the cause; a caller that shows the stream to a person decides
+   * what may be shown.
+   */
+  onError?: (error: unknown) => string
   /** When set, the raw provider stream is also recorded for debugging. */
   traffic?: AgentTurnTrafficContext
   /** When true, run this turn as a goal pursuit (set active goal, stream autonomous turns). */
@@ -181,10 +170,11 @@ export interface AgentTurnInput {
 }
 
 export interface AgentTurnResult {
-  /** Standard event stream — normalized, provider-agnostic. Consumer renders it. */
-  preparedParts: ReadableStream<PreparedTextStreamPart<UiMessageMetadata>>
-  /** Resolves when the turn finishes with the assembled assistant message. */
-  done: Promise<{ message: UIMessage }>
+  /**
+   * Resolves when the turn finishes with the assembled assistant message, and
+   * the error the stream failed with, if it did. Never rejects.
+   */
+  done: Promise<{ message: UIMessage; error?: unknown }>
 }
 
 /** Floor between two checkpoints of one turn. */
@@ -208,12 +198,13 @@ const CHECKPOINT_CHUNKS = new Set<UIMessageChunk['type']>([
  *
  * The SDK hands over the assembled message mid-stream only at a `finish-step`
  * (`onStepEnd`), which most providers send once per turn. So this writes its own
- * `{ type: 'finish-step' }` into the assembly branch — never the client's —
- * right after a settling chunk. A finish-step changes nothing in the assembled
- * message (the SDK's reducer treats it as a no-op; `start-step` is what adds a
- * step part), and as a chunk of its own it lands between two others, never
- * inside an open part. Provider finish-steps are swallowed here and count as a
- * settling chunk instead, so every `onStepEnd` is one of ours and paced.
+ * `{ type: 'finish-step' }` right after a settling chunk. A finish-step changes
+ * nothing in a message — the SDK's reducer treats it as a no-op on the server
+ * and in the browser alike (`start-step` is what adds a step part) — and as a
+ * chunk of its own it lands between two others, never inside an open part, so
+ * the paced ones can ride the same stream every viewer reads. Provider
+ * finish-steps are swallowed here and count as a settling chunk instead, so
+ * every `onStepEnd` is one of ours and paced.
  *
  * Pacing keeps the clone + write per checkpoint off the per-chunk path: a burst
  * of tool results yields one checkpoint now and one when the gap has passed.
@@ -357,18 +348,18 @@ export function runAgentTurn(session: AgentSession, input: AgentTurnInput): Agen
     },
   })
 
-  // One branch goes to the consumer (preparedParts); the other is drained here to
-  // assemble the final message — independent of whether the consumer reads, so
-  // `done` (and persistence built on it) resolves even if the client disconnects.
-  const [preparedParts, assemblyParts] = preparedStream.tee()
-
-  const done = (async (): Promise<{ message: UIMessage }> => {
+  // One pipeline: prepared parts → UI chunks, assembled as they pass (onFinish /
+  // onStepEnd) and handed to `onChunk`. The turn drains it itself, so `done`
+  // (and persistence built on it) resolves however its observers behave.
+  const done = (async (): Promise<{ message: UIMessage; error?: unknown }> => {
     let assembled: UIMessage | undefined
+    let streamError: unknown
     const checkpoints = input.onCheckpoint ? createCheckpointPacer(input.onCheckpoint) : undefined
     try {
-      const assemblyStream = createUIMessageStream({
+      const uiStream = createUIMessageStream({
         originalMessages: input.originalMessages,
         generateId: () => input.assistantMessageId,
+        ...(input.onError ? { onError: input.onError } : {}),
         onFinish: ({ responseMessage }) => {
           assembled = responseMessage
         },
@@ -376,99 +367,39 @@ export function runAgentTurn(session: AgentSession, input: AgentTurnInput): Agen
         execute: async ({ writer }) => {
           const target = checkpoints ? checkpoints.attach(writer) : writer
           try {
-            for await (const preparedPart of readStreamAsAsyncIterable(assemblyParts)) {
+            for await (const preparedPart of readStreamAsAsyncIterable(preparedStream)) {
               writePreparedPartToUiStream(target, preparedPart, input.assistantMessageId)
             }
+          } catch (error) {
+            streamError = error
+            throw error
           } finally {
             checkpoints?.close()
           }
         },
       })
-      for await (const _ of readStreamAsAsyncIterable(assemblyStream)) {
-        // drain so the SDK's onFinish fires with the assembled message
-      }
-    } catch (err) {
-      console.error('[AI] runAgentTurn assembly error:', err)
-    }
-    return { message: assembled ?? { id: input.assistantMessageId, role: 'assistant', parts: [] } }
-  })()
-
-  return { preparedParts, done }
-}
-
-/**
- * Run one turn and resolve ONLY the final assistant text — the one true "give me the
- * result" path.
- *
- * `runAgentTurn` drains the assembly branch internally, so `done` resolves with the
- * complete message whether or not the live stream is consumed. Callers that just want
- * the answer must NOT hand-roll delta accumulation off `preparedParts` — it is easy to
- * read the wrong field and silently get `""` (the workflow sub-agent dispatch did
- * exactly that). This helper takes the text from the assembled message via
- * `extractAssistantText`, still drains the consumer branch so the tee doesn't buffer,
- * and turns a stream error into a throw so a failed turn surfaces instead of looking
- * like an empty success.
- */
-export async function runAgentTurnText(
-  session: AgentSession,
-  input: AgentTurnInput,
-  /**
-   * Receives the turn's UI chunks as they arrive, for callers that want to SHOW
-   * the work as well as use its result — a workflow sub-agent streaming into the
-   * run panel, say. Omit it and the consumer branch is only scanned for errors,
-   * which is all a caller that just wants the answer has to pay for.
-   */
-  onChunk?: (chunk: UIMessageChunk) => void,
-): Promise<string> {
-  // A turn can fail without an error part: codex, for one, reports a failed turn
-  // (a usage limit, say) as a finish with reason "error" and writes the error as
-  // the reply's text, so it reads well in a chat. As a result it is a failure.
-  let finishedWithError = false
-  let streamError: string | undefined
-  const noteError = (error: unknown): string => {
-    streamError = error instanceof Error ? error.message : String(error ?? 'stream error')
-    return streamError
-  }
-  const { preparedParts, done } = runAgentTurn(session, {
-    ...input,
-    onPart: (part) => {
-      input.onPart?.(part)
-      if (part.type === 'finish' && isErrorFinish((part as { finishReason?: unknown }).finishReason)) finishedWithError = true
-      // An error the provider reports as a part (opencode's session.error: an
-      // upstream 429, say). With `onChunk` it is only rendered into the UI stream —
-      // createUIMessageStream's onError fires for a throwing execute, not for an
-      // error chunk — so without this the turn "succeeded" with no text and the
-      // caller could only say it produced no output.
-      if (part.type === 'error') noteError((part as { error?: unknown }).error)
-    },
-  })
-  const drained = (async () => {
-    try {
-      if (onChunk) {
-        // Same normalization the chat path uses, so a sub-agent's stream renders
-        // with the existing chunk reducers instead of a second bespoke format.
-        const chunks = preparedToUIChunks(preparedParts, input.assistantMessageId, input.originalMessages, noteError)
-        for await (const chunk of readStreamAsAsyncIterable(chunks)) {
-          onChunk(chunk)
+      for await (const chunk of readStreamAsAsyncIterable(uiStream)) {
+        if (!input.onChunk) continue
+        try {
+          input.onChunk(chunk)
+        } catch (error) {
+          console.warn('[AI] runAgentTurn onChunk observer failed:', error instanceof Error ? error.message : String(error))
         }
-        return
-      }
-      for await (const prepared of readStreamAsAsyncIterable(preparedParts)) {
-        const part = (prepared as { part?: { type?: string; error?: unknown } }).part
-        if (part?.type === 'error') noteError(part.error)
       }
     } catch (err) {
-      noteError(err)
+      streamError ??= err
+      console.error('[AI] runAgentTurn stream error:', err)
+    }
+    return {
+      message: assembled ?? { id: input.assistantMessageId, role: 'assistant', parts: [] },
+      ...(streamError !== undefined ? { error: streamError } : {}),
     }
   })()
-  const { message } = await done
-  await drained
-  if (streamError) throw new Error(streamError)
-  const text = extractAssistantText(message)
-  if (finishedWithError) throw new Error(text.trim() || 'The turn ended with an error')
-  return text
+
+  return { done }
 }
 
+/** A `finish` whose reason says the turn failed (codex writes a failed turn's error as its text). */
 export function isErrorFinish(reason: unknown): boolean {
   if (reason === 'error') return true
   return typeof reason === 'object' && reason != null && (reason as { unified?: unknown }).unified === 'error'

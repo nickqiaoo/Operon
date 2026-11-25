@@ -782,7 +782,7 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
           left: "1rem",
         }}
       />
-      {/* One watch over every conversation's live turn, as the desktop shell
+      {/* One watch over every conversation's turn status, as the desktop shell
           does: the lists show which chats are running with no panel mounted. */}
       <PendingInputSync />
       <ExternalAgentsSync />

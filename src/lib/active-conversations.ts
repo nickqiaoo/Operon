@@ -176,7 +176,7 @@ export function buildActiveEntries(input: ActiveInput): ActiveEntry[] {
       c.workspaceId = bucket.workspaceId
       c.title = tab.title || c.title
       c.providerId = tab.providerId ?? c.providerId
-      // The streaming store hears a mounted panel's turn before the server's presence frame.
+      // The streaming store hears a mounted panel's turn before the server's turn status frame.
       if (streaming) runningChatIds.add(chatId)
       if (input.unseenTabIds.has(tab.id)) unseenChatIds.add(chatId)
     }

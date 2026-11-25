@@ -171,7 +171,23 @@ export class AppServerClient {
   /**
    * Ensure the app-server process is started and initialized
    */
+  private retired = false;
+  private runningThreads = new Set<string>();
+  private idleWaiters = new Set<() => void>();
+
+  waitForIdle(): Promise<void> {
+    if (!this.runningThreads.size) return Promise.resolve();
+    return new Promise(resolve => this.idleWaiters.add(resolve));
+  }
+
+  private notifyIdle(): void {
+    if (this.runningThreads.size) return;
+    for (const resolve of this.idleWaiters) resolve();
+    this.idleWaiters.clear();
+  }
+
   async ensureStarted(): Promise<void> {
+    if (this.retired) throw new Error('Codex account changed. Reopen the connection.');
     if (this.initialized) return;
 
     if (this.starting) {
@@ -188,7 +204,8 @@ export class AppServerClient {
 
     this.logger.info(`Starting codex app-server: ${cmd} ${[...args, 'app-server'].join(' ')}`);
 
-    this.process = spawn(cmd, [...args, 'app-server'], {
+    const authArgs = this.settings.fileCredentials ? ['-c', 'cli_auth_credentials_store="file"'] : [];
+    this.process = spawn(cmd, [...args, 'app-server', ...authArgs], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
@@ -206,7 +223,10 @@ export class AppServerClient {
     rl.on('line', (line) => {
       try {
         const msg = JSON.parse(line) as JSONRPCResponse | JSONRPCError | JSONRPCNotification;
-        logProviderRaw('codex', msg);
+        // Official login replies contain authorization URLs or one-time device codes.
+        if (!('id' in msg) || this.pendingRequests.get(msg.id)?.method !== 'account/login/start') {
+          logProviderRaw('codex', msg);
+        }
         this.handleMessage(msg);
       } catch (err) {
         this.logger.error(`Failed to parse JSON line: ${line}`);
@@ -286,6 +306,8 @@ export class AppServerClient {
     // Ephemeral threads died with the process, whether it exited or crashed.
     this.ephemeralThreads.clear();
     this.rateLimitsCache = null;
+    this.runningThreads.clear();
+    this.notifyIdle();
 
     // Reject all pending requests
     for (const [id, pending] of this.pendingRequests) {
@@ -426,6 +448,15 @@ export class AppServerClient {
   }
 
   private handleNotification(msg: JSONRPCNotification): void {
+    // Include server-initiated subagent turns which can outlive the parent stream.
+    const threadId = msg.params?.threadId;
+    if (typeof threadId === 'string') {
+      if (msg.method === 'turn/started') this.runningThreads.add(threadId);
+      if (msg.method === 'turn/completed' || msg.method === 'thread/closed') {
+        this.runningThreads.delete(threadId);
+        this.notifyIdle();
+      }
+    }
     if (msg.method === 'mcpServer/startupStatus/updated') {
       this.logger.debug(
         `Notification received: ${msg.method} ${JSON.stringify(msg.params)}`,
@@ -644,6 +675,15 @@ export class AppServerClient {
   /**
    * Dispose of the client and kill the process
    */
+  async retire(): Promise<void> {
+    this.retired = true;
+    const child = this.process;
+    if (!child) return;
+    const closed = new Promise<void>(resolve => child.once('close', () => resolve()));
+    this.dispose();
+    await closed;
+  }
+
   dispose(): void {
     if (this.process) {
       this.logger.info('Disposing codex app-server client');

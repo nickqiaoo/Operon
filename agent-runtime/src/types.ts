@@ -74,6 +74,7 @@ export interface Model {
   providerLogo?: string
   /** Effort (thinking) levels this model supports. Empty array = no thinking. */
   supportedEffortLevels?: EffortLevel[]
+  defaultEffort?: string
   /** Total context window in tokens, when the provider advertises one. */
   contextWindow?: number
   /** Whether this model supports the 'auto' permission mode. */

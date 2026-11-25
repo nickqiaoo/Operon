@@ -44,7 +44,7 @@ export function SpecAgentTimeline({ spec, onOpenChat }: { spec: SpecView; onOpen
     </div>}
     <AgentTimeline key={runId} statusLabel={runId === latestRun ? stageLabel(intl, spec.run.stage) : 'Previous run'} {...timeline} onSelectAgent={selectAgent} />
     {timeline.untimed > 0 && <p className="text-xs text-muted-foreground">{timeline.untimed} agent calls have no timing data. See all calls below.</p>}
-    {selected && <AgentRow key={`${selected.runId}:${selected.index}`} runId={selected.runId} agent={{ ...selected, chatIds: selected.chats?.map((chat) => chat.chatId) }} stream={undefined} referenceRootPath={selected.chats?.at(-1)?.cwd ?? null} />}
+    {selected && <AgentRow key={`${selected.runId}:${selected.index}`} runId={selected.runId} agent={{ ...selected, chatIds: selected.chats?.map((chat) => chat.chatId) }} referenceRootPath={selected.chats?.at(-1)?.cwd ?? null} />}
     <SpecAgentList spec={spec} onOpenChat={onOpenChat} />
   </div>
 }

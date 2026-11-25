@@ -89,6 +89,13 @@ export function acquireAppServerClient(
   };
 }
 
+export async function retireAppServerClient(key: string): Promise<void> {
+  const entry = connections.get(key);
+  if (!entry) return;
+  connections.delete(key);
+  await entry.client.retire();
+}
+
 /** Test seam — drops every connection without waiting for its holders. */
 export function disposeAllAppServerClients(): void {
   for (const [key, entry] of connections) {

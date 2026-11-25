@@ -22,6 +22,7 @@ export const mapModelInfoToDescriptor = (model: ModelInfo): Model => ({
   name: getModelDisplayName(model),
   description: model.description,
   supportedEffortLevels: getSupportedEffortLevels(model),
+  defaultEffort: model.defaultReasoningEffort,
 })
 
 export const buildThinkingLevelsFromModelInfo = (

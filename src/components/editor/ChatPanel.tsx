@@ -83,6 +83,11 @@ import { draftWorktreeIntent, useDraftChatStore } from '@/stores/draft-chat-stor
 import { createAutoWorkspace } from '@/lib/workspace-actions';
 import { gitBranchesQuery } from '@/lib/git-queries';
 import { queryClient } from '@/lib/query-client';
+import { scheduleText } from './components/schedule-messages';
+import { ScheduledTray, scheduledKey } from './components/ScheduledTray';
+import { quotaSendTime } from './utils/quota-send-time';
+import { ApiError, requestVia } from '@/lib/api-client';
+import { normalizeOutboundMessagePaths } from './utils/chatMetadata';
 import { SteerTray } from './components/SteerTray';
 import {
   findLatestTurnMessageId,
@@ -376,8 +381,8 @@ function ChatPanelContent({
     stop,
     setMessages,
     addToolApprovalResponse,
-    resumeOnAttach,
-    liveTurnActive,
+    onHistoryLoaded,
+    nodeTurnActive,
     isGenerating,
     turnSettling,
     canDynamicSwitch,
@@ -588,12 +593,11 @@ function ChatPanelContent({
     lastMessageAt: loadedUpdatedAt,
   });
 
-  // Once initial history settles, release any live-status turn that arrived
-  // during the load, or use the trailing persisted user message as a fallback
-  // signal that this surface should rejoin the node's live-turn buffer.
+  // Once initial history settles the chat may attach to a turn running on the
+  // node (see the attach rule in useChatRuntime).
   useEffect(() => {
-    if (historyLoaded) resumeOnAttach();
-  }, [historyLoaded, historyDbChatId, resumeOnAttach]);
+    if (historyLoaded) onHistoryLoaded();
+  }, [historyLoaded, historyDbChatId, onHistoryLoaded]);
 
   const conversationRef = useRef<ConversationScrollHandle>(null);
   const latestRequested = useNavigationStore(
@@ -780,7 +784,7 @@ function ChatPanelContent({
   }), [reviewCwd, selectedModel?.label, thinkingEffortLabel, chatNodeId, sshEnvironment?.name]);
   const openTab = useTabsStore((s) => s.openTab);
   const setRightPanelOpen = useAppShellStore((s) => s.setRightPanelOpen);
-  const turnDiffs = useTurnDiffs(dbChatId, reviewCwd, status, liveTurnActive);
+  const turnDiffs = useTurnDiffs(dbChatId, reviewCwd, status, nodeTurnActive);
   const [mobileReviewMessageUid, setMobileReviewMessageUid] = useState<string | null>(null);
 
   // Open (or focus) the Review tab and point it at the clicked turn.
@@ -887,10 +891,10 @@ function ChatPanelContent({
     }
   }, [tab?.chatId, dbChatIdRef, model, selectedModel?.providerId, providerId, currentWorkspaceId]);
 
-  const handleSubmit = useCallback((message: { text: string; files: FileUIPart[] }) => {
+  const handleSubmit = useCallback((message: { text: string; files: FileUIPart[] }, sendAt?: number, workspaceOverride?: number) => {
     // Intercept /compact command only for custom provider (others handle it in their own stream)
     const currentProviderId = selectedModel?.providerId ?? providerId;
-    if (message.text.trim() === '/compact' && currentProviderId === 'custom') {
+    if (!sendAt && message.text.trim() === '/compact' && currentProviderId === 'custom') {
       setInput('');
       void handleCompact();
       return;
@@ -914,6 +918,35 @@ function ChatPanelContent({
     const merged = extraFiles.length > 0
       ? { ...message, files: [...message.files, ...extraFiles] as FileUIPart[] }
       : message;
+    if (sendAt !== undefined) {
+      return (async () => {
+        const outgoing = await prepareOutgoingMessage(merged.text, merged.files, chatTransport);
+        const userMessage = normalizeOutboundMessagePaths({
+          id: crypto.randomUUID(), role: 'user',
+          parts: [...outgoing.files, ...(outgoing.text ? [{ type: 'text' as const, text: outgoing.text }] : [])],
+        });
+        const { chatId: id } = await requestVia<{chatId: number}>(chatTransport, '/ai/scheduled', {
+          method: 'POST', body: JSON.stringify({ sendAt, payload: {
+            ...chatBodyRef.current, workspaceId: workspaceOverride ?? currentWorkspaceId ?? undefined,
+            chatId: dbChatIdRef.current, sshEnvironmentId: dbChatIdRef.current ? undefined : tab?.sshEnvironment?.id,
+            tp: tab?.isSubAgent ? 'subagent' : undefined, messages: [userMessage],
+          } }),
+        });
+        if (!dbChatIdRef.current) {
+          dbChatIdRef.current = id;
+          setTabChatId(chatId, id);
+        }
+        for (const a of annotations) annStore.remove(a.id);
+        for (const c of lineComments) lineStore.remove(c.id);
+        for (const snippet of selectedSnippets) selectedStore.remove(snippet.id);
+        void queryClient.invalidateQueries({ queryKey: scheduledKey(chatTransport.nodeId, id) });
+      })().catch((error: unknown) => {
+        const message = error instanceof ApiError && error.code === 'schedule_time_invalid' ? scheduleText.range
+          : error instanceof ApiError && error.code === 'schedule_message_invalid' ? scheduleText.invalid : scheduleText.enqueueError;
+        toast.error(intl.formatMessage(message));
+        throw error;
+      });
+    }
     submitMessage(merged, attachments.files, setInput);
     if (!runsElsewhere) {
       for (const a of annotations) annStore.remove(a.id);
@@ -925,7 +958,7 @@ function ChatPanelContent({
       model: model || undefined,
       has_attachments: attachments.files.length > 0 || extraFiles.length > 0,
     });
-  }, [attachments.files, currentWorkspaceId, chatNodeId, dbChatId, model, providerId, selectedModel?.providerId, setInput, submitMessage, handleCompact, runsElsewhere]);
+  }, [attachments.files, currentWorkspaceId, chatNodeId, dbChatId, model, providerId, selectedModel?.providerId, setInput, submitMessage, handleCompact, runsElsewhere, chatTransport, chatBodyRef, dbChatIdRef, tab?.isSubAgent, tab?.sshEnvironment?.id, setTabChatId, chatId, intl]);
 
   // --- Goal (codex) ---
   const sendGoalMessage = useCallback((objective: string) => {
@@ -952,8 +985,12 @@ function ChatPanelContent({
   }, [supportsGoal, goalArmed]);
   // Wraps the normal submit: when goal mode is armed, route the outgoing text
   // through startGoal instead of a plain turn, then disarm.
-  const handleSubmitOrGoal = useCallback((message: { text: string; files: FileUIPart[] }) => {
+  const handleSubmitOrGoal = useCallback((message: { text: string; files: FileUIPart[] }, sendAt?: number, workspaceOverride?: number) => {
     const text = message.text.trim();
+    if (sendAt !== undefined && goalArmed) {
+      toast.error(intl.formatMessage(scheduleText.goal));
+      return Promise.reject(new Error('Goal mode is active'));
+    }
     if (goalArmed && supportsGoal && text) {
       const hasContext = message.files.length > 0 || attachments.files.length > 0
         || annotationsForWorkspace(useAnnotationsStore.getState().items, currentWorkspaceId, chatNodeId).length > 0
@@ -968,30 +1005,31 @@ function ChatPanelContent({
       setInput('');
       return;
     }
-    handleSubmit(message);
-  }, [goalArmed, supportsGoal, startGoal, handleSubmit, setInput, attachments.files.length, currentWorkspaceId, chatNodeId, dbChatId]);
+    return handleSubmit(message, sendAt, workspaceOverride);
+  }, [goalArmed, supportsGoal, startGoal, handleSubmit, setInput, attachments.files.length, currentWorkspaceId, chatNodeId, dbChatId, intl]);
 
   // A draft that asked for a new worktree gets it on its first send: cut the
   // worktree, move this tab into it, then send there once the panel sees the new
   // workspace (the request body takes the workspace from the render). Until the
   // worktree exists the composer keeps the text, and a failure leaves it there.
   const pendingWorktreeSendRef = useRef<{ workspaceId: number; message: { text: string; files: FileUIPart[] } } | null>(null);
-  const handleComposerSubmit = useCallback((message: { text: string; files: FileUIPart[] }): void | Promise<void> => {
+  const handleComposerSubmit = useCallback((message: { text: string; files: FileUIPart[] }, sendAt?: number): void | Promise<void> => {
     const intent = draftWorktreeIntent(chatId);
-    if (isMobile || runsElsewhere || !showDraftBar || !intent.newWorktree || intent.creating || !message.text.trim()) return handleSubmitOrGoal(message);
+    if (isMobile || runsElsewhere || !showDraftBar || !intent.newWorktree || intent.creating || !message.text.trim()) return handleSubmitOrGoal(message, sendAt);
     // The worktree is cut on the draft's machine, from that machine's tree.
     const project = projectsOn(useProjectStore.getState(), chatNodeId).find((p) => p.workspaces.some((w) => w.id === currentWorkspaceId));
     const workspace = project?.workspaces.find((w) => w.id === currentWorkspaceId);
-    if (!project || !workspace) return handleSubmitOrGoal(message);
+    if (!project || !workspace) return handleSubmitOrGoal(message, sendAt);
     const draft = useDraftChatStore.getState();
     draft.setCreating(chatId, true);
     return (async () => {
       const base = intent.baseBranch
         ?? (await queryClient.fetchQuery(gitBranchesQuery(workspace.worktreePath, chatNodeId))).find((b) => b.current && !b.remote)?.name;
       const created = await createAutoWorkspace(project, { base }, chatNodeId);
-      pendingWorktreeSendRef.current = { workspaceId: created.id, message };
+      if (sendAt === undefined) pendingWorktreeSendRef.current = { workspaceId: created.id, message };
       draft.clear(chatId);
       moveDraftToWorkspace(chatId, created.id, project.id, chatNodeId);
+      if (sendAt !== undefined) await handleSubmitOrGoal(message, sendAt, created.id);
     })().catch((error: unknown) => {
       draft.setCreating(chatId, false);
       toast.error(intl.formatMessage({ id: 'draftChat.worktreeFailed', defaultMessage: 'Could not create the worktree' }), {
@@ -1617,7 +1655,9 @@ function ChatPanelContent({
           canRetry={isGenerating}
           onRetry={handleRetrySteer}
           onDismiss={handleDismissSteer}
-        />
+        >
+          {dbChatId != null && <ScheduledTray chatId={dbChatId} visible={visible} busy={isGenerating} />}
+        </SteerTray>
         <ChatComposer
           // `invisible` above only hides the web composer: the packaged apps draw a native
           // one over its spacer, which keeps its box, so it has to be told to hide too.
@@ -1625,6 +1665,7 @@ function ChatPanelContent({
           promptSuggestion={promptSuggestion}
           isOperonProvider={isOperonProvider}
           dbChatId={tab?.chatId ?? dbChatIdRef.current}
+          quotaAt={quotaSendTime(model, isCodex ? polledCodexRateLimits : null, displayedClaudeRateLimits)}
           onSubmit={handleComposerSubmit}
           status={status}
           onStop={handleStop}

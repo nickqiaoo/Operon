@@ -9,7 +9,7 @@ import type { AgentSession, McpControl, TaskControl } from '@operon/agent-runtim
  * - The external agents expose MCP status (`native.mcp.list`), and Claude Code
  *   and OpenCode also reconnect / toggle servers.
  * - Claude Code's task list (`native.tasks`): the list itself reaches the panel
- *   on the live-status stream; these read a task's output, stop one, and clear
+ *   on the chat status stream; these read a task's output, stop one, and clear
  *   the finished ones.
  *
  * The runtime keeps these typed per provider; this table is where the panel's

@@ -3,7 +3,7 @@ import type { ModelMessage } from 'ai'
 import { getSessionManager } from '../ai/state.js'
 import { latestUserInput } from '../ai/message-utils.js'
 import { runAgentTurn } from '../ai/agent-turn.js'
-import { readStreamAsAsyncIterable } from '@operon/agent-runtime'
+import type { RuntimeStreamPart } from '@operon/agent-runtime'
 import { subagentMode } from '../agents/subagent-mode.js'
 import { resolveMcpServersForSession, type McpServerEntry } from '../mcp-config.js'
 import { createMaintenanceLogger } from './logger.js'
@@ -105,99 +105,100 @@ export async function runHeadlessMemoryAgent(params: HeadlessRunParams): Promise
   let textBuffer = ''
   let reasoningBuffer = ''
 
-  // Same shared turn core as chat/workflow. We consume the normalized
-  // `preparedParts` directly (no SSE/assembly needed) for tool telemetry; the
-  // assembly branch behind `done` drains itself, we just don't use it.
-  const { preparedParts } = runAgentTurn(session, {
-    requestId: randomUUID(),
-    input: latestUserInput(params.messages),
-    signal: params.signal ?? new AbortController().signal,
-    assistantMessageId: randomUUID(),
-    originalMessages: [],
-  })
+  // Tool telemetry from the raw parts as they stream; the assembled reply is not needed.
+  const observe = (part: RuntimeStreamPart): void => {
+    switch (part.type) {
+      case 'text-delta': {
+        const p = part as unknown as { text?: string; delta?: string }
+        const chunk = p.text ?? p.delta ?? ''
+        if (chunk) textBuffer += chunk
+        break
+      }
+
+      case 'reasoning-delta': {
+        const p = part as unknown as { text?: string; delta?: string }
+        const chunk = p.text ?? p.delta ?? ''
+        if (chunk) reasoningBuffer += chunk
+        break
+      }
+
+      case 'tool-call': {
+        const p = part as unknown as {
+          toolName?: string
+          toolCallId?: string
+          input?: unknown
+          args?: unknown
+        }
+        const name = p.toolName
+        if (!isMemoryTool(name)) break
+        const id = p.toolCallId ?? randomUUID()
+        const input = p.input ?? p.args
+        const record: MemoryToolCallRecord = { toolName: name!, input, ok: true }
+        toolCalls.push(record)
+        pendingCalls.set(id, record)
+        logger.info(`tool-call ${name} ${truncate(JSON.stringify(input ?? {}), 400)}`)
+        break
+      }
+
+      case 'tool-result': {
+        const p = part as unknown as {
+          toolCallId?: string
+          toolName?: string
+          output?: unknown
+          error?: unknown
+        }
+        const id = p.toolCallId
+        const record = id ? pendingCalls.get(id) : undefined
+        if (!record) break
+        const err = p.error instanceof Error ? p.error.message : typeof p.error === 'string' ? p.error : undefined
+        if (err) {
+          record.ok = false
+          record.error = err
+          logger.warn(`tool-result ${record.toolName} error: ${err}`)
+        } else {
+          logger.info(`tool-result ${record.toolName} ok ${truncate(stringifyOutput(p.output), 300)}`)
+        }
+        if (id) pendingCalls.delete(id)
+        break
+      }
+
+      case 'tool-error': {
+        const p = part as unknown as { toolCallId?: string; error?: unknown }
+        const record = p.toolCallId ? pendingCalls.get(p.toolCallId) : undefined
+        if (!record) break
+        record.ok = false
+        record.error = p.error instanceof Error ? p.error.message : typeof p.error === 'string' ? p.error : 'tool error'
+        logger.warn(`tool-error ${record.toolName}: ${record.error}`)
+        if (p.toolCallId) pendingCalls.delete(p.toolCallId)
+        break
+      }
+
+      case 'error': {
+        const p = part as unknown as { error?: unknown }
+        errorMessage = p.error instanceof Error ? p.error.message : typeof p.error === 'string' ? p.error : 'unknown stream error'
+        finishReason = 'error'
+        break
+      }
+
+      default:
+        break
+    }
+  }
 
   try {
-    for await (const prepared of readStreamAsAsyncIterable(preparedParts)) {
-      const part = prepared.part
-      if (!part) continue
-      switch (part.type) {
-        case 'text-delta': {
-          const p = part as unknown as { text?: string; delta?: string }
-          const chunk = p.text ?? p.delta ?? ''
-          if (chunk) textBuffer += chunk
-          break
-        }
-
-        case 'reasoning-delta': {
-          const p = part as unknown as { text?: string; delta?: string }
-          const chunk = p.text ?? p.delta ?? ''
-          if (chunk) reasoningBuffer += chunk
-          break
-        }
-
-        case 'tool-call': {
-          const p = part as unknown as {
-            toolName?: string
-            toolCallId?: string
-            input?: unknown
-            args?: unknown
-          }
-          const name = p.toolName
-          if (!isMemoryTool(name)) break
-          const id = p.toolCallId ?? randomUUID()
-          const input = p.input ?? p.args
-          const record: MemoryToolCallRecord = { toolName: name!, input, ok: true }
-          toolCalls.push(record)
-          pendingCalls.set(id, record)
-          logger.info(`tool-call ${name} ${truncate(JSON.stringify(input ?? {}), 400)}`)
-          break
-        }
-
-        case 'tool-result': {
-          const p = part as unknown as {
-            toolCallId?: string
-            toolName?: string
-            output?: unknown
-            error?: unknown
-          }
-          const id = p.toolCallId
-          const record = id ? pendingCalls.get(id) : undefined
-          if (!record) break
-          const err = p.error instanceof Error ? p.error.message : typeof p.error === 'string' ? p.error : undefined
-          if (err) {
-            record.ok = false
-            record.error = err
-            logger.warn(`tool-result ${record.toolName} error: ${err}`)
-          } else {
-            logger.info(`tool-result ${record.toolName} ok ${truncate(stringifyOutput(p.output), 300)}`)
-          }
-          if (id) pendingCalls.delete(id)
-          break
-        }
-
-        case 'tool-error': {
-          const p = part as unknown as { toolCallId?: string; error?: unknown }
-          const record = p.toolCallId ? pendingCalls.get(p.toolCallId) : undefined
-          if (!record) break
-          record.ok = false
-          record.error = p.error instanceof Error ? p.error.message : typeof p.error === 'string' ? p.error : 'tool error'
-          logger.warn(`tool-error ${record.toolName}: ${record.error}`)
-          if (p.toolCallId) pendingCalls.delete(p.toolCallId)
-          break
-        }
-
-        case 'error': {
-          const p = part as unknown as { error?: unknown }
-          errorMessage = p.error instanceof Error ? p.error.message : typeof p.error === 'string' ? p.error : 'unknown stream error'
-          finishReason = 'error'
-          break
-        }
-
-        default:
-          break
-      }
+    // Same shared turn core as chat/workflow.
+    const { error } = await runAgentTurn(session, {
+      requestId: randomUUID(),
+      input: latestUserInput(params.messages),
+      signal: params.signal ?? new AbortController().signal,
+      assistantMessageId: randomUUID(),
+      originalMessages: [],
+      onPart: observe,
+    }).done
+    if (error !== undefined && !errorMessage) {
+      finishReason = 'error'
+      errorMessage = error instanceof Error ? error.message : String(error)
     }
-
     if (params.signal?.aborted) finishReason = 'aborted'
   } catch (err) {
     finishReason = params.signal?.aborted ? 'aborted' : 'error'

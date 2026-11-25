@@ -13,7 +13,7 @@ import { RemoteWorkflowRunsSync } from './WorkflowRunsSync'
  *
  * This machine's feeds are mounted once by the shell (`PendingInputSync`,
  * `ExternalAgentsSync`, `WorkflowRunsSync`). A remote tab needs the same three
- * from the machine it shows — turn presence and pending input, its external
+ * from the machine it shows — turn status and pending input, its external
  * agents, its workflow approvals — and only while it is open. Mounted here, once
  * per machine, rather than per tab: two tabs on one machine must not each own
  * (and on close, clear) that machine's lists.

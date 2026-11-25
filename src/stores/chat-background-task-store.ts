@@ -3,8 +3,8 @@ import type { BackgroundTaskSummary } from "@shared/background-tasks"
 import { chatKey, replaceNodeEntries, type ChatKey, type ChatRef, type NodeKey } from "@/lib/chat-ref"
 
 /**
- * Each conversation's Claude Code task list, mirrored from the live-status stream
- * (see lib/live-turn-events.ts). A chat absent from the map has none the server
+ * Each conversation's Claude Code task list, mirrored from the chat status stream
+ * (see lib/chat-status-events.ts). A chat absent from the map has none the server
  * knows of — which after a restart includes ones that did run and finished.
  * Keyed by `ChatKey`: each machine whose stream is open reports its own chats.
  */

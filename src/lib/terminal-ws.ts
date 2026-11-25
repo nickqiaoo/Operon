@@ -3,6 +3,7 @@ import { ensureAccessToken, getBrokerWsProtocols, getSelectedNodeId, notifyNodeO
 import { decodeWebSocketFrame, utf8, webSocketFrameAad } from '@shared/e2ee/protocol'
 import { deriveRemoteDirectionKeys, open, seal } from '@shared/e2ee/crypto'
 import { getRemotePairing } from './e2ee/device-store'
+import { DirectRouteError, isAccountless, markDirectFailed, noteRoute, routeFor } from './remote-route'
 
 
 type CreateOptions = { cwd?: string; cols?: number; rows?: number; launch?: string }
@@ -182,7 +183,9 @@ export function createTerminalClient(transport: ApiTransport) {
 
     connectingPromise = (async () => {
       const baseUrl = await getBaseUrl()
-      const wsUrl = new URL(baseUrl.replace(/^http/, 'ws') + '/terminal/ws')
+      let wsUrl = new URL(baseUrl.replace(/^http/, 'ws') + '/terminal/ws')
+      /** Straight to the machine over Tailscale (remote-route.ts): no Broker token to present. */
+      let direct: { nodeId: string; base: string } | null = null
 
       // Web target tunnels through the broker, which authenticates the WS handshake via
       // a bearer subprotocol (no Authorization header on browser WebSockets). Electron
@@ -192,7 +195,7 @@ export function createTerminalClient(transport: ApiTransport) {
         const token = getApiTokenSync()
         if (token) wsUrl.searchParams.set('token', token)
       }
-      if (__APP_TARGET__ === 'web' && !(await ensureAccessToken())) {
+      if (__APP_TARGET__ === 'web' && !isAccountless() && !(await ensureAccessToken())) {
         throw new Error('Not authenticated')
       }
       if (__APP_TARGET__ === 'web') {
@@ -203,7 +206,16 @@ export function createTerminalClient(transport: ApiTransport) {
         // rule on it, the same way secure-fetch does. One running with E2EE off
         // accepts it; one that requires E2EE answers 426 (routes/terminal.ts).
         // Refusing here instead would decide that in the machine's place.
-        if (pairing) {
+        if (pairing && nodeId) {
+          const route = await routeFor(window.fetch.bind(window), nodeId).catch((error: unknown) => {
+            if (error instanceof DirectRouteError) throw error
+            return { kind: 'broker' } as const
+          })
+          if (route.kind === 'direct') {
+            wsUrl = new URL(`${route.base.replace(/^http/, 'ws')}/api/terminal/ws`)
+            direct = { nodeId, base: route.base }
+          }
+          noteRoute(nodeId, route.kind)
           const keys = deriveRemoteDirectionKeys(pairing)
           secureSocket = {
             deviceId: pairing.deviceId,
@@ -222,7 +234,7 @@ export function createTerminalClient(transport: ApiTransport) {
       } else {
         secureSocket = null
       }
-      const protocols = __APP_TARGET__ === 'web' ? getBrokerWsProtocols() : undefined
+      const protocols = __APP_TARGET__ === 'web' && !direct ? getBrokerWsProtocols() : undefined
       const socket = new WebSocket(wsUrl, protocols)
 
       await new Promise<void>((resolve, reject) => {
@@ -236,8 +248,10 @@ export function createTerminalClient(transport: ApiTransport) {
         }
         socket.onerror = () => {
           cleanup()
+          // The direct route failing says nothing about the machine: the next try goes through Broker.
+          if (direct) markDirectFailed(direct.nodeId, direct.base)
           // Another machine going away only hides it in the sidebar; this one is the whole app.
-          if (__APP_TARGET__ === 'web' && !transport.nodeId) notifyNodeOffline()
+          else if (__APP_TARGET__ === 'web' && !transport.nodeId) notifyNodeOffline()
           reject(new Error('Failed to connect terminal websocket'))
         }
       })

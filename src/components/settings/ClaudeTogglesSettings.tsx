@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query"
 import { FormattedMessage } from "react-intl"
-import { Loader2, ToggleRight } from "lucide-react"
+import { Loader2 } from "lucide-react"
 
 import type { ClaudeToggles } from "@shared/claude-toggles"
 import { Switch } from "@/components/ui/switch"
@@ -34,7 +34,6 @@ export function ClaudeTogglesSettings() {
 
   return (
     <SettingsSection
-      icon={ToggleRight}
       title={<FormattedMessage id="settings.claudeToggles.title" defaultMessage="Features" />}
       description={
         <FormattedMessage

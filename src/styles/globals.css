@@ -9,6 +9,12 @@
 }
 @config "./typography.config.js";
 
+@layer components {
+  .settings-section {
+    @apply border-t border-border/40 pt-5 first:border-t-0 first:pt-0;
+  }
+}
+
 @font-face {
   font-family: 'General Sans';
   src: url('../fonts/GeneralSans-Semibold.woff2') format('woff2');
@@ -975,6 +981,12 @@ samp {
     linear-gradient(to right, color-mix(in srgb, var(--color-foreground) 2%, transparent) 1px, transparent 1px),
     linear-gradient(to bottom, color-mix(in srgb, var(--color-foreground) 2%, transparent) 1px, transparent 1px);
   background-size: 32px 32px;
+}
+
+@utility sidebar-title-fade {
+  overflow: hidden;
+  white-space: nowrap;
+  mask-image: linear-gradient(to right, black calc(100% - 12px), transparent);
 }
 
 /* The sidebar panel's content (project tree / Active list, beside the icon

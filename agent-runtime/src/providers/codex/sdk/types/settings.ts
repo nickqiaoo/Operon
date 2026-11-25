@@ -178,6 +178,8 @@ export type ToolRequestUserInputHandler = (
  * Settings for the Codex App Server provider
  */
 export interface CodexAppServerSettings {
+  /** Isolate managed login credentials under this process's CODEX_HOME. */
+  fileCredentials?: boolean;
   codexPath?: string;
   cwd?: string;
   approvalMode?: ApprovalMode;

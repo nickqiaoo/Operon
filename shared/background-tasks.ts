@@ -1,7 +1,7 @@
 /**
  * One entry of a Claude Code session's task list — a command that ran for more
  * than a few seconds, a sub-agent, a workflow, a monitor — carried per chat on
- * the live-status stream (`GET /api/ai/chat/live-status`). Mirrors the runtime's
+ * the chat status stream (`GET /api/ai/chat/status`). Mirrors the runtime's
  * `RuntimeBackgroundTask`. A background `Agent`'s card finds its entry by
  * `toolUseId`, the spawning tool call.
  */
@@ -29,7 +29,7 @@ export interface BackgroundTaskSummary {
 /**
  * One tool call a sub-agent made, read back from its transcript
  * (`GET /api/ai/chat/:chatId/subagent/:toolUseId`). Shaped like a tool part so a
- * sub-agent card renders it the same way as a step streamed in a live turn.
+ * sub-agent card renders it the same way as a step streamed in a chat turn.
  */
 export interface SubagentStep {
   toolCallId: string

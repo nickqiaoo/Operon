@@ -16,7 +16,7 @@ import { useChatPendingInputStore } from '@/stores/chat-pending-input-store'
  * the request's own preview so it is not approved blind; a question or a plan
  * needs the child's own UI, so those only offer to open it. Answers go through
  * the same permission response as the child tab and the inbox, and the
- * live-status stream clears every surface once one of them answers.
+ * chat status stream clears every surface once one of them answers.
  */
 export function ChildPendingInput({
   childChatId,

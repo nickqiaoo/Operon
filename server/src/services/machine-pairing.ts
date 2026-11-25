@@ -9,8 +9,10 @@ import { open, seal } from '@shared/e2ee/crypto'
 import { base64ToBytes, bytesToBase64, decodeEnvelope, utf8, type SealedEnvelope } from '@shared/e2ee/protocol'
 import { getSaasConfig } from '../gateway/saas/config.js'
 import { DelegationHttpError, delegationRequest, listDelegationNodes, pairingClaimRequest } from './delegation-transport.js'
+import { ownDirectAddress, recordPeerAddress } from './direct-link.js'
 import { cleanLabel, mergePeerRecords, peerRecords, pinPairedPeer, trustedPeerIds } from './machine-peers.js'
 import { getDelegationKeypair, getDesktopIdentity } from './mobile/identity.js'
+import { selfNodeId } from './local-identity.js'
 
 /**
  * Pairing two machines of the account with a code, and keeping the group of
@@ -25,7 +27,8 @@ import { getDelegationKeypair, getDesktopIdentity } from './mobile/identity.js'
  * which is answering, so Broker cannot redirect a claim either.
  *
  * Joining one member is enough: after a pairing, and every so often, each
- * machine sends the others what it knows of the group (`MachinePeerSync`).
+ * machine sends the others what it knows of the group (`MachinePeerSync`),
+ * along with where it can be reached directly over Tailscale, if it can.
  */
 
 const CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
@@ -103,12 +106,6 @@ let pending: PendingCode | null = null
 
 export function initMachinePairing(input: Hooks): void {
   hooks = input
-}
-
-function selfNodeId(): string {
-  const nodeId = getSaasConfig().nodeId
-  if (!nodeId) throw new DelegationHttpError(503, 'Connect this machine in Remote settings first')
-  return nodeId
 }
 
 function ownHello(challenge: string): MachinePairHello {
@@ -238,10 +235,9 @@ export function schedulePeerSync(delayMs = SYNC_DEBOUNCE_MS): void {
 /** Best effort: a machine that is offline now hears it on the next round. */
 export async function pushPeerSync(): Promise<void> {
   try {
-    if (!getSaasConfig().nodeId) return
     const targets = trustedPeerIds()
     if (!targets.length) return
-    const body: MachinePeerSync = { peers: peerRecords() }
+    const body: MachinePeerSync = { peers: peerRecords(), direct: ownDirectAddress() }
     await Promise.all(targets.map((target) => delegationRequest(target, MACHINE_PEER_SYNC_PATH, body).catch(() => undefined)))
   } catch (error) {
     console.error('[machine-pairing] peer sync failed:', error)
@@ -254,6 +250,8 @@ export function receivePeerSync(source: string, body: unknown): { changed: boole
     ? (body as { peers: unknown[] }).peers
     : null
   if (!peers) throw new DelegationHttpError(400, 'Invalid request')
+  // Only about the sender itself: a machine says where it listens, never where another does.
+  if ('direct' in (body as object)) recordPeerAddress(source, (body as { direct?: unknown }).direct)
   const changed = mergePeerRecords(source, selfNodeId(), peers)
   if (changed) schedulePeerSync()
   return { changed }

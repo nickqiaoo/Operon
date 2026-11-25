@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { AlertCircle, Chrome, CheckCircle2, CircleDashed, ExternalLink, Loader2, RefreshCw, XCircle } from "lucide-react"
+import { AlertCircle, CheckCircle2, CircleDashed, ExternalLink, Loader2, RefreshCw, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { api, type ChromeUseFailure } from "@/lib/api"
@@ -108,9 +108,8 @@ export function ChromeUseSettings() {
                 </div>
             )}
 
-            <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+            <section className="space-y-4 settings-section">
                 <div className="flex items-start gap-3">
-                    <Chrome className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
                     <div className="flex-1">
                         <h2 className="text-sm font-semibold mb-1">
                             <FormattedMessage id="settings.chrome.enabled.title" defaultMessage="Chrome" />
@@ -130,14 +129,14 @@ export function ChromeUseSettings() {
                 </div>
 
                 {settings?.enabled ? (
-                    <div className="rounded-lg border border-border/40 bg-background/40 p-3 text-xs text-muted-foreground">
+                    <div className="py-3 text-xs text-muted-foreground">
                         <FormattedMessage
                             id="settings.chrome.enabled.on"
                             defaultMessage="Agents work in tabs they open, and ask before acting as you — sending, posting, buying, or changing account settings. For throwaway work that does not need your session, they use Operon's own browser instead."
                         />
                     </div>
                 ) : (
-                    <div className="rounded-lg border border-dashed border-border/50 p-6 text-center text-xs text-muted-foreground">
+                    <div className="p-6 text-center text-xs text-muted-foreground">
                         <FormattedMessage
                             id="settings.chrome.enabled.off"
                             defaultMessage="Agents cannot see or drive your Chrome."
@@ -176,9 +175,8 @@ function ChromeStatus({
         settings.extensionInstalled
 
     return (
-        <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+        <section className="space-y-4 settings-section">
             <div className="flex items-start gap-3">
-                <Chrome className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
                 <div className="flex-1">
                     <h2 className="text-sm font-semibold mb-1">
                         <FormattedMessage id="settings.chrome.status.title" defaultMessage="Connection" />
@@ -289,7 +287,7 @@ function ChromeStatus({
                 />
             </div>
 
-            <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-muted-foreground rounded-lg bg-background/40 border border-border/40 p-3">
+            <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-muted-foreground py-3">
                 <span>
                     <FormattedMessage id="settings.chrome.extensionId" defaultMessage="Extension ID" />
                 </span>
@@ -319,7 +317,7 @@ function StatusRow({
     action?: React.ReactNode
 }) {
     return (
-        <div className="flex items-start gap-2.5 rounded-lg border border-border/40 bg-background/40 p-3">
+        <div className="flex items-start gap-2.5 py-3">
             {status === "ok" ? (
                 <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-status-ok" />
             ) : status === "unknown" ? (

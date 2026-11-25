@@ -3,6 +3,9 @@ import { getSaasConfig, setSaasConfig, clearSaasConfig } from './config.js'
 import { BROKER_URL } from './broker.js'
 import { startSaasRuntime, stopSaasRuntime, isSaasRuntimeRunning } from '../../services/saas-runtime.js'
 import { SAAS_LOGIN_ERROR, SaasLoginError, type SaasLoginErrorPayload, normalizeSaasLoginError } from './errors.js'
+import { selfNodeId } from '../../services/local-identity.js'
+import { getDelegationKeypair } from '../../services/mobile/identity.js'
+import { bytesToBase64 } from '@shared/e2ee/protocol'
 
 // Orchestrates desktop SaaS login: loopback OAuth → broker access token → register
 // this machine as a node → persist the node token (which the tunnel agent reads).
@@ -58,13 +61,19 @@ export async function saasLogin(provider: SaasAuthProvider, label: string): Prom
       // Reuse the node from a previous login on THIS machine (same user) so each
       // re-login doesn't strand an orphaned, forever-offline node. The broker only
       // honors the id when it still belongs to this user, else it mints a new one.
-      const prev = getSaasConfig()
-      const reuseNodeId = prev.userId && prev.userId === userId ? prev.nodeId : undefined
+      // The id this machine already goes by (local-identity.ts): Broker's from
+      // an earlier sign-in, or the one derived from its key, which Broker
+      // accepts with that key so paired machines and phones keep working.
+      const reuseNodeId = selfNodeId()
       const res = await fetch(`${base}/auth/nodes`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ label, nodeId: reuseNodeId }),
+        body: JSON.stringify({ label, nodeId: reuseNodeId, delegationPublicKey: bytesToBase64(getDelegationKeypair().publicKey) }),
       })
+      if (res.status === 409) {
+        const body = await res.json().catch(() => null) as { message?: string } | null
+        throw new SaasLoginError(SAAS_LOGIN_ERROR.nodeRegistrationFailed, body?.message ?? 'This machine is registered to another account')
+      }
       if (!res.ok) {
         throw new SaasLoginError(SAAS_LOGIN_ERROR.nodeRegistrationFailed, `Node registration failed: ${res.status}`)
       }

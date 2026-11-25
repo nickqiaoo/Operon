@@ -20,7 +20,7 @@ import { transportFor } from './api-client'
 import { nodeKeyOf, type NodeKey } from './chat-ref'
 import { subscribeSse, type SseSubscription } from './sse'
 
-export type EventChannel = 'live-status' | 'workflow' | 'external-agents' | 'tasks' | 'inbox' | 'projects'
+export type EventChannel = 'codex-selection' | 'chat-status' | 'workflow' | 'external-agents' | 'tasks' | 'inbox' | 'projects'
 
 interface Listener {
   onEvent: (data: unknown) => void

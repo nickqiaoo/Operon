@@ -10,7 +10,6 @@ import {
     type TerminalTheme,
 } from "@/lib/terminal-themes"
 import { cn } from "@/lib/utils"
-import { MessageSquare, Palette, SquareTerminal } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { useChatDisplayStore } from "@/stores/chat-display-store"
 import { SettingsRow, SettingsSection } from "./SettingsSection"
@@ -61,7 +60,6 @@ export function AppearanceTab() {
     return (
         <div className="space-y-4">
             <SettingsSection
-                icon={Palette}
                 title={<FormattedMessage id="settings.appearance.section.interface" defaultMessage="Interface" />}
                 description={<FormattedMessage id="settings.appearance.section.interfaceDesc" defaultMessage="Language, color mode and the theme used in each mode." />}
             >
@@ -140,7 +138,6 @@ export function AppearanceTab() {
             </SettingsSection>
 
             <SettingsSection
-                icon={MessageSquare}
                 title={<FormattedMessage id="settings.appearance.section.chat" defaultMessage="Chat" />}
                 description={<FormattedMessage id="settings.appearance.section.chatDesc" defaultMessage="How replies read in a conversation." />}
             >
@@ -160,7 +157,6 @@ export function AppearanceTab() {
             </SettingsSection>
 
             <SettingsSection
-                icon={SquareTerminal}
                 title={<FormattedMessage id="settings.appearance.section.terminal" defaultMessage="Terminal" />}
                 description={<FormattedMessage id="settings.appearance.section.terminalDesc" defaultMessage="Colors for the embedded terminal." />}
             >

@@ -74,12 +74,12 @@ describe('shared event stream', () => {
   it('reconnects with the wider set when a new channel joins later', async () => {
     subscribeEvents('inbox', { onEvent: () => {} })
     vi.runAllTimers()
-    subscribeEvents('live-status', { onEvent: () => {} })
+    subscribeEvents('chat-status', { onEvent: () => {} })
     vi.runAllTimers()
 
     expect(handles[0].closed).toBe(true)
     expect(open()).toHaveLength(1)
-    expect(await open()[0].url()).toBe('/events?ch=inbox,live-status')
+    expect(await open()[0].url()).toBe('/events?ch=chat-status,inbox')
   })
 
   it('does not reconnect for another subscriber of a channel already on the wire', () => {
@@ -118,22 +118,22 @@ describe('shared event stream', () => {
   it('tells every subscriber when the shared connection fails', () => {
     const errors: string[] = []
     subscribeEvents('inbox', { onEvent: () => {}, onError: () => errors.push('inbox') })
-    subscribeEvents('live-status', { onEvent: () => {}, onError: () => errors.push('live-status') })
+    subscribeEvents('chat-status', { onEvent: () => {}, onError: () => errors.push('chat-status') })
     vi.runAllTimers()
     open()[0].fail(new Error('dropped'))
-    expect(errors.sort()).toEqual(['inbox', 'live-status'])
+    expect(errors.sort()).toEqual(['chat-status', 'inbox'])
   })
 })
 
 describe('one connection per machine', () => {
   it("opens another machine's channels on their own connection, through the relay", async () => {
-    subscribeEvents('live-status', { onEvent: () => {} })
-    subscribeEvents('live-status', { onEvent: () => {} }, 'node-b')
+    subscribeEvents('chat-status', { onEvent: () => {} })
+    subscribeEvents('chat-status', { onEvent: () => {} }, 'node-b')
     subscribeEvents('external-agents', { onEvent: () => {} }, 'node-b')
     vi.runAllTimers()
 
     const urls = await Promise.all(open().map((h) => h.url()))
-    expect(urls.sort()).toEqual(['/events?ch=live-status', '/remote/node-b/events?ch=external-agents,live-status'])
+    expect(urls.sort()).toEqual(['/events?ch=chat-status', '/remote/node-b/events?ch=chat-status,external-agents'])
     const remote = open().find((h) => h.headers)
     expect(remote?.headers?.()).toEqual({ Authorization: 'Bearer local-for-node-b' })
     // This machine's connection keeps its plain shape (no extra headers).
@@ -143,21 +143,21 @@ describe('one connection per machine', () => {
   it('delivers a frame only to the machine it came from', async () => {
     const local: unknown[] = []
     const remote: unknown[] = []
-    subscribeEvents('live-status', { onEvent: (data) => local.push(data) })
-    subscribeEvents('live-status', { onEvent: (data) => remote.push(data) }, 'node-b')
+    subscribeEvents('chat-status', { onEvent: (data) => local.push(data) })
+    subscribeEvents('chat-status', { onEvent: (data) => remote.push(data) }, 'node-b')
     vi.runAllTimers()
 
     const remoteHandle = open().find((h) => h.headers)!
     const localHandle = open().find((h) => !h.headers)!
-    remoteHandle.emit({ ch: 'live-status', data: 'from b' })
-    localHandle.emit({ ch: 'live-status', data: 'from here' })
+    remoteHandle.emit({ ch: 'chat-status', data: 'from b' })
+    localHandle.emit({ ch: 'chat-status', data: 'from here' })
     expect(local).toEqual(['from here'])
     expect(remote).toEqual(['from b'])
   })
 
   it("closes a machine's connection when its last listener leaves, without touching this one", () => {
-    subscribeEvents('live-status', { onEvent: () => {} })
-    const remote = subscribeEvents('live-status', { onEvent: () => {} }, 'node-b')
+    subscribeEvents('chat-status', { onEvent: () => {} })
+    const remote = subscribeEvents('chat-status', { onEvent: () => {} }, 'node-b')
     vi.runAllTimers()
     expect(open()).toHaveLength(2)
 
@@ -167,15 +167,15 @@ describe('one connection per machine', () => {
     expect(open()[0].headers).toBeUndefined()
 
     // Listening again opens a fresh connection to it.
-    subscribeEvents('live-status', { onEvent: () => {} }, 'node-b')
+    subscribeEvents('chat-status', { onEvent: () => {} }, 'node-b')
     vi.runAllTimers()
     expect(open()).toHaveLength(2)
   })
 
   it("reports a failure only to that machine's subscribers", () => {
     const errors: string[] = []
-    subscribeEvents('live-status', { onEvent: () => {}, onError: () => errors.push('local') })
-    subscribeEvents('live-status', { onEvent: () => {}, onError: () => errors.push('remote') }, 'node-b')
+    subscribeEvents('chat-status', { onEvent: () => {}, onError: () => errors.push('local') })
+    subscribeEvents('chat-status', { onEvent: () => {}, onError: () => errors.push('remote') }, 'node-b')
     vi.runAllTimers()
 
     open().find((h) => h.headers)!.fail(new Error('relay down'))

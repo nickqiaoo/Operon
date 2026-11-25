@@ -44,12 +44,13 @@ vi.mock('./persistence.js', () => ({
   persistInjectedUserMessage: persistenceMock.persistInjectedUserMessage,
 }));
 
-const liveTurnMock = vi.hoisted(() => ({
-  getLiveTurn: vi.fn<(chatId: number) => { isDone: boolean } | undefined>(() => undefined),
+const turnMock = vi.hoisted(() => ({
+  isChatTurnBusy: vi.fn<(chatId: number) => boolean>(() => false),
 }));
 
-vi.mock('./live-turn-hub.js', () => ({
-  getLiveTurn: liveTurnMock.getLiveTurn,
+vi.mock('./chat-turn-lifecycle.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./chat-turn-lifecycle.js')>()),
+  isChatTurnBusy: turnMock.isChatTurnBusy,
 }));
 
 vi.mock('../channel/agent-orchestrator.js', () => ({
@@ -77,7 +78,7 @@ describe('injectIntoChat', () => {
     stateMock.getSession.mockReset();
     helpersMock.createSteerUserMessage.mockReset();
     persistenceMock.persistInjectedUserMessage.mockReset();
-    liveTurnMock.getLiveTurn.mockReset();
+    turnMock.isChatTurnBusy.mockReset();
   });
 
   it('returns the durable steer message with its target turn metadata', async () => {
@@ -228,7 +229,7 @@ describe('injectIntoChat', () => {
   it('steers a turn the agent started on its own, which has no active request', async () => {
     const injectMessage = vi.fn().mockResolvedValue(undefined);
     stateMock.getSession.mockReturnValue({ activeRequest: null, runtime: { steer: injectMessage } });
-    liveTurnMock.getLiveTurn.mockReturnValue({ isDone: false });
+    turnMock.isChatTurnBusy.mockReturnValue(true);
     helpersMock.createSteerUserMessage.mockReturnValue({ id: 'steer-1', role: 'user', parts: [] });
     persistenceMock.persistInjectedUserMessage.mockReturnValue({ success: true });
     const { injectIntoChat } = await loadSessionOps();
@@ -243,7 +244,7 @@ describe('injectIntoChat', () => {
   it('does not steer once the agent-started turn has finished', async () => {
     const injectMessage = vi.fn();
     stateMock.getSession.mockReturnValue({ activeRequest: null, runtime: { steer: injectMessage } });
-    liveTurnMock.getLiveTurn.mockReturnValue({ isDone: true });
+    turnMock.isChatTurnBusy.mockReturnValue(false);
     const { injectIntoChat } = await loadSessionOps();
 
     await expect(injectIntoChat(7, 'late')).resolves.toMatchObject({

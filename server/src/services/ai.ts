@@ -44,7 +44,7 @@ export {
   agentControl,
 } from './ai/session-ops.js'
 
-// Workflow runs — folded from the event log; two feeds, three lookups
+// Workflow runs — folded from the event log; one feed, a few lookups
 export {
   getWorkflowRun,
   getWorkflowResult,
@@ -52,7 +52,6 @@ export {
   getWorkflowAgentChunks,
   listWorkflowRuns,
   getWorkflowFeed,
-  getWorkflowRunFeed,
   stopWorkflow,
   type WorkflowRunView,
 } from './ai/workflow-runs.js'
@@ -65,17 +64,16 @@ export {
 } from './ai/provider-models-cache.js'
 
 // Chat flow
-export { startChat, startServerChat, handleChat } from './ai/chat-flow.js'
+export { runChatTurn, handleChat, turnStreamResponse, ChatBusyError, type ChatTurn, type ChatTurnOptions } from './ai/chat-flow.js'
 
-// Live turn attach (multi-surface streaming of one in-flight turn)
+// Chat turns: what each chat is doing, and the stream of its reply
 export {
-  getLiveTurn,
-  getLiveTurnStatus,
-  subscribeLiveTurnPresence,
-  subscribeAllLiveTurnPresence,
-  listActiveLiveTurnStatuses,
-  type LiveTurnStatus,
-} from './ai/live-turn-hub.js'
+  getChatTurnStatus,
+  getChatTurnStream,
+  listActiveChatTurns,
+  onChatTurnStatus,
+  type ChatTurnStatus,
+} from './ai/chat-turn-lifecycle.js'
 
 // Compact flow
 export { handleCompact } from './ai/compact-flow.js'

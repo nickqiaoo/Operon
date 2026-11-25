@@ -4,7 +4,6 @@ import { Workflow as WorkflowIcon } from "lucide-react"
 import { api, type WorkflowRunView } from "@/lib/api"
 import { useWorkflowRunsStore } from "@/stores/workflow-runs-store"
 import { WorkflowRunDetail } from "@/components/editor/components/WorkflowRunDetail"
-import type { AgentStreamState } from "@/components/editor/components/agent-stream"
 
 /**
  * The workflow panel tab — recent runs, with each live one's sub-agent work.
@@ -23,9 +22,6 @@ import type { AgentStreamState } from "@/components/editor/components/agent-stre
  * actually wanted.
  */
 
-/** A finished run has no live streams; its detail is replayed from the node. */
-const NO_STREAMS: Map<number, AgentStreamState> = new Map()
-
 /** Newest first, matching the node's own ordering (ended, else started). */
 function byRecency(a: WorkflowRunView, b: WorkflowRunView): number {
   return (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt)
@@ -34,7 +30,6 @@ function byRecency(a: WorkflowRunView, b: WorkflowRunView): number {
 export function WorkflowTab() {
   const intl = useIntl()
   const live = useWorkflowRunsStore((s) => s.runs)
-  const streams = useWorkflowRunsStore((s) => s.streams)
   const [history, setHistory] = useState<WorkflowRunView[]>([])
 
   // Once per open. No polling and no refetch on change: anything that moves is
@@ -79,22 +74,18 @@ export function WorkflowTab() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="divide-y divide-border/40">
-        {visible.map((run) => {
-          const stream = streams.get(run.runId)
-          return (
+        {visible.map((run) => (
             <WorkflowRunDetail
               key={run.runId}
               // One view, from the node's fold. There is no fresher local copy to
               // prefer any more — the global feed re-sends this run on every change.
               run={run}
               fallbackName={run.name}
-              agentStreams={stream?.agents ?? NO_STREAMS}
               // With room to breathe, a single run opens expanded; several stay
               // collapsed so the list itself is still scannable.
               defaultOpen={visible.length === 1}
             />
-          )
-        })}
+        ))}
       </div>
     </div>
   )

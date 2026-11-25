@@ -221,7 +221,7 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
     running,
   })
 
-  // Claude Code's task list arrives on the live-status stream, not from a poll.
+  // Claude Code's task list arrives on the chat status stream, not from a poll.
   const chatRef = useChatRef(chatId)
   const claudeTasks = useChatTasks(providerId === 'claude-code' ? chatRef : undefined)
   const claudeRunning = claudeTasks.filter((t) => t.status === 'running').length
@@ -1044,7 +1044,7 @@ function TaskRow({ chatId, providerId, task, onChanged }: { chatId: number; prov
 
 // ── Claude Code tasks ────────────────────────────────────────────────────────
 // Claude Code's own task list — commands that ran for more than a few seconds,
-// background shells, sub-agents — pushed on the live-status stream rather than
+// background shells, sub-agents — pushed on the chat status stream rather than
 // polled. Running work on top; finished work below, folded under a count, the
 // way Claude's app lists it.
 

@@ -2,16 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UIMessage } from 'ai'
 import { beginChatTurn, emitChatTurnFinished, markChatTurnReady, abortManagedChatTurn } from './chat-turn-lifecycle.js'
 import { deliverChatMessage } from './chat-delivery.js'
-const mocks = vi.hoisted(() => ({ session: vi.fn(), chat: vi.fn(), inject: vi.fn() }))
+const mocks = vi.hoisted(() => ({ session: vi.fn(), chat: vi.fn(), inject: vi.fn(), ChatBusyError: class ChatBusyError extends Error {} }))
 vi.mock('./state.js', () => ({ getSessionManager: () => ({ get: mocks.session }), getChatStorage: () => ({ getChatMeta: () => ({}), getChatEntry: () => ({ messages: [{ id: 'owner', role: 'user', parts: [] }] }) }) }))
-vi.mock('./chat-flow.js', () => ({ handleChat: mocks.chat }))
+vi.mock('./chat-flow.js', () => ({ runChatTurn: mocks.chat, ChatBusyError: mocks.ChatBusyError }))
 vi.mock('./session-ops.js', () => ({ injectIntoChat: mocks.inject }))
 const chatId = 911
 const message: UIMessage = { id: 'follow-up', role: 'user', parts: [{ type: 'text', text: 'follow-up' }], metadata: { externalAgentDispatch: true } }
 const finish = () => emitChatTurnFinished({ chatId, turnId: 'running', status: 'completed' })
 const active = (steer = true) => ({ activeRequest: { requestId: 'running' }, runtime: steer ? { steer() {} } : { followup() {} } })
 describe('chat delivery delegates scheduling to runtime', () => {
-  beforeEach(() => { vi.resetAllMocks(); mocks.inject.mockResolvedValue({ success: true, delivery: 'accepted' }); mocks.chat.mockResolvedValue(new Response(null)) })
+  beforeEach(() => { vi.resetAllMocks(); mocks.inject.mockResolvedValue({ success: true, delivery: 'accepted' }); mocks.chat.mockResolvedValue({ chatId, ended: Promise.resolve({ status: 'completed' }) }) })
   afterEach(finish)
   it.each([true, false])('selects steer when available, otherwise native followup: %s', async (steer) => {
     mocks.session.mockReturnValue(active(steer))

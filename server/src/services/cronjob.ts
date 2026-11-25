@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { readUIMessageStream, type UIMessage, type UIMessageChunk } from 'ai'
+import type { UIMessage } from 'ai'
 import type { CanvasWorkflowStorageAdapter, ChatStorageAdapter, CronjobStorageAdapter, NotificationStorageAdapter, ProjectStorageAdapter } from '../storage/interface.js'
 import type {
   CronjobSchedule,
@@ -8,9 +8,7 @@ import type {
   CronjobRunResult,
   CronjobExecutionHistoryItem,
 } from '../types/cronjob.js'
-import { startChat, getSessionManager } from './ai.js'
-import { readPreparedTextStreamParts } from './ai/prepared-stream-parts.js'
-import { toUIMessageStream } from '@operon/agent-runtime/ai-sdk'
+import { runChatTurn, getSessionManager, type ChatTurn } from './ai.js'
 import { startCanvasWorkflowExecution } from './canvas-workflow/index.js'
 import { ChatHistoryService } from './chat-history.js'
 
@@ -71,16 +69,6 @@ const createErrorAssistantMessage = (message: string): UIMessage => {
     role: 'assistant',
     parts: [{ type: 'text', text: `Error: ${trimmed || 'Unknown error'}` }],
   }
-}
-
-const collectAssistantMessage = async (
-  stream: ReadableStream<UIMessageChunk>
-): Promise<UIMessage | undefined> => {
-  let lastMessage: UIMessage | undefined
-  for await (const message of readUIMessageStream({ stream })) {
-    lastMessage = message
-  }
-  return lastMessage
 }
 
 const extractAssistantText = (messages: UIMessage[]): string => {
@@ -566,10 +554,10 @@ export const executeCronjob = async (
 
   const startedAt = Date.now()
   const userMessage = createUserMessage(job.prompt)
-  let chatCtx: Awaited<ReturnType<typeof startChat>> | undefined
+  let chatCtx: ChatTurn | undefined
 
   try {
-    chatCtx = await startChat({
+    chatCtx = await runChatTurn({
       requestId: `cronjob-${job.id}-${randomUUID()}`,
       messages: [userMessage],
       providerId: job.providerId,
@@ -581,11 +569,7 @@ export const executeCronjob = async (
       skipSnapshot: true,
     })
 
-    const assistantMessage = await collectAssistantMessage(toUIMessageStream(readPreparedTextStreamParts(chatCtx.preparedParts), {
-      originalMessages: chatCtx.normalizedMessages,
-      messageId: chatCtx.assistantMessageId,
-    }))
-    await chatCtx.persistDone
+    const { message: assistantMessage } = await chatCtx.ended
 
     const messages = assistantMessage ? [userMessage, assistantMessage] : [userMessage]
     const output = truncateText(extractAssistantText(messages))
@@ -636,7 +620,7 @@ export const executeCronjob = async (
     replaceCronjob(storage, updated)
 
     if (chatCtx) {
-      await chatCtx.persistDone.catch(() => {})
+      await chatCtx.ended
       persistCronjobRun(storage, {
         chatId: chatCtx.chatId,
         jobId: job.id,
@@ -659,7 +643,6 @@ export const executeCronjob = async (
 
     return { success: false, cronjob: updated, error: message }
   } finally {
-    chatCtx?.finish()
     if (chatCtx) {
       await getSessionManager().destroy(chatCtx.chatId)
     }

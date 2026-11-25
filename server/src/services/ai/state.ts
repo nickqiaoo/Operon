@@ -16,7 +16,7 @@ import { resolveDetachedApproval } from '../agents/detached-approvals.js'
 import { handleRuntimeBackgroundEvent } from './background-events.js'
 import { setChatPromptSuggestion } from './chat-prompt-suggestions.js'
 import { claudeToggleEnv } from '../claude-toggles.js'
-import { subscribeAllLiveTurnPresence } from './live-turn-hub.js'
+import { onChatTurnStatus } from './chat-turn-lifecycle.js'
 import { operonAgent } from '../operon-runtime/index.js'
 import { resolvePassiveApproval } from '../operon-runtime/passive-observer.js'
 import { withAgentPrompts } from './agent-prompts.js'
@@ -109,7 +109,7 @@ export function getSessionManager(): SessionManager {
     sessionManager.setProviderEnv((providerId) => (providerId === 'claude-code' ? claudeToggleEnv() : undefined))
     // A next-prompt guess answers the reply before it; once a new turn starts it
     // is stale, whoever started that turn.
-    subscribeAllLiveTurnPresence((status) => {
+    onChatTurnStatus((status) => {
       if (status.active) setChatPromptSuggestion(status.chatId, null)
     })
   }

@@ -30,16 +30,13 @@ export async function runOneShotPrompt(options: OneShotPromptOptions): Promise<s
   })
 
   try {
-    const { preparedParts, done } = runAgentTurn(session, {
+    const { message } = await runAgentTurn(session, {
       requestId: randomUUID(),
       input: options.prompt,
       signal: options.signal ?? new AbortController().signal,
       assistantMessageId: randomUUID(),
       originalMessages: [],
-    })
-    void preparedParts.cancel() // no live consumer here; only `done` is needed
-
-    const { message } = await done
+    }).done
     return extractAssistantText(message)
   } finally {
     await session.close().catch(() => {})

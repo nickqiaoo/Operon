@@ -1,10 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { UIMessage } from 'ai'
 
-vi.mock('../ai/state.js', () => ({ getChatStorage: () => null }))
-vi.mock('../ai/live-turn-hub.js', () => ({ getLiveTurn: () => undefined }))
+const fixture = vi.hoisted(() => ({
+  messages: [] as unknown[],
+  stream: undefined as { isDone: boolean; messageId?: string; snapshotChunks: () => unknown[] } | undefined,
+}))
+vi.mock('../ai/state.js', () => ({
+  getChatStorage: () => ({ getChatEntry: () => ({ providerId: 'codex', messages: fixture.messages }) }),
+}))
+vi.mock('../ai/chat-turn-lifecycle.js', () => ({ getChatTurnStream: () => fixture.stream }))
 
-const { chunksFromMessages, chunksFromSse } = await import('./agent-chats.js')
+const { chunksFromMessages, chunksFromStream, readAgentChatChunks } = await import('./agent-chats.js')
 
 const user = (id: string, text: string, metadata?: Record<string, unknown>): UIMessage =>
   ({ id, role: 'user', parts: [{ type: 'text', text }], ...(metadata ? { metadata } : {}) }) as UIMessage
@@ -58,17 +64,40 @@ describe('an agent chat as the run panel\'s chunks', () => {
     ])
   })
 
-  it('reads a turn still going from its buffered stream', () => {
-    const sse =
-      'data: {"type":"start","messageId":"m"}\n\n' +
-      'data: {"type":"text-delta","id":"t","delta":"Hel"}\n\n' +
-      'data: {"type":"data-injected-input","id":"s","data":{"id":"s","text":"faster"}}\n\n' +
-      'data: [DONE]\n\n' +
-      'data: {"type":"text-del'
-    expect(chunksFromSse(sse)).toEqual([
+  it('reads a turn still going from its stream', () => {
+    expect(chunksFromStream([
+      { type: 'start', messageId: 'm' },
+      { type: 'text-delta', id: 't', delta: 'Hel' },
+      { type: 'data-injected-input', id: 's', data: { id: 's', text: 'faster' } },
+    ])).toEqual([
       { type: 'start', messageId: 'm' },
       { type: 'text-delta', id: 't', delta: 'Hel' },
       { type: 'data-steer', data: { text: 'faster' } },
+    ])
+  })
+})
+
+describe('an agent chat with a turn still running', () => {
+  const assistant = (id: string, text: string): UIMessage => ({ id, role: 'assistant', parts: [{ type: 'text', text }] }) as UIMessage
+
+  it('stands the stream in for the running reply', () => {
+    fixture.messages = [user('u1', 'prompt'), assistant('a1', 'checkpoint')]
+    fixture.stream = { isDone: false, messageId: 'a1', snapshotChunks: () => [{ type: 'text-delta', delta: 'live so far' }] }
+    expect(readAgentChatChunks([1])).toEqual([{ type: 'text-delta', delta: 'live so far' }])
+  })
+
+  it('leaves the running turn out for a settled reader, steers sent into it included', () => {
+    fixture.messages = [
+      user('u1', 'prompt'),
+      assistant('a0', 'earlier turn'),
+      user('u2', 'a message after'),
+      user('s1', 'go faster', { steer: true, turnMessageId: 'a1' }),
+      assistant('a1', 'checkpoint'),
+    ]
+    fixture.stream = { isDone: false, messageId: 'a1', snapshotChunks: () => [{ type: 'text-delta', delta: 'live' }] }
+    expect(readAgentChatChunks([1], { settled: true })).toEqual([
+      { type: 'text-delta', delta: 'earlier turn' },
+      { type: 'data-steer', data: { text: 'a message after' } },
     ])
   })
 })

@@ -5,10 +5,20 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/lib/api';
 import { useCodexUsagePolling } from './useCodexUsagePolling';
+import { useAccountUsage } from '@/components/app-shell/useAccountUsage';
+import { subscribeEvents } from '@/lib/event-stream';
 import { aiUsageKeys } from '@/lib/chat-queries';
 import type { CodexRateLimits } from '../utils/chatMetadata';
 
-vi.mock('@/lib/api', () => ({ api: { aiGetCodexUsage: vi.fn() } }));
+vi.mock('@/lib/api', () => ({ api: { aiGetCodexUsage: vi.fn(), aiGetClaudeUsage: vi.fn() } }));
+
+vi.mock('@/lib/event-stream', () => ({ subscribeEvents: vi.fn(() => ({ close: vi.fn() })) }));
+
+function RailValues() {
+  const { providers, loadingCodex } = useAccountUsage();
+  const current = providers.find(p => p.providerId === 'codex');
+  return <span>{loadingCodex ? 'loading' : current?.plan + ':' + current?.shortPercent}</span>;
+}
 
 const rateLimits: CodexRateLimits = { rateLimits: {
   limitId: 'codex', limitName: null,
@@ -73,4 +83,34 @@ describe('Codex account usage', () => {
     await render(false);
     expect(api.aiGetCodexUsage).toHaveBeenCalledTimes(1);
   });
+});
+
+it('clears the rail immediately when the workspace changes on the same login', async () => {
+  setup();
+  vi.mocked(api.aiGetClaudeUsage).mockResolvedValue({ success: false });
+  await act(async () => {
+    root.render(<QueryClientProvider client={client}><RailValues /></QueryClientProvider>);
+  });
+  await act(async () => {
+    await vi.waitFor(() => expect(client.getQueryData(aiUsageKeys.codex())).toEqual(rateLimits));
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+  expect(container.textContent).toBe('pro:12');
+  let finish!: () => void;
+  vi.mocked(api.aiGetCodexUsage).mockImplementationOnce(() => new Promise(resolve => {
+    finish = () => resolve({ success: true, data: { rateLimits: {
+      ...rateLimits.rateLimits!, planType: 'team',
+      primary: { usedPercent: 3, windowDurationMins: 300, resetsAt: null },
+    } } });
+  }));
+  await act(async () => {
+    vi.mocked(subscribeEvents).mock.calls[0][1].onEvent('next-workspace');
+    await new Promise(resolve => setTimeout(resolve, 5));
+  });
+  expect(container.textContent).toBe('loading');
+  await act(async () => {
+    finish();
+    await new Promise(resolve => setTimeout(resolve, 5));
+  });
+  expect(container.textContent).toBe('team:3');
 });

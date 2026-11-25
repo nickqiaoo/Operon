@@ -13,8 +13,8 @@ import { DelegationHttpError, delegationSocket, relayRequest } from '../services
  * opened through here: its chats, files, git, events and attachments.
  *
  * The renderer only ever talks to this server, with this server's token; this
- * server then speaks to the other machine end to end encrypted through Broker,
- * as itself (its delegation key). The other machine decides what it lets
+ * server then speaks to the other machine end to end encrypted, through Broker
+ * or directly over Tailscale, as itself (its delegation key). The other machine decides what it lets
  * through (`nodeDelegationRoute`, the "Let other machines use this one" switch).
  */
 export function remoteMachineRoutes(upgradeWebSocket: NodeWebSocket['upgradeWebSocket']) {
@@ -60,7 +60,7 @@ export function remoteMachineRoutes(upgradeWebSocket: NodeWebSocket['upgradeWebS
 /**
  * The renderer's terminal socket for another machine. The renderer speaks plain
  * JSON frames to this server; each is sealed with the delegation keys and sent
- * on to the other machine's `/api/terminal/ws` through Broker, and its answers
+ * on to the other machine's `/api/terminal/ws` (through Broker or directly), and its answers
  * are opened on the way back.
  */
 function relayTerminal(target: string) {
@@ -82,7 +82,8 @@ function relayTerminal(target: string) {
           if (closed) return
           let sendSeq = 0
           let receiveSeq = 0
-          const remote = new WebSocket(socket.url, [socket.protocol])
+          // Broker reads its token from the subprotocol; a direct connection offers none.
+          const remote = new WebSocket(socket.url, socket.protocol ? [socket.protocol] : [])
           upstream = remote
           send = (text) => {
             const seq = sendSeq++

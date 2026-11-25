@@ -1,14 +1,12 @@
 import { create } from 'zustand'
 import type { WorkflowRunView } from '@/lib/api'
-import type { AgentStreamState } from '@/components/editor/components/agent-stream'
 import { nodeKeyOf, type ChatRef, type NodeKey } from '@/lib/chat-ref'
 
 /**
  * The workflow runs this app is WATCHING — not every run that exists.
  *
  * Everything here arrives on the node's workflow feeds, already folded
- * server-side; the client never reconstructs run state from events. It only
- * accumulates sub-agent chunks, through the same reducer the chat UI uses.
+ * server-side; the client never reconstructs run state from events.
  *
  * `runs` — what `/ai/workflow/feed` has reported: in flight when the feed
  * opened, plus anything that started or changed since. A run that finishes while
@@ -17,17 +15,7 @@ import { nodeKeyOf, type ChatRef, type NodeKey } from '@/lib/chat-ref'
  * are NOT here — the panel fetches those from `/ai/workflow/runs` when it opens,
  * because a feed held open all session shouldn't carry data only a panel that
  * may never open would read.
- *
- * `streams` — per-run, per-agent accumulated output. Filled from a run's own
- * feed while it is running, and on demand from its recorded chunks once it is
- * not. Nothing here is persisted; the durable copy is the node's event log.
  */
-export interface WorkflowRunStream {
-  /** Per sub-agent (by index) accumulated stream: text + tool calls, in order. */
-  agents: Map<number, AgentStreamState>
-  /** The run's feed could not be reached (never started, or pruned). */
-  unavailable: boolean
-}
 
 interface WorkflowRunsState {
   runs: WorkflowRunView[]
@@ -45,11 +33,10 @@ interface WorkflowRunsState {
    * the panel the same way a first attempt does.
    */
   startSignals: Set<string>
-  streams: Map<string, WorkflowRunStream>
   /**
    * Other machines' runs, by machine — only so a tab showing one of their chats
    * can raise that chat's blocked sub-agents above its composer. Everything
-   * above (`runs`, `startSignals`, `streams`) is this machine's: the workflow
+   * above (`runs`, `startSignals`) is this machine's: the workflow
    * panel is a tool of this machine, like the file browser.
    */
   remoteRuns: ReadonlyMap<NodeKey, WorkflowRunView[]>
@@ -62,8 +49,6 @@ interface WorkflowRunsState {
   upsertRun: (run: WorkflowRunView) => void
   /** Record a `started` event. `eventId` is the frame's log position. */
   noteRunStarted: (runId: string, eventId: number) => void
-  setStream: (runId: string, stream: WorkflowRunStream) => void
-  dropStream: (runId: string) => void
 }
 
 /** Newest first, matching the node's own ordering (ended, else started). */
@@ -74,7 +59,6 @@ function sortRuns(runs: WorkflowRunView[]): WorkflowRunView[] {
 export const useWorkflowRunsStore = create<WorkflowRunsState>((set) => ({
   runs: [],
   startSignals: new Set(),
-  streams: new Map(),
   remoteRuns: new Map(),
   setRemoteRuns: (node, runs) =>
     set((prev) => {
@@ -104,19 +88,6 @@ export const useWorkflowRunsStore = create<WorkflowRunsState>((set) => ({
       const key = `${eventId}:${runId}`
       if (prev.startSignals.has(key)) return prev
       return { startSignals: new Set(prev.startSignals).add(key) }
-    }),
-  setStream: (runId, stream) =>
-    set((prev) => {
-      const next = new Map(prev.streams)
-      next.set(runId, stream)
-      return { streams: next }
-    }),
-  dropStream: (runId) =>
-    set((prev) => {
-      if (!prev.streams.has(runId)) return prev
-      const next = new Map(prev.streams)
-      next.delete(runId)
-      return { streams: next }
     }),
 }))
 

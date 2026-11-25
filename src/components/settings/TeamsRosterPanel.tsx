@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { FormattedMessage } from "react-intl"
-import { AlertTriangle, Loader2, MessageSquare, RefreshCw, Trash2 } from "lucide-react"
+import { AlertTriangle, Loader2, RefreshCw, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { api } from "@/lib/api"
 import { DisbandConfirmDialog } from "@/components/editor/agent/DisbandConfirmDialog"
@@ -80,9 +80,8 @@ export function TeamsRosterPanel() {
           <AlertTriangle className="h-3.5 w-3.5" /> {error}
         </div>
       )}
-      <div className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+      <div className="space-y-4 settings-section">
         <div className="flex items-start gap-3">
-          <MessageSquare className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <h3 className="mb-1 text-sm font-semibold">
               <FormattedMessage id="settings.teams.rosterTitle" defaultMessage="Active teams" />
@@ -100,7 +99,7 @@ export function TeamsRosterPanel() {
           </Button>
         </div>
         {roster?.stats && (
-          <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-lg border border-border/40 bg-background/40 p-3 text-xs text-muted-foreground">
+          <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 py-3 text-xs text-muted-foreground">
             <span className="font-medium">Wakes</span>
             <span>
               {roster.stats.totals.wakes}
@@ -122,7 +121,7 @@ export function TeamsRosterPanel() {
           </div>
         )}
         {!roster || roster.teams.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border/50 px-4 py-6 text-center text-xs text-muted-foreground">
+          <div className="px-4 py-6 text-center text-xs text-muted-foreground">
             {roster && !roster.available ? (
               <FormattedMessage id="settings.teams.unavailable" defaultMessage="Nothing to show while the extension is not loaded." />
             ) : (
@@ -130,7 +129,7 @@ export function TeamsRosterPanel() {
             )}
           </div>
         ) : (
-          <div className="divide-y divide-border/40 rounded-lg border border-border/40 bg-background/40">
+          <div className="divide-y divide-border/40">
             {roster.teams.map((team) => (
               <div key={team.label} className="px-4 py-3">
                 <div className="flex items-center gap-2 text-sm">

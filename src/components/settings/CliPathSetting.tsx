@@ -4,7 +4,6 @@ import { api } from "@/lib/api"
 import { setSettingsData, settingsKeys, useCliPaths, useCliVersion } from "@/lib/settings-queries"
 import { Button } from "@/components/ui/button"
 import { Check, Loader2, AlertCircle } from "lucide-react"
-import { cn } from "@/lib/utils"
 import { useTransientFlag } from "@/hooks/useTransientFlag"
 
 interface CliPathSettingProps {
@@ -30,7 +29,6 @@ export function CliPathSetting({ adapterId, label, description, placeholder }: C
     setPath(originalPath)
   }
   const available = config?.available ?? false
-  const resolvedPath = config?.resolvedPath ?? ""
   const source: CliPathSource = config?.source ?? "missing"
   const command = config?.command ?? ""
   const [saving, setSaving] = useState(false)
@@ -71,120 +69,78 @@ export function CliPathSetting({ adapterId, label, description, placeholder }: C
 
   const inputCn = "w-full px-3 py-2 text-sm font-mono bg-background/80 rounded-xl border border-border/60 focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 placeholder:text-muted-foreground/40"
   const hasManualOverride = path.trim().length > 0
-  const isInvalidOverride = hasManualOverride && source !== "manual"
-  const statusLabel = source === "manual"
-    ? intl.formatMessage({ id: "settings.cli.manual", defaultMessage: "Manual override" })
-    : source === "auto"
-      ? intl.formatMessage({ id: "settings.cli.auto", defaultMessage: "Auto-detected" })
-      : intl.formatMessage({ id: "settings.cli.notFound", defaultMessage: "Not found" })
-
+  const isInvalidOverride = originalPath.trim().length > 0 && source !== "manual"
   return (
-    <div className="rounded-xl border border-border/60 bg-muted/10 p-4 space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-sm font-medium">{label}</div>
-          <div className="text-xs text-muted-foreground">{description}</div>
+    <div className="space-y-2">
+      {versionLoading && (
+        <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          <FormattedMessage id="settings.cli.checkingVersion" defaultMessage="Checking version…" />
         </div>
-        <span className={cn(
-          // shrink-0 + nowrap: a long description must not squeeze the status
-          // badge until its label wraps a character per line.
-          "inline-flex shrink-0 whitespace-nowrap items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full",
-          available
-            ? "bg-status-ok/10 text-status-ok"
-            : "bg-muted text-muted-foreground"
-        )}>
-          <span className={cn(
-            "h-1.5 w-1.5 rounded-full",
-            available ? "bg-accent-green" : "bg-muted-foreground/40"
-          )} />
-          {available
-            ? <FormattedMessage id="settings.cli.available" defaultMessage="Available" />
-            : <FormattedMessage id="settings.cli.notFound" defaultMessage="Not found" />}
-        </span>
-      </div>
+      )}
+      {!versionLoading && versionInfo?.warning && (
+        <div className="mt-1.5 flex items-start gap-1.5 text-xs text-status-warn">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-px" />
+          <span>{versionInfo.warning}</span>
+        </div>
+      )}
+      {!versionLoading && versionInfo?.error && (
+        <div className="mt-1.5 flex items-start gap-1.5 text-xs text-status-error">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-px" />
+          <span>{versionInfo.error}</span>
+        </div>
+      )}
+      <details open={!available || isInvalidOverride}>
+        <summary className="w-fit cursor-pointer rounded-sm text-xs font-medium text-muted-foreground hover:text-foreground">{label}</summary>
+        <div className="mt-3 space-y-3">
+          <label htmlFor={`cli-path-${adapterId}`} className="block text-xs text-muted-foreground">{description}</label>
+          <input
+            id={`cli-path-${adapterId}`}
+            type="text"
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            placeholder={placeholder ?? "/usr/local/bin/…"}
+            className={inputCn}
+            spellCheck={false}
+          />
 
-      <div className="rounded-xl border border-border/50 bg-background/70 px-3 py-2">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-xs font-medium text-muted-foreground"><FormattedMessage id="settings.cli.resolution" defaultMessage="Resolution" /></span>
-          <span className={cn(
-            "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
-            source === "missing"
-              ? "bg-muted text-muted-foreground"
-              : "bg-primary/10 text-foreground"
-          )}>
-            {statusLabel}
-          </span>
-        </div>
-        <div className="mt-2 text-sm font-mono text-foreground/90 break-all">
-          {resolvedPath || intl.formatMessage({ id: "settings.cli.noBinary", defaultMessage: "No {command} binary detected" }, { command: command || "CLI" })}
-        </div>
-        {versionLoading && (
-          <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            <FormattedMessage id="settings.cli.checkingVersion" defaultMessage="Checking version…" />
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              {isInvalidOverride
+                ? source === "auto"
+                  ? <FormattedMessage id="settings.cli.hintInvalidAuto" defaultMessage="Saved override is unavailable. The app is falling back to the auto-detected path." />
+                  : <FormattedMessage id="settings.cli.hintInvalidNone" defaultMessage="Saved override is unavailable, and no CLI was detected automatically." />
+                : hasManualOverride
+                  ? <FormattedMessage id="settings.cli.hintManual" defaultMessage="Leave blank to use automatic discovery from your login shell." />
+                  : available
+                    ? <FormattedMessage id="settings.cli.hintAuto" defaultMessage="Automatic discovery is active. Set a custom path only if needed." />
+                    : <FormattedMessage id="settings.cli.hintInstall" defaultMessage="Install {command} or enter a custom path." values={{ command: command || intl.formatMessage({ id: "settings.cli.theCli", defaultMessage: "the CLI" }) }} />}
+            </p>
+            <div className="flex items-center gap-2">
+              {savedOk && (
+                <span className="flex items-center gap-1 text-xs text-status-ok">
+                  <Check className="h-3.5 w-3.5" /> <FormattedMessage id="common.saved" defaultMessage="Saved" />
+                </span>
+              )}
+              {error && (
+                <span className="flex items-center gap-1 text-xs text-destructive">
+                  <AlertCircle className="h-3.5 w-3.5" /> {error}
+                </span>
+              )}
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={handleSave}
+                disabled={saving || !isDirty}
+                className="h-8 gap-1.5"
+              >
+                {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                <FormattedMessage id="common.save" defaultMessage="Save" />
+              </Button>
+            </div>
           </div>
-        )}
-        {!versionLoading && versionInfo?.version && (
-          <div className="mt-2 text-xs font-mono text-muted-foreground">v{versionInfo.version}</div>
-        )}
-        {!versionLoading && versionInfo?.warning && (
-          <div className="mt-1.5 flex items-start gap-1.5 text-xs text-status-warn">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-px" />
-            <span>{versionInfo.warning}</span>
-          </div>
-        )}
-        {!versionLoading && versionInfo?.error && (
-          <div className="mt-1.5 flex items-start gap-1.5 text-xs text-status-error">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-px" />
-            <span>{versionInfo.error}</span>
-          </div>
-        )}
-      </div>
-
-      <input
-        type="text"
-        value={path}
-        onChange={(e) => setPath(e.target.value)}
-        placeholder={placeholder ?? "/usr/local/bin/…"}
-        className={inputCn}
-        spellCheck={false}
-      />
-
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">
-          {isInvalidOverride
-            ? source === "auto"
-              ? <FormattedMessage id="settings.cli.hintInvalidAuto" defaultMessage="Saved override is unavailable. The app is falling back to the auto-detected path." />
-              : <FormattedMessage id="settings.cli.hintInvalidNone" defaultMessage="Saved override is unavailable, and no CLI was detected automatically." />
-            : hasManualOverride
-              ? <FormattedMessage id="settings.cli.hintManual" defaultMessage="Leave blank to use automatic discovery from your login shell." />
-              : available
-                ? <FormattedMessage id="settings.cli.hintAuto" defaultMessage="Automatic discovery is active. Set a custom path only if needed." />
-                : <FormattedMessage id="settings.cli.hintInstall" defaultMessage="Install {command} or enter a custom path." values={{ command: command || intl.formatMessage({ id: "settings.cli.theCli", defaultMessage: "the CLI" }) }} />}
-        </p>
-        <div className="flex items-center gap-2">
-          {savedOk && (
-            <span className="flex items-center gap-1 text-xs text-status-ok">
-              <Check className="h-3.5 w-3.5" /> <FormattedMessage id="common.saved" defaultMessage="Saved" />
-            </span>
-          )}
-          {error && (
-            <span className="flex items-center gap-1 text-xs text-destructive">
-              <AlertCircle className="h-3.5 w-3.5" /> {error}
-            </span>
-          )}
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={handleSave}
-            disabled={saving || !isDirty}
-            className="h-8 gap-1.5"
-          >
-            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            <FormattedMessage id="common.save" defaultMessage="Save" />
-          </Button>
         </div>
-      </div>
+      </details>
     </div>
   )
 }

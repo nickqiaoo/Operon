@@ -6,6 +6,7 @@ import { acquireAppServerClient } from './client-registry.js';
 import type { ModelInfo, ModelListResult, SkillListItem } from './protocol/index.js';
 
 export interface ListModelsOptions {
+  acquire?: typeof acquireAppServerClient;
   /**
    * Path to the codex binary. If not specified, uses PATH lookup.
    */
@@ -46,7 +47,7 @@ export interface ListModelsResult {
  * ```
  */
 export async function listModels(options: ListModelsOptions = {}): Promise<ListModelsResult> {
-  const { client, release } = acquireAppServerClient({
+  const { client, release } = (options.acquire ?? acquireAppServerClient)({
     codexPath: options.codexPath,
     env: options.env,
     logger: false,
@@ -67,13 +68,14 @@ export async function listModels(options: ListModelsOptions = {}): Promise<ListM
 }
 
 export interface ListSkillsOptions {
+  acquire?: typeof acquireAppServerClient;
   codexPath?: string
   cwds?: string[]
   env?: Record<string, string>
 }
 
 export async function listSkills(options: ListSkillsOptions = {}): Promise<SkillListItem[]> {
-  const { client, release } = acquireAppServerClient({
+  const { client, release } = (options.acquire ?? acquireAppServerClient)({
     codexPath: options.codexPath,
     env: options.env,
     logger: false,

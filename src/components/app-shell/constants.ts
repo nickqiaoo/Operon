@@ -27,10 +27,8 @@ export const TITLEBAR_TOGGLE_CLEARANCE =
 
 // The sidebar is the icon rail (always there) plus a panel beside it that
 // collapses. These sizes are the panel's; the sidebar is RAIL + panel wide.
-// Narrower than the 256 Codex opens at: project/chat names truncate anyway, so
-// the extra width bought nothing and the centre column reads better with it.
-export const LEFT_SIDEBAR_DEFAULT_WIDTH = 224
-export const LEFT_SIDEBAR_MIN_WIDTH = 208
+export const LEFT_SIDEBAR_DEFAULT_WIDTH = 240
+export const LEFT_SIDEBAR_MIN_WIDTH = 232
 export const LEFT_SIDEBAR_MAX_WIDTH = 480
 // Below this drag size the sidebar auto-collapses (matches the right panel).
 export const LEFT_SIDEBAR_AUTO_CLOSE_BELOW = 160

@@ -28,6 +28,10 @@ export function isExternalAgentTool(toolPart: { toolName?: string; name?: string
   )
 }
 
+export function hasExternalAgentResult(part: { toolName?: string; name?: string; output?: unknown; result?: unknown }): boolean {
+  return isExternalAgentTool(part) && (part.output !== undefined || part.result !== undefined)
+}
+
 export interface ExternalAgentResultMetadata {
   taskId: string
   agentType: string
@@ -193,7 +197,7 @@ export function ExternalAgentToolRenderer({
   }
 
   const waiting = childId != null && !!pending?.length
-  const status = waiting ? 'waiting' : activityStatusOf(live?.status)
+  const status = waiting ? 'waiting' : activityStatusOf(live?.status ?? notificationInfo?.status)
   const chosenModel = live?.modelId ?? parsed?.model ?? (typeof args.model === 'string' ? args.model : undefined)
   const model = chosenModel && chosenModel !== 'default' ? chosenModel : undefined
   const workspace = useOtherWorkspaceName(live?.workspaceId)
@@ -203,16 +207,24 @@ export function ExternalAgentToolRenderer({
   // The run as a Subagent line: who and what, on which model, and its state;
   // the line opens the child conversation. Whatever the child is blocked on
   // sits under it as Items, like any other question for the person.
+  let statusLabel = status && ACTIVITY_STATUS_MESSAGES[status]
+  if (waiting) {
+    statusLabel = pending.some((item) => item.toolName === 'AskUserQuestion')
+      ? { id: 'channel.thread.status.waiting', defaultMessage: 'Needs input' }
+      : { id: 'editor.subagent.needsApproval', defaultMessage: 'Needs approval' }
+  } else if (status === 'done') {
+    statusLabel = { id: 'channel.agentStatus.completed', defaultMessage: 'Completed' }
+  }
   const line = (
     <TraceLine status={status === 'running' ? 'running' : status === 'failed' ? 'error' : undefined}>
       <TraceIcon><ProviderIcon id={agentType} size={16} /></TraceIcon>
       <TraceTitle>{description || codingAgentName(agentType)}</TraceTitle>
-      <TraceDescription className="min-w-0 shrink truncate">
+      <TraceDescription className="min-w-0 shrink truncate phone:hidden">
         {[codingAgentName(agentType), model, live?.remote ? `${live.remote.machine} · ${live.remote.workspace}` : workspace].filter(Boolean).join(' · ')}
       </TraceDescription>
-      {status && status !== 'running' && (
+      {statusLabel && (
         <TraceDescription className={status === 'waiting' ? 'text-status-warn' : undefined}>
-          <FormattedMessage {...ACTIVITY_STATUS_MESSAGES[status]} />
+          <FormattedMessage {...statusLabel} />
         </TraceDescription>
       )}
       {canClick && <TraceIcon><ChevronRightIcon /></TraceIcon>}

@@ -152,7 +152,6 @@ export function SpecAgentList({ spec, onOpenChat }: { spec: SpecView; onOpenChat
               <AgentRow
                 runId={agent.runId}
                 agent={{ ...agent, chatIds: agent.chats?.map((c) => c.chatId) }}
-                stream={undefined}
                 referenceRootPath={agent.chats?.at(-1)?.cwd ?? null}
                 onOpenChat={
                   onOpenChat

@@ -235,7 +235,7 @@ export function MemorySettings() {
                         </div>
                     ) : searchResults !== null ? (
                         searchResults.length === 0 ? (
-                            <div className="rounded-lg border border-dashed border-border/40 py-12 text-center text-sm text-muted-foreground">
+                            <div className="py-12 text-center text-sm text-muted-foreground">
                                 <FormattedMessage id="settings.memory.noResults" defaultMessage="No matching pages found." />
                             </div>
                         ) : (
@@ -244,7 +244,7 @@ export function MemorySettings() {
                                     <FormattedMessage id="settings.memory.results.count" defaultMessage="{count} results" values={{ count: searchResults.length }} />
                                 </div>
                                 {searchResults.map((r) => (
-                                    <details key={`${r.type}/${r.slug}`} className="group rounded-lg border border-border/50 bg-muted/10 hover:bg-row-hover transition-colors">
+                                    <details key={`${r.type}/${r.slug}`} className="group border-b border-border/40 last:border-b-0 hover:bg-row-hover transition-colors">
                                         <summary className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none">
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 mb-1">
@@ -284,7 +284,7 @@ export function MemorySettings() {
                             </div>
                         )
                     ) : pages.length === 0 ? (
-                        <div className="rounded-lg border border-dashed border-border/40 py-12 text-center text-sm text-muted-foreground">
+                        <div className="py-12 text-center text-sm text-muted-foreground">
                             <FormattedMessage id="settings.memory.noPages" defaultMessage="No memory pages yet. Pages are created via the memory MCP / tools." />
                         </div>
                     ) : (
@@ -299,7 +299,7 @@ export function MemorySettings() {
                                 return (
                                     <details
                                         key={key}
-                                        className="group rounded-lg border border-border/50 bg-muted/10 hover:bg-row-hover transition-colors"
+                                        className="group border-b border-border/40 last:border-b-0 hover:bg-row-hover transition-colors"
                                         onToggle={(e) => {
                                             if ((e.currentTarget as HTMLDetailsElement).open) {
                                                 loadTimeline(page.type, page.slug)

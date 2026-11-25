@@ -18,6 +18,8 @@ import {
   revokeRemoteDevice,
   startRemotePairing,
 } from '../services/remote-e2ee.js'
+import { brokerUsable, ownPhoneAddress } from '../services/direct-link.js'
+import type { DirectInfo } from '@shared/delegations'
 
 interface ClaimBody {
   pairingId?: string
@@ -33,7 +35,16 @@ export function remoteE2EERoutes(): Hono {
 
   app.post('/pair/start', (c) => {
     if (isRemote(c)) return c.json({ error: 'local_only' }, 403)
-    return c.json(startRemotePairing())
+    const direct = ownPhoneAddress()
+    const broker = brokerUsable()
+    // Without Broker the code can only be used over Tailscale.
+    if (!broker && !direct) {
+      return c.json({
+        error: 'direct_required',
+        message: 'This machine does not use Broker. Turn on direct connections in Remote settings to pair a phone.',
+      }, 409)
+    }
+    return c.json({ ...startRemotePairing({ broker }), ...(direct ? { direct } : {}) })
   })
 
   app.post('/pair/claim', async (c) => {
@@ -90,6 +101,14 @@ export function remoteE2EERoutes(): Hono {
     if (isRemote(c)) return c.json({ error: 'local_only' }, 403)
     rejectRemotePairing(c.req.param('pairingId'))
     return c.json({ ok: true })
+  })
+
+  // DIRECT_INFO_PATH: where a paired phone can reach this machine directly.
+  // Remote callers only get here sealed (the E2EE middleware requires it), so
+  // only paired devices learn the address.
+  app.get('/direct', (c) => {
+    const info: DirectInfo = { address: ownPhoneAddress() }
+    return c.json(info)
   })
 
   app.get('/devices', (c) => {

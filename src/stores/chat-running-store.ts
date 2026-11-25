@@ -3,13 +3,13 @@ import { chatKey, replaceNodeEntries, type ChatKey, type ChatRef, type NodeKey }
 
 /**
  * Chats the server reports as running a turn right now, mirrored from the
- * live-status stream (see `lib/live-turn-events.ts`). Unlike the streaming
+ * chat status stream (see `lib/chat-status-events.ts`). Unlike the streaming
  * store, which only knows the chat panels that are mounted, this covers every
  * chat — a lead woken in another workspace, a turn started from the phone.
  *
  * Keyed by `ChatKey`: each machine whose stream is open reports its own chats.
  */
-export const useChatPresenceStore = create<{
+export const useChatRunningStore = create<{
   runningChats: ReadonlySet<ChatKey>
   /** One machine's full list (its stream's `sync` frame). */
   sync: (node: NodeKey, chatIds: Iterable<number>) => void

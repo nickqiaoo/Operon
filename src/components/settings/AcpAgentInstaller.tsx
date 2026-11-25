@@ -96,7 +96,7 @@ export function AcpAgentInstaller({ agentId }: { agentId: string }) {
         : 0
 
     return (
-        <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+        <section className="space-y-4 border-t border-border/40 pt-5">
             <div className="flex items-start gap-3">
                 <PackageOpen className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
                 <div className="flex-1">
@@ -128,7 +128,7 @@ export function AcpAgentInstaller({ agentId }: { agentId: string }) {
             )}
 
             {installed && (
-                <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-muted-foreground rounded-lg bg-background/40 border border-border/40 p-3">
+                <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-muted-foreground py-3">
                     <span><FormattedMessage id="settings.acpAgent.location" defaultMessage="Location" /></span>
                     <span className="font-mono break-all">{entry.resolvedPath ?? "—"}</span>
                 </div>

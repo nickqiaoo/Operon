@@ -114,7 +114,7 @@ export function ExtensionSettingsForm({ extensionId, onSaved }: { extensionId: s
       )}
 
       {view && (
-        <div className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+        <div className="space-y-4 settings-section">
           <ObjectFields schema={view.schema} value={draft} path="" issues={issuesByPath} onChange={(next) => setDraft(next as Record<string, unknown>)} />
           {issuesByPath.get("")?.map((message) => <FieldIssue key={message} message={message} />)}
           <div className="flex items-center gap-2 border-t border-border/40 pt-4">
@@ -201,7 +201,7 @@ function Field(props: FieldProps & { name: string; required: boolean }) {
   const messages = issues.get(path) ?? []
   if (schema.type === "object") {
     return (
-      <fieldset className="space-y-3 rounded-lg border border-border/40 bg-background/40 p-3">
+      <fieldset className="space-y-3 py-3">
         <legend className="px-1 text-xs font-semibold">{label}</legend>
         {schema.description && <p className="text-[11px] text-muted-foreground">{schema.description}</p>}
         {schema.additionalProperties ? <TableField {...props} /> : <ObjectFields {...props} />}

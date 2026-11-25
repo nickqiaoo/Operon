@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query"
-import { AlertCircle, Loader2, ShieldCheck } from "lucide-react"
+import { AlertCircle, Loader2 } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { api } from "@/lib/api"
 import { useDecisionModelOptions, useProviderModelOptions } from "@/lib/provider-queries"
@@ -41,7 +41,6 @@ export function AutoReviewSettings() {
 
   return (
     <SettingsSection
-      icon={ShieldCheck}
       title={<FormattedMessage id="settings.autoReview.title" defaultMessage="Auto review model" />}
       description={
         <FormattedMessage

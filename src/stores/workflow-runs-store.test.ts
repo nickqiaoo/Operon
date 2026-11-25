@@ -20,7 +20,7 @@ function run(runId: string, status: WorkflowRunView["status"] = "running"): Work
 
 describe("workflow runs store", () => {
   beforeEach(() => {
-    useWorkflowRunsStore.setState({ runs: [], startSignals: new Set(), streams: new Map() })
+    useWorkflowRunsStore.setState({ runs: [], startSignals: new Set() })
   })
 
   describe("start signals", () => {

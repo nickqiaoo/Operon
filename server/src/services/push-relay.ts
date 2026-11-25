@@ -15,6 +15,7 @@ import { getSaasConfig } from '../gateway/saas/config.js'
 import { BROKER_URL } from '../gateway/saas/broker.js'
 import { brokerHttpBase } from '../../../tunnel-agent/src/saasConfig.js'
 import { isDesktopUserPresent } from './desktop-presence.js'
+import { brokerUsable } from './direct-link.js'
 
 export interface PushMessage {
   /** Gate: only 'action' — something is actually blocked on you — reaches a phone. */
@@ -92,7 +93,8 @@ const deferredBySource = new Map<string, ReturnType<typeof setTimeout>>()
 export function relayPush(message: PushMessage, stillPending?: () => boolean): void {
   if (message.severity !== 'action' && !PUSHED_INFO_KINDS.has(message.kind ?? '')) return
   if (!message.title) return
-  if (!getSaasConfig().nodeToken) return
+  // Pushes go out through Broker: none while it is not used.
+  if (!brokerUsable()) return
 
   cancelDeferred(message.sourceKey)
   if (!isDesktopUserPresent()) {

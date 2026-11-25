@@ -1,8 +1,7 @@
 import { FormattedMessage } from "react-intl"
-import { Bell } from "lucide-react"
 import { useNotificationStore } from "@/stores/notification-store"
 import { Switch } from "@/components/ui/switch"
-import { SettingsRow, SettingsSection } from "./SettingsSection"
+import { SettingsRow } from "./SettingsSection"
 
 export function NotificationTab() {
     const enabled = useNotificationStore((s) => s.enabled)
@@ -13,26 +12,26 @@ export function NotificationTab() {
     const setNotifyOnApproval = useNotificationStore((s) => s.setNotifyOnApproval)
 
     return (
-        <SettingsSection
-            icon={Bell}
-            title={<FormattedMessage id="settings.notif.title" defaultMessage="Notifications" />}
-            description={<FormattedMessage id="settings.notif.desc" defaultMessage="Show system notifications when the window is not focused" />}
-            action={<Switch checked={enabled} onCheckedChange={setEnabled} />}
-        >
+        <div>
+            <SettingsRow
+                title={<span id="notify-enabled"><FormattedMessage id="settings.notif.system" defaultMessage="System notifications" /></span>}
+                description={<FormattedMessage id="settings.notif.desc" defaultMessage="Show system notifications when the window is not focused" />}
+                control={<Switch aria-labelledby="notify-enabled" checked={enabled} onCheckedChange={setEnabled} />}
+            />
             {enabled && (
-                <div>
+                <>
                     <SettingsRow
-                        title={<FormattedMessage id="settings.notif.onComplete" defaultMessage="Notify on Response Complete" />}
+                        title={<span id="notify-onComplete"><FormattedMessage id="settings.notif.onComplete" defaultMessage="Notify on Response Complete" /></span>}
                         description={<FormattedMessage id="settings.notif.onCompleteDesc" defaultMessage="Get notified when the AI finishes its response" />}
-                        control={<Switch checked={notifyOnComplete} onCheckedChange={setNotifyOnComplete} />}
+                        control={<Switch aria-labelledby="notify-onComplete" checked={notifyOnComplete} onCheckedChange={setNotifyOnComplete} />}
                     />
                     <SettingsRow
-                        title={<FormattedMessage id="settings.notif.onApproval" defaultMessage="Notify on Approval Required" />}
+                        title={<span id="notify-onApproval"><FormattedMessage id="settings.notif.onApproval" defaultMessage="Notify on Approval Required" /></span>}
                         description={<FormattedMessage id="settings.notif.onApprovalDesc" defaultMessage="Get notified when a tool needs your permission" />}
-                        control={<Switch checked={notifyOnApproval} onCheckedChange={setNotifyOnApproval} />}
+                        control={<Switch aria-labelledby="notify-onApproval" checked={notifyOnApproval} onCheckedChange={setNotifyOnApproval} />}
                     />
-                </div>
+                </>
             )}
-        </SettingsSection>
+        </div>
     )
 }

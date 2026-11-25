@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, type ReactNode } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { AlertCircle, Check, LoaderCircle, RotateCcw, X } from 'lucide-react';
 import {
@@ -14,23 +14,25 @@ import { cn } from '@/lib/utils';
 import type { LiveSteerItem } from './steer-message';
 
 type SteerTrayProps = {
+  children?: ReactNode;
   items: readonly LiveSteerItem[];
   canRetry: boolean;
   onRetry: (localId: string) => void;
   onDismiss: (localId: string) => void;
 };
 
-export const SteerTray = memo(function SteerTray({ items, canRetry, onRetry, onDismiss }: SteerTrayProps) {
+export const SteerTray = memo(function SteerTray({ children, items, canRetry, onRetry, onDismiss }: SteerTrayProps) {
   const intl = useIntl();
-  if (items.length === 0) return null;
+  if (!children && items.length === 0) return null;
 
   return (
     // A strip tucked onto the composer's top edge, a little narrower than it:
     // open at the bottom so it reads as part of the composer, not another card.
     <Queue
-      data-testid="steer-tray"
-      className="mx-4 w-auto max-h-28 gap-0 overflow-y-auto rounded-t-xl border border-b-0 border-border/50 bg-muted/30 px-3 py-1 code-scrollbar dark:border-border/35"
+      data-testid={items.length ? 'steer-tray' : 'scheduled-tray'}
+      className="empty:hidden mx-4 w-auto max-h-28 gap-0 overflow-y-auto rounded-t-xl border border-b-0 border-border/50 bg-muted/30 px-3 py-1 code-scrollbar dark:border-border/35"
     >
+      {children}
       {items.map((item) => (
         <QueueItem
           key={item.localId}

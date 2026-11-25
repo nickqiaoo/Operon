@@ -4,7 +4,7 @@
 // after every turn (not the first one, not in plan mode, not near the usage
 // limit). The composer shows it as grey placeholder text that Tab fills in. It
 // arrives after the turn's stream has closed (`RuntimeBackgroundEvent`
-// `prompt-suggestion`), so it reaches the client over the live-status stream,
+// `prompt-suggestion`), so it reaches the client over the chat status stream,
 // like background tasks.
 //
 // Only the latest guess per chat matters, and it goes stale the moment the next

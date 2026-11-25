@@ -14,6 +14,9 @@ import { isAnalyticsOptedOut, setAnalyticsOptedOut } from "@/lib/analytics"
 import { clearSelectedNode, deleteAccount, fetchNodes, getSelectedNodeId, getSelectedNodeLabel, logout, type WebNode } from "@/lib/web-auth"
 import { resetNodeScopedCaches } from "@/lib/node-cache-reset"
 import { MobileCronjobScreen } from "./MobileCronjobScreen"
+import { MobileConnectionSetting } from "./MobileConnectionSetting"
+import { isAccountless } from "@/lib/remote-route"
+import { useClientRouteStatus } from "@/lib/remote-route-queries"
 import { MobileFilesScreen } from "./MobileFilesScreen"
 import { useMobileContentBottom, useMobileTopInset } from "./MobileHeader"
 
@@ -44,7 +47,10 @@ export function MobileMoreScreen() {
   // Real machine status, fetched once when this screen mounts (i.e. each time
   // the user opens More). Starts in "checking" until fetchNodes() resolves.
   const [node, setNode] = useState<WebNode | null>(null)
-  const [nodeLoading, setNodeLoading] = useState(__APP_TARGET__ === "web")
+  const accountless = __APP_TARGET__ === "web" && isAccountless()
+  const [nodeLoading, setNodeLoading] = useState(__APP_TARGET__ === "web" && !accountless)
+  // Without an account there is no machine list to ask: the machine answering over Tailscale is its status.
+  const route = useClientRouteStatus(accountless ? getSelectedNodeId() : null)
   const [nodeError, setNodeError] = useState<string | null>(null)
   const [nodeReloadNonce, setNodeReloadNonce] = useState(0)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -60,7 +66,7 @@ export function MobileMoreScreen() {
   useBackHandler(confirmDelete && !deleting, () => setConfirmDelete(false))
 
   useEffect(() => {
-    if (__APP_TARGET__ !== "web") return
+    if (__APP_TARGET__ !== "web" || accountless) return
     let active = true
     const selectedId = getSelectedNodeId()
     setNodeLoading(true)
@@ -123,7 +129,15 @@ export function MobileMoreScreen() {
                 <span className="truncate text-base text-foreground/85">
                   {node?.label || getSelectedNodeLabel() || intl.formatMessage({ id: "mobile.more.machineFallback", defaultMessage: "machine" })}
                 </span>
-                <MachineStatusBadge loading={nodeLoading} node={node} error={nodeError} />
+                {accountless ? (
+                  <MachineStatusBadge
+                    loading={route.isPending}
+                    node={{ nodeId: getSelectedNodeId() ?? "", label: "", online: route.data?.route === "direct", revoked: false }}
+                    error={null}
+                  />
+                ) : (
+                  <MachineStatusBadge loading={nodeLoading} node={node} error={nodeError} />
+                )}
               </div>
               {nodeError && (
                 <div role="alert" className="space-y-2 border-t border-border/40 px-4 py-3 text-xs text-muted-foreground">
@@ -150,10 +164,18 @@ export function MobileMoreScreen() {
               >
                 <LogOut className="size-4 text-muted-foreground/70" />
                 <span className="text-base text-foreground/85">
-                  <FormattedMessage id="mobile.more.signOut" defaultMessage="Sign out" />
+                  {accountless
+                    ? <FormattedMessage id="mobile.more.leaveAccountless" defaultMessage="Use an account instead" />
+                    : <FormattedMessage id="mobile.more.signOut" defaultMessage="Sign out" />}
                 </span>
               </button>
             </div>
+          </Section>
+        )}
+
+        {__APP_TARGET__ === "web" && getSelectedNodeId() && (
+          <Section title={<FormattedMessage id="mobile.more.connection" defaultMessage="Connection" />}>
+            <MobileConnectionSetting nodeId={getSelectedNodeId()!} />
           </Section>
         )}
 
@@ -266,7 +288,7 @@ export function MobileMoreScreen() {
           Guideline 5.1.1(v)). Kept last and in destructive styling so it reads
           as the end of the list rather than as an ordinary setting.
         */}
-        {__APP_TARGET__ === "web" && (
+        {__APP_TARGET__ === "web" && !accountless && (
           <Section title={<FormattedMessage id="mobile.more.account" defaultMessage="Account" />}>
             <div className="space-y-2 rounded-lg border border-border/40 bg-muted/10 p-4">
               {confirmDelete ? (

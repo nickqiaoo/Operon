@@ -80,12 +80,12 @@ export function AgentsTab({ initialAgentId }: { initialAgentId?: string }) {
     }
 
     return (
-        <div className="grid min-h-[520px] gap-4 lg:grid-cols-[232px_minmax(0,1fr)] lg:gap-6">
+        <div className="grid min-h-[520px] gap-4 lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-6">
             {/* Left column */}
             <div
                 data-testid="settings-agents-list"
                 className={cn(
-                    "min-h-0 flex-col self-start overflow-hidden rounded-xl border border-border/60 bg-muted/15 p-2 dark:border-border/35 lg:sticky lg:top-4 lg:flex lg:max-h-[min(640px,70dvh)]",
+                    "min-h-0 flex-col self-start overflow-hidden lg:border-r lg:border-border/40 lg:pr-4 lg:sticky lg:top-4 lg:flex lg:max-h-[min(640px,70dvh)]",
                     mobileDetail ? "hidden" : "flex",
                 )}
             >
@@ -104,19 +104,6 @@ export function AgentsTab({ initialAgentId }: { initialAgentId?: string }) {
                     )}
                 </div>
 
-                {/* Legend */}
-                <div className="mt-3 shrink-0 space-y-1.5 border-t border-border/40 px-2 pt-3">
-                    {[
-                        { status: "ready" as const, label: <FormattedMessage id="settings.agents.legendReady" defaultMessage="Ready" /> },
-                        { status: "attention" as const, label: <FormattedMessage id="settings.agents.legendAttention" defaultMessage="Needs attention" /> },
-                        { status: "missing" as const, label: <FormattedMessage id="settings.agents.legendMissing" defaultMessage="Not installed" /> },
-                    ].map(({ status, label }) => (
-                        <div key={status} className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                            <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", STATUS_DOT[status])} />
-                            {label}
-                        </div>
-                    ))}
-                </div>
             </div>
 
             {/* Right column */}
@@ -164,6 +151,7 @@ function AgentItem({ agent, status, selected, onClick }: {
         <button
             type="button"
             data-testid={`settings-agent-${agent.id}`}
+            aria-current={selected ? "true" : undefined}
             data-active={selected ? "true" : undefined}
             onClick={onClick}
             className={cn(
@@ -177,7 +165,7 @@ function AgentItem({ agent, status, selected, onClick }: {
                 <Icon className="h-3.5 w-3.5" />
             </span>
             <span className="flex-1 truncate text-sm font-medium">{agent.label}</span>
-            <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", STATUS_DOT[status])} />
+            {status === "attention" && <span className="text-xs text-status-warn"><FormattedMessage id="settings.agents.legendAttention" defaultMessage="Needs attention" /></span>}
         </button>
     )
 }
@@ -239,7 +227,7 @@ function AgentHeader({ agent, status, info }: { agent: AgentSettingsEntry; statu
 
     return (
         <div data-testid="settings-agent-header" className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-muted/15 dark:border-border/35">
+            <div className="flex h-7 shrink-0 items-center">
                 <Icon className="h-5 w-5" />
             </div>
             <div className="min-w-0 flex-1">

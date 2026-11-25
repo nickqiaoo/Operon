@@ -126,6 +126,12 @@ export interface StartChatOptions {
   /** Sees every runtime part of the turn, after the chat's own handling — a
    *  workflow sub-agent's chat answers some approvals itself (see dispatch.ts). */
   onPart?: (part: import('@operon/agent-runtime').RuntimeStreamPart) => void
+  /**
+   * False keeps the turn's reply off every surface: nobody can attach to its
+   * stream (compact's summary, which is about to replace the transcript it would
+   * otherwise appear in). The chat still shows as busy while it runs.
+   */
+  visible?: boolean
 }
 
 export interface CompactRequest {

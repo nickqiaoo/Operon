@@ -4,10 +4,11 @@
 // session no request is streaming:
 //
 // - `tasks`: its background sub-agents changed. Kept per chat for the
-//   live-status stream, which the sub-agent cards read.
+//   chat status stream, which the sub-agent cards read.
 // - `turn`: the agent started a reply on its own (Claude Code answering a
-//   background agent that finished). Run as a detached turn — streamed to any
-//   open tab and persisted — and announced like a reply the user asked for.
+//   background agent that finished). Run as a chat turn whose output is already
+//   on its way (`runChatTurn`'s `output`) — streamed to any open tab and
+//   persisted — and announced like a reply the user asked for.
 // - `prompt-suggestion`: Claude Code's guess at the user's next prompt, kept per
 //   chat for the composer (chat-prompt-suggestions.ts).
 
@@ -16,8 +17,8 @@ import type { SubagentTranscript } from '../../../../shared/background-tasks.js'
 import { notify } from '../notification-service.js'
 import { setChatBackgroundTasks } from './chat-background-tasks.js'
 import { setChatPromptSuggestion } from './chat-prompt-suggestions.js'
-import { observePendingInputPart } from './chat-pending-input.js'
-import { replySnippet, runDetachedTurn } from './detached-turn.js'
+import { replySnippet } from './message-utils.js'
+import { runChatTurn } from './chat-flow.js'
 import { getChatHistoryService, getNotificationStorage, getRuntime, getSessionManager } from './state.js'
 
 export function handleRuntimeBackgroundEvent(chatId: number, event: RuntimeBackgroundEvent): void {
@@ -44,19 +45,17 @@ async function runAgentStartedTurn(chatId: number, parts: AsyncIterable<RuntimeS
     return
   }
 
-  const message = await runDetachedTurn(
+  const turn = await runChatTurn(
+    { chatId, messages: [], modelId: meta.model, providerId: meta.providerId, workspaceId: meta.workspaceId },
     {
-      chatId,
-      modelId: meta.model,
-      providerId: meta.providerId,
-      sessionId: meta.sessionId,
-      logTag: 'AI',
+      output: parts,
       // It can stop for an approval like any turn; the tab marker and inbox
       // should say so.
-      onPart: (part) => observePendingInputPart(chatId, part, { userFacing: meta.tp === 'chat' }),
+      notifyInbox: meta.tp === 'chat',
     },
-    parts,
   )
+  const { message, status, error } = await turn.ended
+  if (status === 'failed') console.warn(`[AI] agent-started turn on chat ${chatId} failed: ${error}`)
 
   // Same rule as handleChat: only the user's own conversations reach the inbox.
   const storage = getNotificationStorage()

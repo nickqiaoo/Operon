@@ -15,7 +15,7 @@ import type { AgentBinding } from '../../types/agent-binding.js'
 import type { AgentMcpContext } from '../ai/types.js'
 import type { Workspace } from '../../types/project.js'
 import { emitProjectEvent, publishChannelMessage } from '../channel-bus.js'
-import { abortChat, startChat, startServerChat } from '../ai.js'
+import { abortChat, runChatTurn, type ChatTurn } from '../ai.js'
 import { resetBinding } from './binding-reset.js'
 import {
   commit,
@@ -48,7 +48,7 @@ import {
   recordTicketChat,
 } from '../spec/build-run.js'
 import { SURFACE_PROMPT, observeTaskChatPart, taskHasSurfaces } from '../../gateway/surfaces/task-surface-bridge.js'
-import type { RuntimeTextStreamPart } from '@operon/agent-runtime'
+import type { RuntimeStreamPart, RuntimeTextStreamPart } from '@operon/agent-runtime'
 import { changeBranchName, mergeChildIntoParent, type ChangeActor } from '../spec/change-branch.js'
 import type { Task, TaskStatus, TaskWorkspaceMode } from '../../types/task.js'
 import { deliverToBinding } from '../message-router.js'
@@ -658,9 +658,10 @@ async function startBindingChat(
   })
   if (binding.scopeKind === 'task') taskTurnStartedAt.set(binding.id, Date.now())
 
+  const watch = watchAgentChat(binding)
   let ctx
   try {
-    ctx = await startServerChat({
+    ctx = await runChatTurn({
       chatId: binding.activeChatId ?? undefined,
       messages,
       providerId: agent.provider,
@@ -680,6 +681,7 @@ async function startBindingChat(
       // its own chat, and the channel may not be on screen. Task sessions have
       // their own task_needs_input.
       notifyInbox: binding.scopeKind === 'app' || binding.scopeKind === 'thread',
+      onPart: watch.onPart,
     })
   } catch (err) {
     console.error(
@@ -710,71 +712,64 @@ async function startBindingChat(
   )
   if (stream?.kind === 'thread') emitThreadUpdated(storage, stream.rootMessageId)
   if (binding.scopeKind === 'task') recordTicketChat(storage, Number(binding.scopeKey), ctx.chatId)
-  drainAgentChat(ctx, binding)
+  watch.follow(ctx)
   return ctx.chatId
 }
 
-function drainAgentChat(ctx: Awaited<ReturnType<typeof startServerChat>>, binding?: AgentBinding): void {
-  console.log(`[Orchestrator] drainAgentChat: started for chatId=${ctx.chatId}`)
+/**
+ * What a binding's turn is watched for while it runs (provider errors, the
+ * task's Linear / GitHub mirror) and what follows once it ends.
+ */
+function watchAgentChat(binding?: AgentBinding): {
+  onPart: (part: RuntimeStreamPart) => void
+  follow: (ctx: ChatTurn) => void
+} {
   // Task sessions mirror their stream to Linear / GitHub when the task has
   // surfaces (design.md §9). The bridge checks per part (memoized), because a
   // surface can attach after the session started — desktop dispatch first,
   // the Linear session only when someone delegates the published issue.
   const surfaceTaskId = binding?.scopeKind === 'task' ? Number(binding.scopeKey) : null
-  ;(async () => {
-    const reader = ctx.preparedParts.getReader()
-    const errors: string[] = []
-    let lastPercentUsed = 0
+  const errors: string[] = []
+  // A new chat's id arrives with the turn; parts before that wait for it.
+  let chatId: number | undefined = binding?.activeChatId ?? undefined
+  const early: RuntimeTextStreamPart[] = []
+  const mirror = (id: number, part: RuntimeTextStreamPart): void => {
     try {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        const part = value && typeof value === 'object' && 'part' in value
-          ? (value as { part?: Record<string, unknown> }).part
-          : value
-        if (surfaceTaskId != null && part && typeof part === 'object' && 'type' in part) {
-          try {
-            observeTaskChatPart(surfaceTaskId, ctx.chatId, part as unknown as RuntimeTextStreamPart)
-          } catch (err) {
-            console.warn('[Orchestrator] surface observer failed:', err instanceof Error ? err.message : err)
-          }
-        }
-        if (part && typeof part === 'object' && 'type' in part && part.type === 'error') {
-          const errMsg =
-            'error' in part && part.error instanceof Error
-              ? part.error.message
-              : String(part.error ?? 'Unknown error')
-          errors.push(errMsg)
-        }
-        const metadata =
-          value && typeof value === 'object' && 'metadata' in value
-            ? (value as { metadata?: Record<string, unknown> }).metadata
-            : undefined
-        if (metadata) {
-          const contextUsage = metadata.contextUsage as Record<string, number> | undefined
-          if (contextUsage?.percentUsed != null) {
-            lastPercentUsed = contextUsage.percentUsed
-          }
-        }
-      }
-    } finally {
+      observeTaskChatPart(surfaceTaskId!, id, part)
+    } catch (err) {
+      console.warn('[Orchestrator] surface observer failed:', err instanceof Error ? err.message : err)
+    }
+  }
+
+  const onPart = (part: RuntimeStreamPart): void => {
+    if (part.type === 'error') {
+      const error = (part as { error?: unknown }).error
+      errors.push(error instanceof Error ? error.message : String(error ?? 'Unknown error'))
+    }
+    if (surfaceTaskId == null || part.type === 'message-metadata' || part.type === 'injected-input') return
+    const textPart = part as unknown as RuntimeTextStreamPart
+    if (chatId === undefined) early.push(textPart)
+    else mirror(chatId, textPart)
+  }
+
+  const follow = (ctx: ChatTurn): void => {
+    chatId = ctx.chatId
+    if (surfaceTaskId != null) for (const part of early.splice(0)) mirror(ctx.chatId, part)
+    void ctx.ended.then(async (completion) => {
+      const contextUsage = (completion.message?.metadata as { contextUsage?: { percentUsed?: number } } | undefined)?.contextUsage
+      const lastPercentUsed = contextUsage?.percentUsed ?? 0
       if (errors.length > 0) {
-        console.error(
-          `[Orchestrator] drainAgentChat: chatId=${ctx.chatId} stream errors: ${errors.join('; ')}`,
-        )
+        console.error(`[Orchestrator] agent turn: chatId=${ctx.chatId} stream errors: ${errors.join('; ')}`)
       }
       console.log(
-        `[Orchestrator] drainAgentChat: stream ended for chatId=${ctx.chatId}, ` +
-          `contextUsage=${(lastPercentUsed * 100).toFixed(1)}%, persisting...`,
+        `[Orchestrator] agent turn ended for chatId=${ctx.chatId}, contextUsage=${(lastPercentUsed * 100).toFixed(1)}%`,
       )
-      await ctx.persistDone
-      ctx.finish()
 
       const storage = _storage
       if (!storage) return
       const binding = storage.getBindingByActiveChatId(ctx.chatId)
       if (!binding) {
-        console.warn(`[Orchestrator] drainAgentChat: no binding for chatId=${ctx.chatId}`)
+        console.warn(`[Orchestrator] agent turn: no binding for chatId=${ctx.chatId}`)
         return
       }
 
@@ -791,7 +786,7 @@ function drainAgentChat(ctx: Awaited<ReturnType<typeof startServerChat>>, bindin
         const providerId = agent?.provider ?? ''
         if (!SELF_COMPACTING_PROVIDERS.has(providerId)) {
           console.log(
-            `[Orchestrator] drainAgentChat: context at ${(lastPercentUsed * 100).toFixed(1)}% ` +
+            `[Orchestrator] agent turn: context at ${(lastPercentUsed * 100).toFixed(1)}% ` +
               `for binding ${binding.id} (${providerId}), triggering auto-compact`,
           )
           await triggerAutoCompact(binding).catch((err) => {
@@ -799,7 +794,7 @@ function drainAgentChat(ctx: Awaited<ReturnType<typeof startServerChat>>, bindin
           })
         } else {
           console.log(
-            `[Orchestrator] drainAgentChat: context at ${(lastPercentUsed * 100).toFixed(1)}% ` +
+            `[Orchestrator] agent turn: context at ${(lastPercentUsed * 100).toFixed(1)}% ` +
               `for binding ${binding.id} (${providerId}), skipping compact (provider self-compacts)`,
           )
         }
@@ -811,19 +806,19 @@ function drainAgentChat(ctx: Awaited<ReturnType<typeof startServerChat>>, bindin
           console.error('[Orchestrator] spec ticket turn-end hook failed:', err),
         )
       }
-      console.log(
-        `[Orchestrator] drainAgentChat: chatId=${ctx.chatId} finished, triggering handleBindingFinish`,
-      )
+      console.log(`[Orchestrator] agent turn: chatId=${ctx.chatId} finished, triggering handleBindingFinish`)
       handleBindingFinish(binding.id).catch((err) => {
         console.error('[Orchestrator] handleBindingFinish error:', err)
       })
-    }
-  })().catch((err) => {
-    console.error('[Orchestrator] agent chat drain error:', err)
-    if (surfaceTaskId != null && _storage) {
-      void onTicketTurnEnded(_storage, surfaceTaskId, err instanceof Error ? err.message : String(err), binding?.id).catch(() => {})
-    }
-  })
+    }).catch((err) => {
+      console.error('[Orchestrator] agent turn follow-up error:', err)
+      if (surfaceTaskId != null && _storage) {
+        void onTicketTurnEnded(_storage, surfaceTaskId, err instanceof Error ? err.message : String(err), binding?.id).catch(() => {})
+      }
+    })
+  }
+
+  return { onPart, follow }
 }
 
 /** Called by agent-recovery.ts on startup to resume an agent binding with a recovery prompt. */
@@ -880,7 +875,7 @@ async function triggerAutoCompact(binding: AgentBinding): Promise<void> {
   ]
 
   try {
-    const ctx = await startChat({
+    const ctx = await runChatTurn({
       chatId: binding.activeChatId,
       messages,
       providerId: agent.provider,
@@ -896,13 +891,7 @@ async function triggerAutoCompact(binding: AgentBinding): Promise<void> {
       agentContext: bindingAgentContext(binding),
     })
 
-    const reader = ctx.preparedParts.getReader()
-    while (true) {
-      const { done } = await reader.read()
-      if (done) break
-    }
-    await ctx.persistDone
-    ctx.finish()
+    await ctx.ended
 
     console.log(`[Orchestrator] auto-compact completed for binding ${binding.id}`)
 
@@ -1904,7 +1893,7 @@ const threadAdapter: BindingPlatformAdapter = {
 
 /**
  * Called when an agent's chat stream ends (per binding). Thin wrapper over the
- * shared driver with the binding's adapter — kept so drainAgentChat can trigger
+ * shared driver with the binding's adapter — kept so watchAgentChat can trigger
  * a finish by binding id without knowing about adapters.
  */
 export async function handleBindingFinish(bindingId: number): Promise<void> {

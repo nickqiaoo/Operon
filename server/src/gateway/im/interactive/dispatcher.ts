@@ -24,8 +24,8 @@ import { parseCommand } from './parse-command.js'
 import type { PermissionHandler } from '../permission-handler.js'
 import type { SessionConfig, SessionConfigStore } from './session-config.js'
 import { runSetupWizard } from './setup-wizard.js'
-import { startChat } from '../../../services/ai.js'
-import { readPreparedTextStreamParts } from '../../../services/ai/prepared-stream-parts.js'
+import { runChatTurn } from '../../../services/ai.js'
+import type { RuntimeStreamPart } from '@operon/agent-runtime'
 import { loadInlineImages, MAX_INLINE_IMAGE_BYTES } from '../attachment-loader.js'
 
 export interface InteractiveDispatcherDeps {
@@ -252,7 +252,9 @@ export class InteractiveDispatcher {
 
     let resolvedChatId = startChatChatId
     try {
-      const ctx = await startChat({
+      const feed = partFeed()
+      let sawError = false
+      const ctx = await runChatTurn({
         chatId: startChatChatId > 0 ? startChatChatId : undefined,
         messages,
         providerId: sessionConfig.providerId,
@@ -260,22 +262,30 @@ export class InteractiveDispatcher {
         modeId: sessionConfig.modeId,
         workspaceId: sessionConfig.workspaceId,
         skipSnapshot: true,
-      }, streamAbort.signal)
+      }, {
+        signal: streamAbort.signal,
+        onPart: (part) => {
+          if (part.type === 'error') sawError = true
+          feed.push(part)
+        },
+      })
       resolvedChatId = ctx.chatId
+      void ctx.ended.finally(feed.end)
 
       await consumeFullStream({
         provider,
         ref,
         channelKey,
-        fullStream: readPreparedTextStreamParts(ctx.preparedParts) as AsyncIterable<TextStreamPart<ToolSet>>,
+        fullStream: feed.parts as AsyncIterable<TextStreamPart<ToolSet>>,
         internalChatId: ctx.chatId,
         signal: streamAbort.signal,
         permissionHandler: this.permissionHandler,
         diffPreviewService: this.diffPreviewService,
       })
 
-      await ctx.persistDone
-      ctx.finish()
+      const completion = await ctx.ended
+      // A stream that failed outright, rather than reporting an error part the consumer already relayed.
+      if (completion.status === 'failed' && !sawError && completion.error) throw new Error(completion.error)
     } catch (err) {
       if (!streamAbort.signal.aborted) {
         console.error('[Interactive] stream error:', err)
@@ -399,4 +409,40 @@ function parseRefFromKey(channelKey: string): ChannelRef | undefined {
   const sourceChannel = parts[1]
   const threadRef = parts[2] && parts[2] !== '0' ? parts[2] : undefined
   return { sourceChannel, threadRef }
+}
+
+/**
+ * A running turn's parts, for a consumer that awaits between them (each IM send
+ * is a network call). The turn does not wait for it: parts queue here until read.
+ */
+function partFeed(): { push: (part: RuntimeStreamPart) => void; end: () => void; parts: AsyncIterable<RuntimeStreamPart> } {
+  const queue: RuntimeStreamPart[] = []
+  let ended = false
+  let wake: (() => void) | undefined
+  const notify = (): void => {
+    const resolve = wake
+    wake = undefined
+    resolve?.()
+  }
+  return {
+    push: (part) => {
+      // Metadata and injected input are the reply's bookkeeping, not text for the chat.
+      if (ended || part.type === 'message-metadata' || part.type === 'injected-input') return
+      queue.push(part)
+      notify()
+    },
+    end: () => {
+      ended = true
+      notify()
+    },
+    parts: {
+      async *[Symbol.asyncIterator]() {
+        for (;;) {
+          while (queue.length > 0) yield queue.shift()!
+          if (ended) return
+          await new Promise<void>((resolve) => { wake = resolve })
+        }
+      },
+    },
+  }
 }

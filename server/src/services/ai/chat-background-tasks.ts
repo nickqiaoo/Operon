@@ -6,7 +6,7 @@
 // reaches the chat's message stream. The Session panel lists every task (slow
 // commands, background shells, sub-agents). The runtime reports the whole list
 // on every change (`RuntimeBackgroundEvent` `tasks`); this keeps the latest per
-// chat and fans it out to the live-status stream.
+// chat and fans it out to the chat status stream.
 //
 // Process-local, like the CLI processes whose agents it mirrors: a session that is
 // torn down reports an empty list, and a restart starts from nothing.

@@ -4,9 +4,7 @@ import {
     CheckCircle2,
     ExternalLink,
     Loader2,
-    MonitorCog,
     RefreshCw,
-    ShieldAlert,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -136,9 +134,8 @@ export function ComputerUseSettings() {
                 </div>
             )}
 
-            <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+            <section className="space-y-4 settings-section">
                 <div className="flex items-start gap-3">
-                    <MonitorCog className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
                     <div className="flex-1">
                         <h2 className="text-sm font-semibold mb-1">
                             <FormattedMessage id="settings.computerUse.enabled.title" defaultMessage="Computer Use" />
@@ -154,14 +151,14 @@ export function ComputerUseSettings() {
                 </div>
 
                 {enabled ? (
-                    <div className="rounded-lg border border-border/40 bg-background/40 p-3 text-xs text-muted-foreground">
+                    <div className="py-3 text-xs text-muted-foreground">
                         <FormattedMessage
                             id="settings.computerUse.enabled.on"
                             defaultMessage="Agents ask before operating an app for the first time, and confirm again before actions with real consequences. Approvals last for the conversation unless you choose “Always allow”."
                         />
                     </div>
                 ) : (
-                    <div className="rounded-lg border border-dashed border-border/50 p-6 text-center text-xs text-muted-foreground">
+                    <div className="p-6 text-center text-xs text-muted-foreground">
                         <FormattedMessage
                             id="settings.computerUse.enabled.off"
                             defaultMessage="Agents cannot see or operate your apps."
@@ -171,9 +168,8 @@ export function ComputerUseSettings() {
             </section>
 
             {enabled && (
-                <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+                <section className="space-y-4 settings-section">
                     <div className="flex items-start gap-3">
-                        <ShieldAlert className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
                         <div className="flex-1">
                             <h2 className="text-sm font-semibold mb-1">
                                 <FormattedMessage
@@ -208,7 +204,7 @@ export function ComputerUseSettings() {
                     </div>
 
                     {permissions == null ? (
-                        <div className="rounded-lg border border-border/40 bg-background/40 p-3 text-xs text-muted-foreground">
+                        <div className="py-3 text-xs text-muted-foreground">
                             {permissionsBusy ? (
                                 <FormattedMessage
                                     id="settings.computerUse.permissions.checking"
@@ -228,7 +224,7 @@ export function ComputerUseSettings() {
                                 return (
                                     <div
                                         key={row.kind}
-                                        className="flex items-center gap-3 rounded-lg border border-border/40 bg-background/40 p-3"
+                                        className="flex items-center gap-3 py-3"
                                     >
                                         {granted ? (
                                             <CheckCircle2 className="h-4 w-4 shrink-0 text-status-ok" />

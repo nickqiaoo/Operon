@@ -1,3 +1,8 @@
+import { flushSync } from 'react-dom';
+import { canScheduleAt } from '@shared/scheduled-messages';
+import { scheduleText } from './schedule-messages';
+import { SchedulePicker, type SendTime } from './SchedulePicker';
+import { isMacPlatform } from '@/lib/shortcuts/accelerator';
 import { useCallback, useEffect, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import type { ChatStatus } from 'ai';
@@ -41,7 +46,8 @@ interface ChatInputAreaProps {
   setInput: (val: string) => void;
   attachments: ReturnType<typeof usePromptInputAttachments>;
   /** A returned promise holds the draft until it settles; a rejection keeps the text in the composer. */
-  onSubmit: (message: PromptInputMessage) => void | Promise<void>;
+  quotaAt?: number | null;
+  onSubmit: (message: PromptInputMessage, sendAt?: number) => void | Promise<void>;
   status: ChatStatus;
   onStop: () => void;
   isGenerating: boolean;
@@ -162,6 +168,7 @@ export function ChatInputArea({
   setInput,
   attachments,
   onSubmit,
+  quotaAt = null,
   status,
   onStop,
   isGenerating,
@@ -199,6 +206,8 @@ export function ChatInputArea({
   visible = true,
 }: ChatInputAreaProps) {
   const intl = useIntl();
+  const [sendTime, setSendTime] = useState<SendTime | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const localMentions = useFileOpenHandler() !== null;
   const {
     mentionOverlayParts,
@@ -264,6 +273,17 @@ export function ChatInputArea({
     // Skip all custom key handling during IME composition (e.g. Chinese input)
     if (e.nativeEvent.isComposing) return;
 
+    if (e.key === 'Enter' && e.altKey && !e.shiftKey && (isMacPlatform() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)) {
+      e.preventDefault();
+      if (e.repeat || !availableModels.length || (!input.trim() && !attachments.files.length && !selectedSkills.length && !hasPendingContext)) return;
+      if (!canScheduleAt(quotaAt)) {
+        setScheduleOpen(true);
+        return;
+      }
+      flushSync(() => setSendTime({ at: quotaAt }));
+      e.currentTarget.form?.requestSubmit();
+      return;
+    }
     // Tab or → takes the suggestion into the box; the user still sends it.
     if (activeSuggestion && ((e.key === 'Tab' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) || e.key === 'ArrowRight')) {
       e.preventDefault();
@@ -305,13 +325,13 @@ export function ChatInputArea({
       }
     }
     handleMentionKeyDown(e);
-    if (e.defaultPrevented || e.key !== 'Enter' || e.shiftKey || !isGenerating) return;
+    if (e.defaultPrevented || e.key !== 'Enter' || e.shiftKey || !isGenerating || sendTime) return;
 
     // While a turn is active, Enter follows the Steer button instead of submitting
     // another turn. Empty drafts and unavailable/pending injection do nothing.
     e.preventDefault();
     if (canSteer && !steerPending) void handleSteer();
-  }, [activeSuggestion, setInput, slashCommand, selectItem, handleMentionKeyDown, input, selectedSkills, removeSkill, isGenerating, canSteer, steerPending, handleSteer]);
+  }, [quotaAt, availableModels.length, attachments.files.length, hasPendingContext, sendTime, activeSuggestion, setInput, slashCommand, selectItem, handleMentionKeyDown, input, selectedSkills, removeSkill, isGenerating, canSteer, steerPending, handleSteer]);
 
   // On the form, not the textarea: clicking send leaves focus on the button. The / and @ menus
   // and Radix popovers have already claimed Escape (preventDefault) by the time it bubbles here.
@@ -349,14 +369,17 @@ export function ChatInputArea({
     // where neither typing the next message nor Escape reaches the composer.
     if (floating) textarea?.blur();
     else textarea?.focus();
-    if (selectedSkills.length > 0) {
-      const skillPrefix = formatSlashCommandPrefix(selectedSkills);
-      const result = onSubmit({ ...message, text: `${skillPrefix} ${message.text}`.trim() });
-      clearSkills();
-      return result;
-    }
-    return onSubmit(message);
-  }, [floating, textareaContainerRef, selectedSkills, onSubmit, clearSkills]);
+    const at = sendTime && ('minutes' in sendTime ? Date.now() + sendTime.minutes * 60_000 : sendTime.at);
+    const result = onSubmit(selectedSkills.length
+      ? { ...message, text: `${formatSlashCommandPrefix(selectedSkills)} ${message.text}`.trim() }
+      : message, at ?? undefined);
+    const finish = () => {
+      if (selectedSkills.length) clearSkills();
+      if (at) setSendTime(null);
+    };
+    if (result instanceof Promise) return result.then(finish);
+    finish();
+  }, [floating, textareaContainerRef, selectedSkills, onSubmit, sendTime, clearSkills]);
 
   const handleComposerPointerDownCapture = useCallback((event: ReactPointerEvent<HTMLFormElement>) => {
     if (!compactWhenIdle) return;
@@ -488,7 +511,7 @@ export function ChatInputArea({
   const compactStopVisible = composerCompact && isGenerating;
   // Steer only shows once there is something to send; while it shows it is the
   // primary action and Stop steps back to ghost, so only one button is filled.
-  const showSteer = canSteer && (steerPending || input.trim().length > 0 || attachments.files.length > 0);
+  const showSteer = !sendTime && canSteer && (steerPending || input.trim().length > 0 || attachments.files.length > 0);
   const submitVariant = showSteer ? 'ghost' : 'brand';
   const submitDisabled = availableModels.length === 0 || (!hasDraft && !isGenerating);
   const submitTitle = availableModels.length === 0
@@ -793,6 +816,7 @@ export function ChatInputArea({
 
         </PromptInputTools>
         <div className="flex shrink-0 items-center gap-1.5">
+          <SchedulePicker value={sendTime} open={scheduleOpen} setOpen={setScheduleOpen} select={setSendTime} focusInput={() => textareaContainerRef.current?.querySelector('textarea')?.focus()} quotaAt={quotaAt} />
           {showSteer && (
             <PromptInputButton
               data-composer-submit
@@ -817,9 +841,9 @@ export function ChatInputArea({
             <PromptInputSubmit
               data-composer-submit
               data-testid="chat-submit"
-              disabled={submitDisabled}
-              title={submitTitle}
-              status={status}
+              disabled={submitDisabled || (!!sendTime && !hasDraft)}
+              title={sendTime ? intl.formatMessage(scheduleText.title) : submitTitle}
+              status={sendTime ? 'ready' : status}
               onStop={() => void onStop()}
               variant={submitVariant}
               className="shrink-0 rounded-lg"

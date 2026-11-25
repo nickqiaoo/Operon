@@ -30,7 +30,7 @@ import {
   ExternalAgentToolRenderer,
   extractExternalAgentTaskId,
   type ExternalAgentResultMetadata,
-  isExternalAgentTool,
+  hasExternalAgentResult,
   isExternalAgentResultMessage,
 } from './ExternalAgentRenderer';
 import { isCodexCollabAgentTool } from './CodexCollabAgentRenderer';
@@ -306,19 +306,16 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
     }
 
     // Render external agent run tool with compact card (only when result is available)
-    if (isExternalAgentTool(toolPart)) {
-      const hasResult = (toolPart as Record<string, unknown>).output !== undefined || (toolPart as Record<string, unknown>).result !== undefined;
-      if (hasResult) {
-        const taskId = extractExternalAgentTaskId(
-          toolPart as ToolPartLike & { result?: unknown; output?: unknown },
-        )
-        return (
-          <ExternalAgentToolRenderer
-            toolPart={toolPart}
-            notificationInfo={taskId ? externalAgentNotificationsByTaskId?.get(taskId) : undefined}
-          />
-        );
-      }
+    if (hasExternalAgentResult(toolPart)) {
+      const taskId = extractExternalAgentTaskId(
+        toolPart as ToolPartLike & { result?: unknown; output?: unknown },
+      )
+      return (
+        <ExternalAgentToolRenderer
+          toolPart={toolPart}
+          notificationInfo={taskId ? externalAgentNotificationsByTaskId?.get(taskId) : undefined}
+        />
+      );
     }
 
     // Render Codex collab agent tool — use SubAgentRenderer if progress data available

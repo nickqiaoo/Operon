@@ -5,9 +5,9 @@ describe('turn diffs enabled', () => {
   it('waits for both local completion and a confirmed idle node', () => {
     expect(turnDiffsEnabled(1, '/repo', 'ready', false)).toBe(true);
     expect(turnDiffsEnabled(1, '/repo', 'error', false)).toBe(true);
-    for (const presence of [null, true, false]) {
-      expect(turnDiffsEnabled(1, '/repo', 'streaming', presence)).toBe(false);
-      expect(turnDiffsEnabled(1, '/repo', 'submitted', presence)).toBe(false);
+    for (const nodeTurnActive of [null, true, false]) {
+      expect(turnDiffsEnabled(1, '/repo', 'streaming', nodeTurnActive)).toBe(false);
+      expect(turnDiffsEnabled(1, '/repo', 'submitted', nodeTurnActive)).toBe(false);
     }
     expect(turnDiffsEnabled(1, '/repo', 'ready', null)).toBe(false);
     expect(turnDiffsEnabled(1, '/repo', 'ready', true)).toBe(false);

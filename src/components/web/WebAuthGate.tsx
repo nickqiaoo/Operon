@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { toast, Toaster } from 'sonner'
-import { Loader2, Monitor, LogOut, RefreshCw, Github } from 'lucide-react'
+import { KeyRound, Loader2, Monitor, LogOut, RefreshCw, Github } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { OperonMark } from './OperonMark'
@@ -36,6 +36,8 @@ import { hasRemotePairing } from '@/lib/e2ee/device-store'
 import { nodeRequiresPairing } from '@/lib/e2ee/node-mode'
 import { SecurePairingCard } from './SecurePairingCard'
 import { E2EE_PAIRING_REQUIRED_EVENT } from '@/lib/e2ee/secure-fetch'
+import { useDirectInfoSync } from '@/lib/remote-route-queries'
+import { isAccountless, listLocalMachines, setAccountless } from '@/lib/remote-route'
 
 type Phase = 'loading' | 'login' | 'picker' | 'pairing' | 'ready'
 
@@ -148,7 +150,8 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
           return setPhase('login')
         }
       }
-      if (!(await ensureAccessToken())) return setPhase('login')
+      // Without an account: the machines this device paired with over Tailscale.
+      if (!isAccountless() && !(await ensureAccessToken())) return setPhase('login')
       const selectedNodeId = getSelectedNodeId()
       if (selectedNodeId) {
         if (!(await pairingRequired(selectedNodeId))) return setPhase('ready')
@@ -205,6 +208,12 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
   const loadNodes = async () => {
     setLoadingNodes(true)
     setNodesError(null)
+    if (isAccountless()) {
+      // Reachable or not is the machine's to say once picked; list them all.
+      setNodes(listLocalMachines().map((machine) => ({ ...machine, online: true, revoked: false })))
+      setLoadingNodes(false)
+      return
+    }
     try {
       // Revoked nodes are dropped rather than listed as unpickable: signing a
       // machine out is meant to remove it, and a row that can only be looked at
@@ -229,6 +238,20 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
     setPhase('loading')
     if (!(await pairingRequired(n.nodeId))) return setPhase('ready')
     setPairingNode({ nodeId: n.nodeId, label: n.label || n.nodeId.slice(0, 8) })
+    setPhase('pairing')
+  }
+
+  /** Use this device without an account: pair with machines over Tailscale only. */
+  const startAccountless = () => {
+    setAccountless(true)
+    clearSelectedNode()
+    setPhase('picker')
+    void loadNodes()
+  }
+
+  /** A new machine, met by pairing with it (no account): no picker entry to start from. */
+  const pairNewMachine = () => {
+    setPairingNode(null)
     setPhase('pairing')
   }
 
@@ -264,6 +287,7 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
         onSignOut: logout,
         onPairMachine: setPairingOther,
       }}>
+        <DirectRouteSync />
         {children}
         {pairingOther && (
           <div className="fixed inset-0 z-50 overflow-auto bg-background">
@@ -300,7 +324,7 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
     return (
       <>
         {gateToaster}
-        <LoginLanding onSignedIn={advanceAfterSignIn} />
+        <LoginLanding onSignedIn={advanceAfterSignIn} onAccountless={startAccountless} />
       </>
     )
   }
@@ -314,6 +338,23 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
           nodeLabel={pairingNode.label}
           onPaired={() => setPhase('ready')}
           onBack={switchMachine}
+        />
+      </>
+    )
+  }
+
+  if (phase === 'pairing') {
+    return (
+      <>
+        {gateToaster}
+        <SecurePairingCard
+          nodeLabel={intl.formatMessage({ id: 'web.auth.accountless.yourMachine', defaultMessage: 'your machine' })}
+          onPaired={(machine) => {
+            setSelectedNode(machine.nodeId, machine.label)
+            setPhase('ready')
+          }}
+          onBack={switchMachine}
+          backLabel={intl.formatMessage({ id: 'common.cancel', defaultMessage: 'Cancel' })}
         />
       </>
     )
@@ -359,6 +400,16 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
                   <p className="font-medium text-foreground">Couldn't load machines</p>
                   <p>{nodesError}</p>
                 </div>
+              ) : nodes.length === 0 && isAccountless() ? (
+                <div className="space-y-2 rounded-lg border border-dashed border-border/50 p-4 text-xs text-muted-foreground">
+                  <p>
+                    {intl.formatMessage({
+                      id: 'web.auth.accountless.empty',
+                      defaultMessage:
+                        'No machines yet. Turn on Tailscale on this device and on your computer. On the computer, open Settings → Remote, enable Direct connections (Tailscale), then show a pairing code and scan it here.',
+                    })}
+                  </p>
+                </div>
               ) : nodes.length === 0 ? (
                 <div className="space-y-2 rounded-lg border border-dashed border-border/50 p-4 text-xs text-muted-foreground">
                   <p>
@@ -403,13 +454,21 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
                       <Monitor className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <span className="flex-1 truncate text-sm">{n.label || n.nodeId.slice(0, 8)}</span>
                       <span className={`text-xs ${n.online ? 'text-status-ok' : 'text-muted-foreground'}`}>
-                        {n.online
+                        {isAccountless()
+                          ? 'Tailscale'
+                          : n.online
                           ? intl.formatMessage({ id: 'web.auth.status.online', defaultMessage: 'online' })
                           : intl.formatMessage({ id: 'web.auth.status.offline', defaultMessage: 'offline' })}
                       </span>
                     </button>
                   ))}
                 </div>
+              )}
+              {isAccountless() && (
+                <Button size="sm" variant="secondary" className="h-8 w-full gap-1.5" onClick={pairNewMachine}>
+                  <KeyRound className="h-3.5 w-3.5" />
+                  {intl.formatMessage({ id: 'web.auth.accountless.pair', defaultMessage: 'Pair a machine' })}
+                </Button>
               )}
               <div className="flex items-center justify-between pt-1">
                 <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" disabled={loadingNodes} onClick={() => void loadNodes()}>
@@ -418,7 +477,9 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
                 </Button>
                 <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => logout()}>
                   <LogOut className="h-3.5 w-3.5" />
-                  {intl.formatMessage({ id: 'web.auth.signOut', defaultMessage: 'Sign out' })}
+                  {isAccountless()
+                    ? intl.formatMessage({ id: 'web.auth.accountless.leave', defaultMessage: 'Use an account instead' })
+                    : intl.formatMessage({ id: 'web.auth.signOut', defaultMessage: 'Sign out' })}
                 </Button>
               </div>
 
@@ -431,7 +492,7 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
                 wording, one confirmation step, kept visually quiet so it doesn't
                 compete with picking a machine.
               */}
-              {confirmDelete ? (
+              {isAccountless() ? null : confirmDelete ? (
                 <div className="space-y-2 rounded-lg border border-border/40 bg-muted/10 p-3">
                   <p className="text-xs leading-relaxed text-muted-foreground">
                     {intl.formatMessage({
@@ -489,11 +550,17 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
  * The outer container owns its own scroll because the global `body` is
  * `overflow:hidden` (for the app shell).
  */
-function LoginLanding({ onSignedIn }: { onSignedIn: (result: CallbackResult) => void | Promise<void> }) {
+interface LoginProps {
+  onSignedIn: (result: CallbackResult) => void | Promise<void>
+  /** Use this device without an account, over Tailscale only. */
+  onAccountless: () => void
+}
+
+function LoginLanding({ onSignedIn, onAccountless }: LoginProps) {
   const intl = useIntl()
   const isMobile = useIsMobile()
 
-  if (isMobile) return <MobileLogin onSignedIn={onSignedIn} />
+  if (isMobile) return <MobileLogin onSignedIn={onSignedIn} onAccountless={onAccountless} />
 
   return (
     <div className="relative h-[100dvh] overflow-y-auto bg-background">
@@ -533,7 +600,7 @@ function LoginLanding({ onSignedIn }: { onSignedIn: (result: CallbackResult) => 
             </div>
           </header>
 
-          <LoginCard onSignedIn={onSignedIn} />
+          <LoginCard onSignedIn={onSignedIn} onAccountless={onAccountless} />
 
           <ConnectionStrip />
         </div>
@@ -581,7 +648,7 @@ function LoginLanding({ onSignedIn }: { onSignedIn: (result: CallbackResult) => 
  * where a thumb expects them. The product intro and the connection diagram
  * belong to the marketing site and are dropped on phones entirely.
  */
-function MobileLogin({ onSignedIn }: { onSignedIn: (result: CallbackResult) => void | Promise<void> }) {
+function MobileLogin({ onSignedIn, onAccountless }: LoginProps) {
   const intl = useIntl()
 
   return (
@@ -641,6 +708,8 @@ function MobileLogin({ onSignedIn }: { onSignedIn: (result: CallbackResult) => v
           </button>
         </div>
 
+        <AccountlessLink onClick={onAccountless} />
+
         {isNativeApp() && <ReviewerSignIn onSignedIn={onSignedIn} compact />}
 
         <div className="flex items-center justify-center gap-4 text-[11px] text-muted-foreground/70">
@@ -657,7 +726,7 @@ function MobileLogin({ onSignedIn }: { onSignedIn: (result: CallbackResult) => v
   )
 }
 
-function LoginCard({ onSignedIn }: { onSignedIn: (result: CallbackResult) => void | Promise<void> }) {
+function LoginCard({ onSignedIn, onAccountless }: LoginProps) {
   const intl = useIntl()
 
   return (
@@ -695,7 +764,31 @@ function LoginCard({ onSignedIn }: { onSignedIn: (result: CallbackResult) => voi
         })}
       </p>
 
+      <AccountlessLink onClick={onAccountless} />
+
       {isNativeApp() && <ReviewerSignIn onSignedIn={onSignedIn} />}
+    </div>
+  )
+}
+
+/** The way in without an account: machines paired over Tailscale only. */
+function AccountlessLink({ onClick }: { onClick: () => void }) {
+  const intl = useIntl()
+  return (
+    <div className="space-y-1 text-center">
+      <button
+        type="button"
+        onClick={onClick}
+        className="text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+      >
+        {intl.formatMessage({ id: 'web.auth.accountless.start', defaultMessage: 'Use without an account (Tailscale)' })}
+      </button>
+      <p className="text-[11px] leading-relaxed text-muted-foreground/70">
+        {intl.formatMessage({
+          id: 'web.auth.accountless.hint',
+          defaultMessage: 'Connect to your machines over your own Tailscale network. No notifications.',
+        })}
+      </p>
     </div>
   )
 }
@@ -798,4 +891,10 @@ function AppleMark({ className }: { className?: string }) {
       <path d="M17.05 12.54c-.02-2.2 1.8-3.26 1.88-3.31-1.02-1.5-2.62-1.7-3.19-1.73-1.36-.14-2.65.8-3.34.8-.69 0-1.75-.78-2.87-.76-1.48.02-2.84.86-3.6 2.18-1.53 2.66-.39 6.6 1.1 8.76.73 1.06 1.6 2.25 2.75 2.2 1.1-.04 1.52-.71 2.85-.71 1.33 0 1.71.71 2.87.69 1.19-.02 1.94-1.08 2.66-2.14.84-1.23 1.19-2.42 1.21-2.48-.03-.01-2.32-.89-2.34-3.5M14.88 5.7c.6-.74 1.01-1.76.9-2.78-.87.04-1.93.58-2.56 1.31-.56.65-1.05 1.69-.92 2.69.97.07 1.96-.49 2.58-1.22" />
     </svg>
   )
+}
+
+/** Keeps the selected machine's direct address (Tailscale) current for secure-fetch. Renders nothing. */
+function DirectRouteSync() {
+  useDirectInfoSync(getSelectedNodeId())
+  return null
 }

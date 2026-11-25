@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { useIntl } from 'react-intl';
 import { ProviderIcon } from '@/components/icons/ProviderLabel';
 import { usageLevel } from '@/components/editor/components/rate-limit-tone';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight, Loader2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { CLOCK_24H } from '@/lib/format';
@@ -371,10 +371,11 @@ function ProviderUsageRing({ usage }: { usage: ProviderUsage }) {
  * not a conversation's, so it sits with the app-level chrome.
  */
 export function AccountUsageRail({ className }: { className?: string }) {
-  const { providers } = useAccountUsage();
-  if (providers.length === 0) return null;
+  const { providers, loadingCodex } = useAccountUsage();
+  if (!loadingCodex && providers.length === 0) return null;
   return (
     <div data-testid="rail-usage" className={cn('flex flex-col', className)}>
+      {loadingCodex && <Loader2 role="progressbar" aria-label="Codex" className="mx-auto my-1 size-4 animate-spin text-muted-foreground" />}
       {providers.map((usage) => (
         <ProviderUsageRing key={usage.providerId} usage={usage} />
       ))}

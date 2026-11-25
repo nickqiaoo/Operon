@@ -1,6 +1,6 @@
 import type { UIMessage } from 'ai'
 import type { AiChatRequest, ChatRecordState } from './types.js'
-import type { ChatMetadata } from '../../types/chat.js'
+import type { ChatMeta, ChatMetadata } from '../../types/chat.js'
 import { getChatStorage, getChatHistoryService } from './state.js'
 import { findLatestUserMessage } from './helpers.js'
 import type { SshEnvironmentRef } from '../../../../shared/ssh-environment.js'
@@ -26,7 +26,7 @@ const persistModeId = (chatId: number, modeId: string | undefined, metadata: Cha
 export const rememberChatTurnSettings = (
   chatId: number,
   settings: { modeId?: string; modelId?: string; thinkingLevel?: string },
-): void => {
+): ChatMeta | undefined => {
   if (chatId <= 0) return
   const storage = getChatStorage()
   const meta = storage?.getChatMeta(chatId)
@@ -36,7 +36,9 @@ export const rememberChatTurnSettings = (
     ...(settings.modelId && settings.modelId !== meta.model ? { model: settings.modelId } : {}),
     ...(settings.thinkingLevel && settings.thinkingLevel !== meta.thinkingLevel ? { thinkingLevel: settings.thinkingLevel } : {}),
   }
-  if (Object.keys(patch).length > 0) storage?.updateChatConfig(chatId, patch)
+  if (Object.keys(patch).length === 0) return
+  storage?.updateChatConfig(chatId, patch)
+  if (meta.metadata?.externalAgent) return { ...meta, ...patch, metadata: { ...meta.metadata, modeId: settings.modeId ?? meta.metadata.modeId } }
 }
 
 export const prepareChatRecord = (

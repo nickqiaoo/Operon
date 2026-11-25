@@ -1,6 +1,5 @@
 import { randomUUID } from 'crypto'
 import {
-  readStreamAsAsyncIterable,
   RuntimeInjectionUnavailableError,
   type PermissionDecision,
   type RuntimeMcpServers,
@@ -395,7 +394,7 @@ export class AgentChannel {
     let error: string | undefined
     let text = ''
     try {
-      const { preparedParts, done } = runAgentTurn(this.session, {
+      const { done } = runAgentTurn(this.session, {
         requestId: randomUUID(),
         input: toAgentInput(input),
         signal: controller.signal,
@@ -404,11 +403,9 @@ export class AgentChannel {
         onPart: (part) => this.onPart(part, (message) => (error ??= message)),
         onSessionId: (id) => this.reportSessionId(id),
       })
-      // The consumer branch of the tee must be drained; the parts already went to onPart.
-      for await (const _ of readStreamAsAsyncIterable(preparedParts)) {
-        // drained
-      }
-      text = extractAssistantText((await done).message)
+      const result = await done
+      if (result.error !== undefined) error ??= errorText(result.error)
+      text = extractAssistantText(result.message)
     } catch (e) {
       error ??= errorText(e)
     } finally {

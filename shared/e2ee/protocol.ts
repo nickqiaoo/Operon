@@ -45,7 +45,8 @@ export interface EncryptedWebSocketFrame extends SealedEnvelope {
 
 export interface RemotePairingQrPayload {
   v: 1
-  brokerUrl: string
+  /** Absent when the machine does not use Broker: the code then pairs over `direct` only. */
+  brokerUrl?: string
   nodeId: string
   desktopId: string
   desktopName: string
@@ -54,6 +55,13 @@ export interface RemotePairingQrPayload {
   pairingId: string
   pairingSecret: string
   expiresAt: number
+  /**
+   * Where the machine can be reached directly over Tailscale
+   * (`DirectInfo.address`), when it is published. With `brokerUrl` the code
+   * pairs through Broker and this is a hint older clients ignore; without it,
+   * pairing goes here.
+   */
+  direct?: string
 }
 
 export interface RemotePairingClaim {

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { AlertCircle, Bot, Check, Loader2, Moon, Save } from "lucide-react"
+import { AlertCircle, Check, Loader2, Save } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import type { AssistantAgentChoice, AssistantConfig } from "@shared/assistant"
 import { assistantApi } from "@/lib/assistant-api"
@@ -89,9 +89,8 @@ export function AssistantSettings() {
 
   return (
     <div className="space-y-4">
-      <div className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+      <div className="space-y-4 settings-section">
         <div className="flex items-start gap-3">
-          <Bot className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
           <div>
             <div className="mb-1 text-sm font-semibold">
               <FormattedMessage id="assistant.settings.agents" defaultMessage="Agents" />
@@ -155,9 +154,8 @@ export function AssistantSettings() {
         )}
       </div>
 
-      <div className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+      <div className="space-y-4 settings-section">
         <div className="flex items-start gap-3">
-          <Moon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
           <div>
             <div className="mb-1 text-sm font-semibold">
               <FormattedMessage id="assistant.settings.quietHours" defaultMessage="Quiet hours" />

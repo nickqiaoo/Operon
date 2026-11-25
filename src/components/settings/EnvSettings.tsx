@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { FormattedMessage, useIntl } from "react-intl"
-import { Loader2, Save, Check, AlertCircle, Plus, Variable, X } from "lucide-react"
+import { Loader2, Save, Check, AlertCircle, Plus, X } from "lucide-react"
 import { SettingsSection } from "./SettingsSection"
 import { Button } from "@/components/ui/button"
 import { api } from "@/lib/api"
@@ -55,11 +55,10 @@ export function EnvSettings() {
         }
     }
 
-    const inputCn = 'flex-1 px-3 py-2 text-sm font-mono bg-background/80 rounded-xl border border-border/60 focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 placeholder:text-muted-foreground/40'
+    const inputCn = 'min-w-0 flex-1 px-3 py-2 text-sm font-mono bg-background/80 rounded-xl border border-border/60 focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 placeholder:text-muted-foreground/40'
 
     return (
         <SettingsSection
-            icon={Variable}
             title={<FormattedMessage id="channel.form.envVars" defaultMessage="Environment Variables" />}
             description={<FormattedMessage id="settings.env.desc" defaultMessage="These variables are applied to the server process and inherited by all AI adapters (Claude Code, Codex, OpenCode, etc.). Useful for proxy settings, custom API endpoints, TLS overrides, or any environment-level configuration." />}
         >

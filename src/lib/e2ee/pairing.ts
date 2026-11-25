@@ -16,30 +16,43 @@ import { nativePlatform } from '../native'
 import { getUserId } from '../web-auth'
 import { createDeviceKeypair, derivePairingKey, fingerprintPublicKey, open, seal } from '@shared/e2ee/crypto'
 import { getOrCreateDeviceId, saveRemotePairing } from './device-store'
+import { isPhoneDirectAddress } from '@shared/delegations'
+import { isAccountless, rememberLocalMachine, saveDirectAddress } from '../remote-route'
 
 export function parsePairingQr(value: string): RemotePairingQrPayload {
   const parsed = JSON.parse(value) as Partial<RemotePairingQrPayload>
   if (
-    parsed.v !== 1 || typeof parsed.brokerUrl !== 'string' || typeof parsed.nodeId !== 'string'
+    parsed.v !== 1 || (typeof parsed.brokerUrl !== 'string' && typeof parsed.direct !== 'string') || typeof parsed.nodeId !== 'string'
     || typeof parsed.desktopId !== 'string' || typeof parsed.desktopName !== 'string' || typeof parsed.nodePublicKey !== 'string'
     || typeof parsed.nodeFingerprint !== 'string' || typeof parsed.pairingId !== 'string'
     || typeof parsed.pairingSecret !== 'string' || typeof parsed.expiresAt !== 'number'
   ) throw new Error('This pairing code is invalid')
   if (parsed.expiresAt <= Date.now()) throw new Error('This pairing code has expired')
+  // Optional, and only ever a hint: a code without one pairs the same way.
+  if (parsed.direct !== undefined && typeof parsed.direct !== 'string') delete parsed.direct
   return parsed as RemotePairingQrPayload
 }
 
 export async function pairRemoteNode(input: {
   qr: RemotePairingQrPayload
-  expectedNodeId: string
+  /** The machine the user picked; absent when pairing is how this device first meets it (no account). */
+  expectedNodeId?: string
   deviceName: string
   signal?: AbortSignal
   onStatus?: (status: RemotePairingStatus['status']) => void
 }): Promise<StoredRemotePairing> {
   const { qr } = input
-  if (qr.nodeId !== input.expectedNodeId) throw new Error('This code belongs to a different machine')
-  const expectedBroker = (import.meta.env.VITE_BROKER_URL ?? '').replace(/\/$/, '')
-  if (qr.brokerUrl.replace(/\/$/, '') !== expectedBroker) throw new Error('This code belongs to a different service')
+  if (input.expectedNodeId !== undefined && qr.nodeId !== input.expectedNodeId) throw new Error('This code belongs to a different machine')
+  // Through Broker with an account; otherwise straight to the machine over Tailscale.
+  const viaBroker = !isAccountless() && typeof qr.brokerUrl === 'string'
+  if (viaBroker) {
+    const expectedBroker = (import.meta.env.VITE_BROKER_URL ?? '').replace(/\/$/, '')
+    if (qr.brokerUrl!.replace(/\/$/, '') !== expectedBroker) throw new Error('This code belongs to a different service')
+  } else if (!isPhoneDirectAddress(qr.direct)) {
+    throw new Error(isAccountless()
+      ? 'This code has no Tailscale address. On the machine, turn on direct connections in Remote settings, then show a new code.'
+      : 'This machine does not use Broker. Use Operon without an account to pair over Tailscale.')
+  }
   const nodePublicKey = base64ToBytes(qr.nodePublicKey)
   if (fingerprintPublicKey(nodePublicKey) !== qr.nodeFingerprint) {
     throw new Error('The machine identity in this code is invalid')
@@ -59,9 +72,14 @@ export async function pairRemoteNode(input: {
     deviceFingerprint,
   }
   const key = derivePairingKey(pairingSecret, qr.pairingId)
-  const userId = getUserId()
-  if (!userId) throw new Error('Sign in before pairing this machine')
-  const pairBase = `${qr.brokerUrl.replace(/\/$/, '')}/u/${encodeURIComponent(userId)}/n/${encodeURIComponent(qr.nodeId)}/api/e2ee/pair`
+  let pairBase: string
+  if (viaBroker) {
+    const userId = getUserId()
+    if (!userId) throw new Error('Sign in before pairing this machine')
+    pairBase = `${qr.brokerUrl!.replace(/\/$/, '')}/u/${encodeURIComponent(userId)}/n/${encodeURIComponent(qr.nodeId)}/api/e2ee/pair`
+  } else {
+    pairBase = `${qr.direct}/api/e2ee/pair`
+  }
   const headers = { 'content-type': 'application/json', [PAIRING_HEADER]: REMOTE_E2EE_VERSION }
   const claimRes = await fetch(`${pairBase}/claim`, {
     method: 'POST',
@@ -103,6 +121,9 @@ export async function pairRemoteNode(input: {
         pairedAt: Date.now(),
       }
       await saveRemotePairing(pairing)
+      // Where to try the machine directly; refreshed over the sealed channel later.
+      if (qr.direct) saveDirectAddress(qr.nodeId, qr.direct)
+      if (!viaBroker) rememberLocalMachine({ nodeId: qr.nodeId, label: qr.desktopName })
       return pairing
     }
   }

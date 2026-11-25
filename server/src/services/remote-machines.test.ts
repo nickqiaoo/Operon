@@ -21,7 +21,15 @@ import { DelegationHost } from './delegation-host.js'
 import { initRemoteAgents, listRemoteAgents, reportToParentMachine, startRemoteAgent } from './remote-agents.js'
 import { delegationRequest } from './delegation-transport.js'
 import { initMachinePeers, pinPairedPeer, revokePeer } from './machine-peers.js'
-import { joinWithPairingCode, machinePairingTestUtils, startPairingCode } from './machine-pairing.js'
+import { joinWithPairingCode, machinePairingTestUtils, receivePeerSync, startPairingCode } from './machine-pairing.js'
+import type { AddressInfo } from 'node:net'
+import type http from 'node:http'
+import { serve } from '@hono/node-server'
+import { createDirectIngress } from './direct-ingress.js'
+import {
+  directLinkTestUtils, discoverMachines, getDirectLinkStatus, initDirectLink, setBrokerEnabled, setDirectLinkSettings, setPeerMode,
+} from './direct-link.js'
+import { isTrustedPeer } from './machine-peers.js'
 
 /**
  * Two machines of one account in one process: the origin (whose UI and
@@ -51,6 +59,9 @@ vi.mock('./mobile/identity.js', async (importOriginal) => ({
   ...await importOriginal<typeof import('./mobile/identity.js')>(),
   getDelegationKeypair: () => ({ ...keys[here()], fingerprint: fingerprintPublicKey(keys[here()].publicKey) }),
 }))
+// No real Tailscale client is asked; the direct tests stand one in.
+const tailnetDevices = vi.hoisted(() => ({ list: [] as Array<{ ipv4: string }> }))
+vi.mock('./tailscale.js', () => ({ detectTailscale: async () => ({ state: 'stopped' }), tailnetPeers: () => tailnetDevices.list }))
 vi.mock('./external-agent-notifications.js', () => ({
   enqueueExternalAgentResult: (chatId: number, message: { id: string; parts: Array<{ text: string }> }) => {
     delivered.results.push({ chatId, id: message.id, text: message.parts[0].text })
@@ -81,6 +92,10 @@ let apps: Record<string, Hono>
 const forwarded: Array<{ to: string; url: string; init: RequestInit; headers: Headers }> = []
 /** A dishonest Broker: stamps its own key as the source machine's. */
 const broker = { stampOwnKey: false }
+/** Tailnet addresses the direct tests answer on, mapped to where their listener really is. */
+const tailnet = new Map<string, string>()
+let releaseQuiet: (() => void) | undefined
+const realFetch = globalThis.fetch
 
 function pairBoth() {
   pinPairedPeer({ nodeId: target, publicKey: keys[target].publicKey, label: 'Target' })
@@ -118,6 +133,11 @@ beforeEach(() => {
       app.get('/api/stream', (c) => streamSSE(c, async (stream) => {
         for (const n of [1, 2, 3]) await stream.writeSSE({ data: String(n) })
       }))
+      // One event, then quiet until the test lets it end.
+      app.get('/api/quiet', (c) => streamSSE(c, async (stream) => {
+        await stream.writeSSE({ data: 'first' })
+        await new Promise<void>((resolve) => { releaseQuiet = resolve })
+      }))
       app.get('/api/delegations/catalog', (c) => c.json({ agents: [{ agentType: 'codex' }], workspaces: [{ id: 4, name: 'main', project: 'Repo' }] }))
       app.post('/api/delegations/agents', async (c) => {
         created.push(await c.req.json())
@@ -129,6 +149,8 @@ beforeEach(() => {
 
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
+    const direct = tailnet.get(url.origin)
+    if (direct !== undefined) return realFetch(`${direct}${url.pathname}${url.search}`, init)
     if (url.pathname === '/agent/delegation-nodes') {
       return Response.json([{ nodeId: origin, label: 'Origin', online: online[origin] }, { nodeId: target, label: 'Target', online: online[target] }])
     }
@@ -205,6 +227,15 @@ describe('an external agent started on another machine', () => {
     expect(created[0]).toEqual({ parentChatId: 12, providerId: 'codex', model: 'gpt', description: 'Fix it', prompt: 'Fix the bug', workspaceId: 4 })
     expect(result).toMatchObject({ agent_id: `ext-r${target.slice(0, 8)}-31`, chat_id: 31, machine: 'Target', workspace: 'Repo / main' })
     expect(listRemoteAgents(12)[0]).toMatchObject({ childChatId: 31, status: 'running', remote: { nodeId: target, machine: 'Target' } })
+
+    await onTarget.run(true, async () => {
+      reportToParentMachine({ nodeId: origin, chatId: 12 }, {
+        type: 'settings', eventId: crypto.randomUUID(), childChatId: 31, modelId: 'other-model', effort: 'high',
+      })
+      await vi.waitFor(() => expect(listRemoteAgents(12)[0]).toMatchObject({
+        modelId: 'other-model', effort: 'high', status: 'running',
+      }))
+    })
 
     // The target reports a result. This machine serves no others, but takes this.
     const event = { type: 'result', childChatId: 31, turnId: 'turn-1', status: 'completed', dispatched: true, prompt: 'Fix the bug', result: 'Fixed.' } as const
@@ -330,5 +361,252 @@ describe('pairing between machines', () => {
     revokePeer(target)
     expect((await relay('/echo/a')).status).toBe(403)
     expect(seen).toHaveLength(1)
+  })
+})
+
+describe('directly over Tailscale', () => {
+  const address = 'http://100.100.0.2:47420'
+  let targetServer: http.Server
+  let ingress: http.Server
+  let ingressBase: string
+  /** Whether the target requires E2EE, as its direct listener sees it. */
+  let targetE2EE = true
+
+  const listening = (server: http.Server) => new Promise<number>((resolve) => {
+    if (server.listening) resolve((server.address() as AddressInfo).port)
+    else server.once('listening', () => resolve((server.address() as AddressInfo).port))
+  })
+
+  beforeEach(async () => {
+    initDirectLink(storage)
+    await setDirectLinkSettings({ enabled: true })
+    // The target's real server, and its direct listener in front of it.
+    targetServer = serve({ fetch: (request) => onTarget.run(true, () => apps[target].fetch(request)), port: 0, hostname: '127.0.0.1' }) as http.Server
+    const targetPort = await listening(targetServer)
+    ingress = createDirectIngress({
+      localPort: () => targetPort,
+      localToken: () => undefined,
+      delegationTunnelToken,
+      selfNodeId: () => target,
+      trustedPeer: (nodeId) => (isTrustedPeer(nodeId) ? { label: 'Origin' } : null),
+      e2eeRequired: () => targetE2EE,
+    })
+    targetE2EE = true
+    ingress.listen(0, '127.0.0.1')
+    ingressBase = `http://127.0.0.1:${await listening(ingress)}`
+    tailnet.set(address, ingressBase)
+    // What the target said in its last sync.
+    receivePeerSync(target, { peers: [], direct: address })
+  })
+
+  afterEach(async () => {
+    releaseQuiet?.()
+    releaseQuiet = undefined
+    tailnet.clear()
+    directLinkTestUtils.reset()
+    for (const server of [ingress, targetServer]) {
+      server.closeAllConnections()
+      await new Promise((resolve) => server.close(resolve))
+    }
+  })
+
+  const routeOf = async () => (await getDirectLinkStatus()).peers.find((peer) => peer.nodeId === target)
+
+  it('reaches the other machine without Broker, end to end encrypted as before', async () => {
+    const res = await relay('/echo/a?x=1&token=local-secret', { method: 'PUT', headers: { 'content-type': 'text/plain' }, body: 'hello' })
+    expect(res.status).toBe(201)
+    expect(await res.json()).toEqual({ method: 'PUT', path: '/api/echo/a', body: 'hello', type: 'text/plain' })
+    expect(seen[0]).toMatchObject({ search: '?x=1', token: null })
+    expect(forwarded).toHaveLength(0)
+    expect(await routeOf()).toMatchObject({ address, mode: 'auto', route: 'direct' })
+  })
+
+  it('keeps a stream a stream', async () => {
+    const res = await relay('/stream')
+    expect(await res.text()).toBe('data: 1\n\ndata: 2\n\ndata: 3\n\n')
+    expect(forwarded).toHaveLength(0)
+  })
+
+  it('keeps the receive switch and the denied routes', async () => {
+    accepting[target] = false
+    expect((await relay('/echo/a')).status).toBe(403)
+    accepting[target] = true
+    expect((await relay('/e2ee/devices')).status).toBe(403)
+    expect(seen).toHaveLength(0)
+    expect(forwarded).toHaveLength(0)
+  })
+
+  it('refuses a machine the target stopped trusting, before it reaches the server', async () => {
+    revokePeer(origin)
+    const res = await relay('/echo/a')
+    expect(res.status).toBe(403)
+    expect(await res.json()).toMatchObject({ error: 'machine_not_paired' })
+    expect(seen).toHaveLength(0)
+  })
+
+  it('goes through Broker when the direct route does not answer', async () => {
+    tailnet.set(address, 'http://127.0.0.1:9')
+    const res = await relay('/echo/a')
+    expect(res.status).toBe(201)
+    expect(forwarded.map((f) => f.to)).toEqual([target])
+    expect(await routeOf()).toMatchObject({ route: 'broker', error: expect.any(String) })
+  })
+
+  it('set to direct only, fails rather than use Broker', async () => {
+    setPeerMode(target, 'direct')
+    tailnet.set(address, 'http://127.0.0.1:9')
+    const res = await relay('/echo/a')
+    expect(res.status).toBe(503)
+    expect(await res.json()).toMatchObject({ error: 'direct_unreachable' })
+    expect(forwarded).toHaveLength(0)
+  })
+
+  it('goes through Broker when the direct listener turns the request away unread', async () => {
+    targetE2EE = false
+    const res = await relay('/echo/a')
+    expect(res.status).toBe(201)
+    expect(forwarded.map((f) => f.to)).toEqual([target])
+    expect(await routeOf()).toMatchObject({ route: 'broker', error: expect.stringContaining('end-to-end encryption') })
+  })
+
+  it('set to direct only, reports the listener turning it away instead of using Broker', async () => {
+    setPeerMode(target, 'direct')
+    targetE2EE = false
+    const res = await relay('/echo/a')
+    expect(res.status).toBe(503)
+    expect(await res.json()).toMatchObject({ error: 'direct_unavailable' })
+    expect(forwarded).toHaveLength(0)
+  })
+
+  it('takes the next request through Broker once a direct stream drops midway', async () => {
+    const res = await relay('/quiet')
+    const reader = res.body!.getReader()
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain('first')
+    expect(await routeOf()).toMatchObject({ route: 'direct' })
+    ingress.closeAllConnections()
+    await expect(reader.read()).rejects.toThrow()
+    expect(await routeOf()).toMatchObject({ route: 'broker', error: 'The direct connection dropped' })
+    expect((await relay('/echo/a')).status).toBe(201)
+    expect(forwarded.map((f) => f.to)).toEqual([target])
+  })
+
+  it('set to Broker only, never tries the direct route', async () => {
+    setPeerMode(target, 'broker')
+    expect((await relay('/echo/a')).status).toBe(201)
+    expect(forwarded.map((f) => f.to)).toEqual([target])
+    expect(await routeOf()).toMatchObject({ mode: 'broker', route: 'broker' })
+  })
+
+  it('uses Broker for everyone once direct connections are turned off', async () => {
+    await setDirectLinkSettings({ enabled: false })
+    expect((await relay('/echo/a')).status).toBe(201)
+    expect(forwarded.map((f) => f.to)).toEqual([target])
+  })
+
+  it('takes only a tailnet address from a sync, and forgets it when the machine stops listening', async () => {
+    receivePeerSync(target, { peers: [], direct: 'http://192.168.1.20:47420' })
+    expect((await routeOf())?.address).toBe(address)
+    // A sync from a build without direct connections leaves it alone.
+    receivePeerSync(target, { peers: [] })
+    expect((await routeOf())?.address).toBe(address)
+    receivePeerSync(target, { peers: [], direct: null })
+    expect((await routeOf())?.address).toBeUndefined()
+    expect((await relay('/echo/a')).status).toBe(201)
+    expect(forwarded.map((f) => f.to)).toEqual([target])
+  })
+})
+
+describe('without Broker', () => {
+  const originAddress = 'http://100.100.0.1:47420'
+  const targetAddress = 'http://100.100.0.2:47420'
+  let servers: http.Server[]
+
+  const listening = (server: http.Server) => new Promise<number>((resolve) => {
+    if (server.listening) resolve((server.address() as AddressInfo).port)
+    else server.once('listening', () => resolve((server.address() as AddressInfo).port))
+  })
+
+  /** A machine's real server and its direct listener, at its tailnet address. */
+  async function onTailnet(nodeId: string, address: string) {
+    const isTarget = nodeId === target
+    const server = serve({ fetch: (request) => onTarget.run(isTarget, () => apps[nodeId].fetch(request)), port: 0, hostname: '127.0.0.1' }) as http.Server
+    const port = await listening(server)
+    const ingress = createDirectIngress({
+      localPort: () => port,
+      localToken: () => undefined,
+      delegationTunnelToken,
+      selfNodeId: () => nodeId,
+      selfLabel: () => (isTarget ? 'Target' : 'Origin'),
+      trustedPeer: (peer) => (onTarget.run(isTarget, () => isTrustedPeer(peer)) ? { label: null } : null),
+      e2eeRequired: () => true,
+    })
+    ingress.listen(0, '127.0.0.1')
+    tailnet.set(address, `http://127.0.0.1:${await listening(ingress)}`)
+    servers.push(server, ingress)
+  }
+
+  beforeEach(async () => {
+    servers = []
+    initDirectLink(storage)
+    await setDirectLinkSettings({ enabled: true })
+    setBrokerEnabled(false)
+    // The target also answers pairing claims, as every machine does.
+    apps[target].route('/api/delegations', delegationRoutes(new DelegationHost(storage)))
+    await onTailnet(origin, originAddress)
+    await onTailnet(target, targetAddress)
+    tailnetDevices.list = [{ ipv4: '100.100.0.1' }, { ipv4: '100.100.0.2' }]
+  })
+
+  afterEach(async () => {
+    tailnetDevices.list = []
+    tailnet.clear()
+    directLinkTestUtils.reset()
+    for (const server of servers) {
+      server.closeAllConnections()
+      await new Promise((resolve) => server.close(resolve))
+    }
+  })
+
+  it('finds the paired machine on the tailnet and reaches it there, never through Broker', async () => {
+    const res = await apps[origin].request('/api/delegations/local/machines')
+    const { machines } = await res.json() as { machines: Array<{ nodeId: string; online: boolean; paired?: boolean; current: boolean }> }
+    expect(machines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ nodeId: target, online: true, paired: true, current: false }),
+      expect.objectContaining({ nodeId: origin, current: true }),
+    ]))
+    expect((await relay('/echo/a', { method: 'POST', body: 'hi' })).status).toBe(201)
+    expect(forwarded).toHaveLength(0)
+  })
+
+  it('says it cannot reach a machine that is not on the tailnet, rather than use Broker', async () => {
+    tailnetDevices.list = []
+    tailnet.delete(targetAddress)
+    const res = await relay('/echo/a')
+    expect(res.status).toBe(503)
+    expect(await res.json()).toMatchObject({ error: 'direct_unreachable' })
+    expect(forwarded).toHaveLength(0)
+  })
+
+  it('pairs two machines with a code over Tailscale', async () => {
+    revokePeer(target)
+    revokePeer(origin)
+    const { code } = startPairingCode()
+    const peer = await onTarget.run(true, () => joinWithPairingCode(code))
+    expect(peer).toMatchObject({ nodeId: origin, status: 'trusted', source: 'paired' })
+    expect(forwarded).toHaveLength(0)
+    // The origin learns where the target listens the next time it looks.
+    await discoverMachines({ fresh: true })
+    expect((await relay('/echo/a', { method: 'POST', body: 'hi' })).status).toBe(201)
+    expect(forwarded).toHaveLength(0)
+  })
+
+  it('lets only the pairing claim through from a machine not paired yet', async () => {
+    // The origin's record of the target.
+    revokePeer(target)
+    const listener = tailnet.get(originAddress)!
+    // As the target, unpaired: anything but the claim is refused at the door.
+    const res = await realFetch(`${listener}/api/echo/a`, { headers: { 'X-Operon-Device-Id': target } })
+    expect(res.status).toBe(403)
+    expect(await res.json()).toMatchObject({ error: 'machine_not_paired' })
   })
 })

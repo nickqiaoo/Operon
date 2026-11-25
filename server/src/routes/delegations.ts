@@ -15,6 +15,8 @@ import {
   answerPairingClaim, cancelPairingCode, joinWithPairingCode, pairingCodeStatus, receivePeerSync, schedulePeerSync, startPairingCode,
 } from '../services/machine-pairing.js'
 import { listMachinePeers, revokePeer } from '../services/machine-peers.js'
+import { getDirectLinkStatus, setBrokerEnabled, setDirectLinkSettings, setPeerMode } from '../services/direct-link.js'
+import { startSaasRuntime, stopSaasRuntime } from '../services/saas-runtime.js'
 import { trustedDelegationTunnel } from '../services/delegation-tunnel.js'
 import { createNodeEnrollmentCode, joinWithNodeEnrollmentCode, leaveAccount, nodeAccountStatus } from '../services/node-enrollment.js'
 
@@ -32,6 +34,7 @@ const agentCall = z.object({
 })
 const turnStatus = z.enum(['running', 'queued'])
 const agentEvent = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('settings'), childChatId: positiveId, eventId: z.string().uuid(), modelId: setting.optional(), effort: setting.optional() }),
   z.object({ type: z.literal('turn'), childChatId: positiveId, turnId: z.string().min(1).max(200), status: turnStatus }),
   z.object({
     type: z.literal('result'), childChatId: positiveId, turnId: z.string().min(1).max(200),
@@ -84,6 +87,7 @@ export function delegationRoutes(host: DelegationHost) {
     if (!view || !('turn_id' in started)) throw new DelegationHttpError(500, 'The agent did not start')
     const answer: DelegatedAgentStarted = {
       childChatId: view.childChatId, workspaceId: input.workspaceId, providerId: view.providerId,
+      effort: view.effort,
       ...(view.modelId ? { modelId: view.modelId } : {}), ...(view.modeId ? { modeId: view.modeId } : {}),
       turnId: started.turn_id, status: started.status === 'queued' ? 'queued' : 'running',
       ...(started.delivery ? { delivery: started.delivery } : {}),
@@ -180,6 +184,34 @@ export function delegationRoutes(host: DelegationHost) {
   app.post('/local/account/leave', async (c) => {
     onThisMachine(c)
     return c.json(await leaveAccount())
+  })
+  // Direct connections over Tailscale (direct-link.ts).
+  app.get('/local/direct', async (c) => {
+    onThisMachine(c)
+    return c.json(await getDirectLinkStatus({ probe: c.req.query('probe') === '1' }))
+  })
+  app.post('/local/direct', async (c) => {
+    onThisMachine(c)
+    const input = z.object({
+      enabled: z.boolean().optional(),
+      // One above it is the phone address (directHttpsPort).
+      port: z.number().int().min(1024).max(65_534).optional(),
+      broker: z.boolean().optional(),
+    }).parse(await c.req.json())
+    const { broker, ...link } = input
+    if (broker !== undefined) {
+      setBrokerEnabled(broker)
+      if (broker) startSaasRuntime()
+      else stopSaasRuntime()
+    }
+    if (link.enabled !== undefined || link.port !== undefined) await setDirectLinkSettings(link)
+    return c.json(await getDirectLinkStatus({ probe: true }))
+  })
+  app.post('/local/direct/peers/:nodeId', async (c) => {
+    onThisMachine(c)
+    const { mode } = z.object({ mode: z.enum(['auto', 'direct', 'broker']) }).parse(await c.req.json())
+    setPeerMode(nodeId.parse(c.req.param('nodeId')), mode)
+    return c.json(await getDirectLinkStatus({ probe: true }))
   })
   app.post('/local/peers/:nodeId/revoke', (c) => {
     onThisMachine(c)

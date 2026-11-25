@@ -9,16 +9,16 @@
  *
  * A sub-agent is a chat. It gets a row of its own (`tp: 'workflow-agent'`), its
  * prompt and reply are stored as that chat's messages, and its turn runs through
- * the same server-turn lifecycle a task session uses (`startServerChat`): live
- * tee for an open tab, Stop, presence. Nothing about its conversation is kept
+ * the same chat-turn lifecycle every turn uses (`runChatTurn`): live
+ * for every open tab, Stop, presence. Nothing about its conversation is kept
  * anywhere else — the run's log only names the chat (`chatIds` on the agent row),
  * and a person can open it, read it, and carry on talking to it afterwards.
  */
 
 import { randomUUID } from 'node:crypto'
 import type { UIMessage } from 'ai'
-import { readStreamAsAsyncIterable, type RuntimeStreamPart } from '@operon/agent-runtime'
-import { abortChat, getSessionManager, startServerChat } from '../ai.js'
+import type { RuntimeStreamPart } from '@operon/agent-runtime'
+import { abortChat, getSessionManager, runChatTurn } from '../ai.js'
 import { getChatStorage } from '../ai/state.js'
 import { isErrorFinish } from '../ai/agent-turn.js'
 import { extractAssistantText } from '../ai/message-utils.js'
@@ -194,7 +194,7 @@ async function runOnce(params: ProviderAgentParams, seat: AgentSeat, onChat: (ch
     let message: UIMessage | undefined
     let failure: unknown
     try {
-      const ctx = await startServerChat(
+      const turn = await runChatTurn(
         {
           chatId,
           messages: [userMessage],
@@ -210,19 +210,7 @@ async function runOnce(params: ProviderAgentParams, seat: AgentSeat, onChat: (ch
       )
       // Stopped while the session was starting: the abort above found no turn yet.
       if (params.signal.aborted || handoff.to) abortChat(chatId)
-      try {
-        for await (const prepared of readStreamAsAsyncIterable(ctx.preparedParts)) {
-          const part = (prepared as { part?: { type?: string; error?: unknown } }).part
-          if (part?.type === 'error') streamError = String(part.error ?? 'stream error')
-        }
-      } catch (err) {
-        streamError = err instanceof Error ? err.message : String(err)
-        ctx.recordError(err)
-      } finally {
-        await ctx.persistDone
-        ctx.finish()
-      }
-      const completion = ctx.completion()
+      const completion = await turn.ended
       message = completion.message
       if (completion.status === 'failed' && !streamError) streamError = completion.error ?? 'The turn failed'
     } catch (err) {

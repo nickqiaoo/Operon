@@ -435,7 +435,7 @@ final class NativeComposerView: UIView, UITextViewDelegate, UITextPasteDelegate 
         let total = 16 + tokensHeight + textHeight + controlsHeight
         glass.layer.cornerRadius = isExpanded ? 28 : total / 2
         var bottom = parent.bounds.height - max(8, closedBottom)
-        if let keyboardTop, keyboardTop < parent.bounds.height - parent.safeAreaInsets.bottom - 1 {
+        if textView.isFirstResponder, let keyboardTop, keyboardTop < parent.bounds.height - parent.safeAreaInsets.bottom - 1 {
             bottom = min(bottom, keyboardTop - 6)
         }
         let panelGap: CGFloat = suggestionItems.isEmpty ? 0 : 8
@@ -473,8 +473,14 @@ final class NativeComposerView: UIView, UITextViewDelegate, UITextPasteDelegate 
         steer.frame = CGRect(x: (isExpanded && !options.isHidden ? anchorWidth - 134 : anchorWidth - 86), y: controlsCenterY - 20, width: 40, height: 40)
         steer.isHidden = !showsSteer
         let locked = submissionPending || state["submitting"] as? Bool == true
-        // Disabling editing would resign first responder and drop the keyboard on every send.
-        textView.isEditable = state["disabled"] as? Bool != true
+        // `disabled` blocks sending (see `send.isEnabled`), never typing. A new
+        // chat is disabled until its agent reports models, a few seconds after
+        // it opens: a non-editable UITextView swallowed every tap in that
+        // window, and one tapped then (selectable, so it still took first
+        // responder without a keyboard) expanded and folded again once editing
+        // came back, so the keyboard only came up on the tap after that.
+        // Disabling editing would also resign first responder and drop the keyboard.
+        textView.isEditable = true
         attach.isEnabled = !locked
         options.isEnabled = !locked
         var config = UIButton.Configuration.filled()
@@ -625,9 +631,12 @@ final class NativeComposerView: UIView, UITextViewDelegate, UITextPasteDelegate 
         imageView.clipsToBounds = true
         imageView.layer.cornerRadius = 20
         imageView.layer.cornerCurve = .continuous
-        imageView.isAccessibilityElement = true
-        imageView.accessibilityLabel = title
         tile.addSubview(imageView)
+        let preview = UIButton(type: .custom)
+        preview.frame = tile.bounds
+        preview.accessibilityLabel = "Preview \(title)"
+        preview.addAction(UIAction { [weak self] _ in self?.emitAction("preview:\(id)") }, for: .touchUpInside)
+        tile.addSubview(preview)
         let remove = UIButton(type: .system)
         var config = UIButton.Configuration.filled()
         config.image = UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .bold))
@@ -713,7 +722,11 @@ final class NativeComposerView: UIView, UITextViewDelegate, UITextPasteDelegate 
         if !applyingText { scheduleChange() }
     }
     func textViewDidBeginEditing(_ textView: UITextView) { refresh() }
-    func textViewDidEndEditing(_ textView: UITextView) { flushChange(); refresh() }
+    func textViewDidEndEditing(_ textView: UITextView) {
+        keyboardTop = nil
+        flushChange()
+        refresh()
+    }
 
     func textPasteConfigurationSupporting(_ supporting: UITextPasteConfigurationSupporting, transform item: UITextPasteItem) {
         guard state["allowAttachments"] as? Bool == true,
@@ -780,10 +793,10 @@ final class NativeComposerView: UIView, UITextViewDelegate, UITextPasteDelegate 
     }
 
     @objc private func keyboardChanged(_ notification: Notification) {
-        guard let parent = superview,
+        guard textView.isFirstResponder, let parent = superview, let screen = parent.window?.screen,
               let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-        let frame = parent.convert(endFrame, from: nil)
-        keyboardTop = frame.minY < parent.bounds.height - parent.safeAreaInsets.bottom ? frame.minY : nil
+        let overlap = parent.bounds.intersection(parent.convert(endFrame, from: screen.coordinateSpace))
+        keyboardTop = overlap.isEmpty ? nil : overlap.minY
         let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
         let curve = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
         UIView.animate(withDuration: duration, delay: 0, options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState, .allowUserInteraction]) {

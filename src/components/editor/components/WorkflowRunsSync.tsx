@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { subscribeEvents } from '@/lib/event-stream';
 import type { WorkflowFeedFrame } from '@/lib/api';
 import { useWorkflowRunsStore } from '@/stores/workflow-runs-store';
-import { useWorkflowStream } from '../hooks/useWorkflowStream';
 import { nodeKeyOf } from '@/lib/chat-ref';
 
 /**
@@ -12,16 +11,14 @@ import { nodeKeyOf } from '@/lib/chat-ref';
  * you happen to be looking at — they are launched from one, they report back to
  * one, but they run detached and are displayed in a global panel.
  *
- * Two subscriptions, matching the two layers of the store:
- *  - the global feed, which sends every run's folded view and then each change;
- *  - one feed per RUNNING run for its sub-agents' output. Finished runs get no
- *    subscription: expanding an agent replays its recorded chunks instead.
+ * One subscription: the global feed, which sends every run's folded view and
+ * then each change. A sub-agent's output is not kept here — an expanded agent
+ * reads its chat and watches that chat's turn stream (useWorkflowAgentTranscript).
  */
 export function WorkflowRunsSync() {
   const setRuns = useWorkflowRunsStore((s) => s.setRuns);
   const upsertRun = useWorkflowRunsStore((s) => s.upsertRun);
   const noteRunStarted = useWorkflowRunsStore((s) => s.noteRunStarted);
-  const runs = useWorkflowRunsStore((s) => s.runs);
 
   useEffect(() => {
     const subscription = subscribeEvents<WorkflowFeedFrame>('workflow', {
@@ -38,21 +35,13 @@ export function WorkflowRunsSync() {
     return () => subscription.close();
   }, [setRuns, upsertRun, noteRunStarted]);
 
-  const running = runs.filter((run) => run.status === 'running');
-
-  return (
-    <>
-      {running.map((run) => (
-        <RunStreamSubscriber key={run.runId} runId={run.runId} />
-      ))}
-    </>
-  );
+  return null;
 }
 
 /**
  * Another machine's run list, for the approval bar of tabs showing its chats
- * (see `RemoteNodeFeeds`). No sub-agent streams and no start signals: those feed
- * the workflow panel, which shows this machine's runs.
+ * (see `RemoteNodeFeeds`). No start signals: those raise the workflow panel,
+ * which shows this machine's runs.
  */
 export function RemoteWorkflowRunsSync({ nodeId }: { nodeId: string }) {
   useEffect(() => {
@@ -69,24 +58,5 @@ export function RemoteWorkflowRunsSync({ nodeId }: { nodeId: string }) {
       store.setRemoteRuns(node, []);
     };
   }, [nodeId]);
-  return null;
-}
-
-/** Holds one running run's feed open and lifts its sub-agent output into the store. */
-function RunStreamSubscriber({ runId }: { runId: string }) {
-  const setStream = useWorkflowRunsStore((s) => s.setStream);
-  const dropStream = useWorkflowRunsStore((s) => s.dropStream);
-  // The run VIEW from this feed is ignored on purpose: the global feed already
-  // delivers it, and taking it from both would mean two writers for one row.
-  const { agents, unavailable } = useWorkflowStream(runId);
-
-  useEffect(() => {
-    setStream(runId, { agents, unavailable });
-  }, [runId, agents, unavailable, setStream]);
-
-  // Drop the accumulated stream when this run stops running: what it produced is
-  // in the node's log now, and expanding an agent replays it from there.
-  useEffect(() => () => dropStream(runId), [runId, dropStream]);
-
   return null;
 }

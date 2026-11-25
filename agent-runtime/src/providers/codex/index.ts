@@ -1,6 +1,7 @@
 import { defineProvider } from '../../runtime.js'
 import type { CodexModeId, CodexSessionOptions } from './config.js'
 import type { AccountRateLimitsReadResult } from './sdk/protocol/index.js'
+import { codexAccounts, type CodexAccounts } from './accounts.js'
 import { getCodexAccountUsage } from './usage-probe.js'
 import type { RuntimeContext } from '../../context.js'
 import type { ProviderDescriptor, RuntimeProviderFactory, SessionOptions } from '../../types.js'
@@ -44,7 +45,7 @@ export class CodexRuntimeProvider implements RuntimeProviderFactory<SessionOptio
     try {
       const codexPath = this.ctx.resolveBinary('codex')
       if (codexPath) {
-        const skills = await listSkills({ codexPath, cwds: [this.cwd], env: this.ctx.env() })
+        const skills = await listSkills({ acquire: settings => codexAccounts(this.ctx).acquire(settings), codexPath, cwds: [this.cwd], env: this.ctx.env() })
         slashCommands = skills.map((skill) => ({
           name: skill.name,
           description: skill.description,
@@ -118,6 +119,7 @@ export class CodexRuntimeProvider implements RuntimeProviderFactory<SessionOptio
 
 /** Codex extras that need no session. */
 export interface CodexNative {
+  accounts(): Pick<CodexAccounts, 'subscribeSelection' | 'view' | 'startLogin' | 'cancelLogin' | 'select' | 'setAutomatic' | 'remove'>
   /**
    * Every rate-limit bucket on the signed-in account; null when Codex cannot
    * answer. `maxAgeMs` bounds how stale a cached read may be (0 = read now).
@@ -141,6 +143,7 @@ export const codex = () =>
     info: CodexRuntimeProvider.providerInfo,
     create: (ctx) => new CodexRuntimeProvider(ctx),
     native: (ctx) => ({
+      accounts: () => codexAccounts(ctx),
       accountUsage: (maxAgeMs) => getCodexAccountUsage(ctx, maxAgeMs),
     }),
   })

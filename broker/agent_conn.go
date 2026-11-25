@@ -96,11 +96,9 @@ const (
 // further events are dispatched. This sidesteps the send-on-closed-channel race
 // without per-request locking.
 //
-// `ctx` is derived from the *connection* lifetime, NOT the browser request — so
-// push() keeps delivering the node's chunks even after the browser disconnects.
-// That is what lets the chat buffer keep filling for a later resume. The HTTP
-// handler watches the browser request context separately; `cancel` is called to
-// tear the request down (explicit cancel, normal completion, or conn death).
+// `ctx` is derived from the *connection* lifetime, NOT the browser request. The
+// HTTP handler watches the browser request context separately; `cancel` is called
+// to tear the request down (browser gone, normal completion, or conn death).
 type pendingReq struct {
 	id     string
 	ctx    context.Context

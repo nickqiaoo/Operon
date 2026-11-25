@@ -5,7 +5,8 @@ import { beginChatTurn, emitChatTurnFinished, markChatTurnReady } from './ai/cha
 import { clearExternalAgentNotifications, enqueueExternalAgentResult } from './external-agent-notifications.js'
 
 const mocks = vi.hoisted(() => ({
-  getSession: vi.fn(), handleChat: vi.fn(), inject: vi.fn(),
+  getSession: vi.fn(), runChatTurn: vi.fn(), inject: vi.fn(),
+  ChatBusyError: class ChatBusyError extends Error {},
 }))
 vi.mock('./ai/state.js', () => ({
   getChatStorage: () => ({
@@ -14,7 +15,7 @@ vi.mock('./ai/state.js', () => ({
   }),
   getSessionManager: () => ({ get: mocks.getSession }),
 }))
-vi.mock('./ai/chat-flow.js', () => ({ handleChat: mocks.handleChat }))
+vi.mock('./ai/chat-flow.js', () => ({ runChatTurn: mocks.runChatTurn, ChatBusyError: mocks.ChatBusyError }))
 vi.mock('./ai/session-ops.js', () => ({ injectIntoChat: mocks.inject }))
 
 const chatId = 910
@@ -27,7 +28,7 @@ describe('external result notification inbox', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     mocks.getSession.mockReset()
-    mocks.handleChat.mockReset().mockImplementation(async () => new Response())
+    mocks.runChatTurn.mockReset().mockImplementation(async () => ({ chatId, ended: Promise.resolve({ status: 'completed' }) }))
     mocks.inject.mockReset().mockResolvedValue({ success: true, delivery: 'accepted' })
   })
   afterEach(() => {
@@ -44,7 +45,7 @@ describe('external result notification inbox', () => {
     expect(mocks.inject).toHaveBeenCalledOnce()
     expect(mocks.inject.mock.calls[0][1]).toBe('Result A\n\nResult B\n\nResult C')
     expect(mocks.inject.mock.calls[0][3].mode).toBe('followup')
-    expect(mocks.handleChat).not.toHaveBeenCalled()
+    expect(mocks.runChatTurn).not.toHaveBeenCalled()
   })
 
   it('steers a batch, and delivers arrivals during injection without waiting for the parent to finish', async () => {
@@ -64,7 +65,7 @@ describe('external result notification inbox', () => {
     await tick()
     expect(mocks.inject).toHaveBeenCalledTimes(2)
     expect(mocks.inject.mock.calls[1][1]).toBe('Result C')
-    expect(mocks.handleChat).not.toHaveBeenCalled()
+    expect(mocks.runChatTurn).not.toHaveBeenCalled()
     expect(mocks.inject.mock.calls[0][3].expectedRequestId).toBe('parent')
   })
 
@@ -91,7 +92,7 @@ describe('external result notification inbox', () => {
     enqueueExternalAgentResult(chatId, message('A'))
     await tick()
     await tick()
-    expect(mocks.handleChat).toHaveBeenCalledTimes(1)
+    expect(mocks.runChatTurn).toHaveBeenCalledTimes(1)
   })
 
   it.each(['accepted', 'unknown'] as const)('does not resend an unsuccessful %s injection', async (delivery) => {
@@ -105,20 +106,20 @@ describe('external result notification inbox', () => {
     finish()
     await tick()
     expect(mocks.inject).toHaveBeenCalledTimes(1)
-    expect(mocks.handleChat).not.toHaveBeenCalled()
+    expect(mocks.runChatTurn).not.toHaveBeenCalled()
   })
 
   it('keeps the batch when a user wins startup admission and then steers it', async () => {
-    mocks.handleChat.mockImplementationOnce(async () => {
+    mocks.runChatTurn.mockImplementationOnce(async () => {
       beginChatTurn(chatId, 'parent')
       mocks.getSession.mockReturnValue(activeSession())
       markChatTurnReady(chatId, 'parent')
-      return new Response(null, { status: 409 })
+      throw new mocks.ChatBusyError()
     })
     enqueueExternalAgentResult(chatId, message('A'))
     await tick()
     await tick()
-    expect(mocks.handleChat).toHaveBeenCalledTimes(1)
+    expect(mocks.runChatTurn).toHaveBeenCalledTimes(1)
     expect(mocks.inject).toHaveBeenCalledTimes(1)
     expect(mocks.inject.mock.calls[0][1]).toBe('Result A')
   })

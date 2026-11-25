@@ -12,7 +12,7 @@ import { openPluginsPage } from "@/lib/open-settings"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { Plus, Trash2, ChevronDown, ChevronUp, Save, Loader2, ChevronRight, ShieldCheck, Plug, Package } from "lucide-react"
+import { Plus, Trash2, ChevronDown, ChevronUp, Save, Loader2, ChevronRight, ShieldCheck } from "lucide-react"
 import { SettingsSection } from "./SettingsSection"
 import { FormattedMessage, useIntl } from "react-intl"
 import { useTransientFlag } from "@/hooks/useTransientFlag"
@@ -108,7 +108,7 @@ function ServerRow({ name, entry, editLabel, onEdit, onDelete }: ServerRowProps)
     : (entry as McpHttpEntry | McpSseEntry).url
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-border/40 bg-background/40 hover:bg-row-hover transition-colors">
+    <div className="flex items-center gap-3 py-3 border-b border-border/40 last:border-b-0 hover:bg-row-hover transition-colors">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium truncate">{name}</span>
@@ -151,7 +151,7 @@ function PluginServerRow({ server }: { server: PluginMcpServerView }) {
     <button
       type="button"
       onClick={() => openPluginsPage(server.pluginId)}
-      className="group flex w-full items-center gap-3 rounded-lg border border-border/40 bg-background/40 px-4 py-3 text-left transition-colors hover:bg-row-hover"
+      className="group flex w-full items-center gap-3 border-b border-border/40 last:border-b-0 py-3 text-left transition-colors hover:bg-row-hover"
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
@@ -208,7 +208,7 @@ function ServerFormPanel({ initial, existingNames, editingName, onSave, onCancel
   const valid = isFormValid(form) && !nameConflict
 
   return (
-    <div className="rounded-lg border border-border/40 bg-background/40 p-4 space-y-3">
+    <div className="space-y-3 py-3">
       <div className="space-y-1">
         <label className="text-xs font-medium text-muted-foreground">
           <FormattedMessage id="settings.mcp.serverName.label" defaultMessage="Server name" />
@@ -397,7 +397,6 @@ export function McpSettings() {
   return (
     <div className="space-y-4">
       <SettingsSection
-        icon={Plug}
         title={<FormattedMessage id="settings.mcp.title" defaultMessage="MCP Servers" />}
         description={<FormattedMessage id="settings.mcp.desc" defaultMessage="Configure Model Context Protocol servers available to all providers." />}
         action={editing !== 'new' && (
@@ -415,7 +414,7 @@ export function McpSettings() {
       >
         <div className="space-y-2">
           {names.length === 0 && editing !== 'new' && (
-            <div className="rounded-xl border border-dashed border-border/40 py-6 text-center text-sm text-muted-foreground">
+            <div className="py-6 text-center text-sm text-muted-foreground">
               <FormattedMessage id="settings.mcp.empty" defaultMessage="No MCP servers configured yet." />
             </div>
           )}
@@ -464,7 +463,6 @@ export function McpSettings() {
 
       {pluginServers.length > 0 && (
         <SettingsSection
-          icon={Package}
           title={<FormattedMessage id="settings.mcp.plugin.title" defaultMessage="From plugins" />}
           description={
             <FormattedMessage

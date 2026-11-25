@@ -33,6 +33,11 @@ import {
   startRemotePairing,
 } from './remote-e2ee.js'
 import { remoteE2EERoutes } from '../routes/remote-e2ee.js'
+import { getConfirmedRemoteDeviceKeys } from './remote-e2ee.js'
+import { createDirectIngress } from './direct-ingress.js'
+import { serve } from '@hono/node-server'
+import type http from 'node:http'
+import type { AddressInfo } from 'node:net'
 
 // startRemotePairing refuses without a connected node; the values are otherwise
 // opaque to the approval path under test.
@@ -209,6 +214,103 @@ describe('remote E2EE middleware', () => {
     expect(await webhook.json()).toEqual({ received: { action: 'created' } })
     // Only the events prefix is exempt; the rest of /api/integrations still needs E2EE.
     expect((await app.request('/api/integrations/status', { headers: { [REMOTE_TUNNEL_HEADER]: '1' } })).status).toBe(426)
+  })
+})
+
+/**
+ * A paired phone reaching this machine directly over Tailscale: through the
+ * direct listener (as Tailscale Serve hands it on) to the real middleware.
+ */
+describe('a paired phone through the direct listener', () => {
+  const listening = (server: http.Server) => new Promise<number>((resolve) => {
+    if (server.listening) resolve((server.address() as AddressInfo).port)
+    else server.once('listening', () => resolve((server.address() as AddressInfo).port))
+  })
+
+  async function withListener(run: (base: string) => Promise<void>) {
+    initRemoteE2EE({ storage, mode: 'required' })
+    const app = new Hono()
+    app.use('/api/*', createRemoteE2EEMiddleware())
+    app.post('/api/echo', async (c) => c.json({ received: await c.req.json(), remote: c.req.header(REMOTE_TUNNEL_HEADER) ?? null }))
+    app.route('/api/e2ee', remoteE2EERoutes())
+    const server = serve({ fetch: app.fetch, port: 0, hostname: '127.0.0.1' }) as http.Server
+    const port = await listening(server)
+    const ingress = createDirectIngress({
+      localPort: () => port,
+      localToken: () => undefined,
+      delegationTunnelToken: 'tunnel-token',
+      selfNodeId: () => 'node-test',
+      trustedPeer: () => null,
+      pairedDevice: (deviceId) => getConfirmedRemoteDeviceKeys(deviceId) !== null,
+      e2eeRequired: () => true,
+    })
+    ingress.listen(0, '127.0.0.1')
+    try {
+      await run(`http://127.0.0.1:${await listening(ingress)}`)
+    } finally {
+      for (const each of [ingress, server]) {
+        each.closeAllConnections()
+        await new Promise((resolve) => each.close(resolve))
+      }
+    }
+  }
+
+  function sealed(method: string, apiPath: string, body?: unknown) {
+    const keys = deriveRemoteDirectionKeys(pairing)
+    const innerContentType = body === undefined ? '' : 'application/json'
+    const aad = requestAad({ method, apiPath, deviceId: pairing.deviceId, keyId: pairing.keyId, innerContentType })
+    const envelope = seal(body === undefined ? new Uint8Array() : utf8(JSON.stringify(body)), keys.request, aad)
+    const headers: Record<string, string> = {
+      [E2EE_HEADER]: 'v1', [E2EE_DEVICE_HEADER]: pairing.deviceId, [E2EE_KEY_HEADER]: pairing.keyId,
+      [E2EE_INNER_CONTENT_TYPE_HEADER]: innerContentType,
+    }
+    if (body === undefined) headers[E2EE_PROOF_HEADER] = encodeEnvelope(envelope)
+    else headers['content-type'] = 'application/json'
+    return {
+      init: { method, headers, ...(body === undefined ? {} : { body: encodeEnvelope(envelope) }) },
+      context: responseContext({ method, apiPath, requestNonce: envelope.nonce }),
+      async read(response: Response): Promise<unknown> {
+        const innerType = response.headers.get(E2EE_INNER_CONTENT_TYPE_HEADER) ?? ''
+        const parts = (await response.text()).trim().split('\n').map((line) => {
+          const frame = decodeStreamFrame(line)
+          return open(frame, keys.response, responseFrameAad({
+            deviceId: pairing.deviceId, keyId: pairing.keyId, context: this.context, status: response.status,
+            framing: 'ndjson', innerContentType: innerType, seq: frame.seq, final: frame.final,
+          }))
+        })
+        return JSON.parse(new TextDecoder().decode(concat(parts)))
+      },
+    }
+  }
+
+  it('is opened with its pairing key, as through Broker', async () => {
+    await withListener(async (base) => {
+      const request = sealed('POST', '/api/echo', { secret: 'over tailscale' })
+      const response = await fetch(`${base}/api/echo`, request.init)
+      expect(response.status).toBe(200)
+      expect(response.headers.get(E2EE_CONTEXT_HEADER)).toBe(request.context)
+      // The tunnel marker is not handed to ordinary routes, exactly as through Broker.
+      expect(await request.read(response)).toEqual({ received: { secret: 'over tailscale' }, remote: null })
+    })
+  })
+
+  it('still needs encryption: a plain request from a paired device id is refused', async () => {
+    await withListener(async (base) => {
+      const response = await fetch(`${base}/api/echo`, {
+        method: 'POST', headers: { [E2EE_DEVICE_HEADER]: pairing.deviceId, 'content-type': 'application/json' }, body: '{}',
+      })
+      expect(response.status).toBe(426)
+    })
+  })
+
+  it('learns the direct address over the sealed channel', async () => {
+    await withListener(async (base) => {
+      const request = sealed('GET', '/api/e2ee/direct')
+      const response = await fetch(`${base}/api/e2ee/direct`, request.init)
+      expect(response.status).toBe(200)
+      // Not published in this test.
+      expect(await request.read(response)).toEqual({ address: null })
+    })
   })
 })
 

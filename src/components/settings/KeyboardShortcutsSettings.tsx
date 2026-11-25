@@ -100,7 +100,7 @@ export function KeyboardShortcutsSettings() {
   }, [recording, setKeys])
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-8">
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -128,9 +128,9 @@ export function KeyboardShortcutsSettings() {
       {sections.map(({ section, commands }) => (
         <div
           key={section}
-          className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5"
+          className="space-y-3"
         >
-          <div className="text-sm font-semibold">{SECTION_LABEL[section]}</div>
+          <h2 className="text-sm font-semibold">{SECTION_LABEL[section]}</h2>
           <div className="divide-y divide-border/40">
             {commands.map((command) => {
               const keys = keysFor(command.id)
@@ -196,7 +196,7 @@ export function KeyboardShortcutsSettings() {
       ))}
 
       {sections.length === 0 && (
-        <div className="rounded-xl border border-dashed border-border/40 p-8 text-center text-xs text-muted-foreground">
+        <div className="py-8 text-center text-xs text-muted-foreground">
           <FormattedMessage
             id="settings.shortcuts.noMatches"
             defaultMessage="No shortcuts match that search."

@@ -17,6 +17,7 @@ import type {
   AgentBinding,
 } from '../types/channel.js'
 import { getUserId, getSelectedNodeId } from './web-auth.js'
+import { directOnlyNodeBaseUrl, isAccountless } from './remote-route.js'
 import type { Notification, UnreadCounts } from '@/types/notification'
 import type { SpecRole, SpecRoleSettings, SpecStage, SpecView } from '@shared/spec'
 import type {
@@ -42,6 +43,8 @@ let _apiToken: string | null = null
  * userId comes from the login token. Not cached — the user can switch nodes at runtime.
  */
 function brokerNodeBaseUrl(nodeId: string | null): string | null {
+  // Without an account: a stand-in URL secure-fetch sends straight to the machine.
+  if (isAccountless()) return nodeId ? directOnlyNodeBaseUrl(nodeId) : null
   const broker = (import.meta.env.VITE_BROKER_URL ?? '').replace(/\/$/, '')
   const userId = getUserId()
   if (!userId || !nodeId) return null

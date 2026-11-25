@@ -15,6 +15,7 @@ import { SendToButton } from '../SendToButton';
 import { SendToChatButton } from '../SendToChatButton';
 import {
   extractExternalAgentTaskId,
+  hasExternalAgentResult,
   isExternalAgentTool,
   type ExternalAgentResultMetadata,
 } from './ExternalAgentRenderer';
@@ -81,6 +82,10 @@ const getFilteredMessageText = (message: UIMessage) => {
 const hasAssistantActionCandidate = (message: UIMessage) =>
   message.role === 'assistant' &&
   (message.parts ?? []).some((part) => isTextPart(part) && part.text.trim().length > 0);
+
+// Both remain useful after the parent has finished its work.
+const staysOutsideWorkFold = (part: ToolPartLike) =>
+  isHtmlRenderResult(part) || hasExternalAgentResult(part);
 
 const hasExternalAgentToolPart = (message: UIMessage) =>
   (message.parts ?? []).some((part) => {
@@ -372,7 +377,7 @@ const MessageItem = memo(function MessageItem({
     // A published page stays top-level regardless: it is what the reader came
     // for, so it shows on its own while the program folds with the other work.
     const programId = programToolCallIdOf(part);
-    const heldByProgram = programId !== null && programIds.has(programId) && !isHtmlRenderResult(part as ToolPartLike);
+    const heldByProgram = programId !== null && programIds.has(programId) && !staysOutsideWorkFold(part as ToolPartLike);
     const parentId = getParentToolCallId(part) ?? (heldByProgram ? programId : null);
     if (!parentId) continue;
 
@@ -537,7 +542,7 @@ const MessageItem = memo(function MessageItem({
           const before = segments.filter((segment) => segmentStart(segment) < foldEnd);
           const pinned = (segment: Segment) =>
             segment.type === 'single' && isToolPart(sortedParts[segment.partIndex])
-            && isHtmlRenderResult(sortedParts[segment.partIndex] as ToolPartLike);
+            && staysOutsideWorkFold(sortedParts[segment.partIndex] as ToolPartLike);
           const folded = before.filter((segment) => !pinned(segment));
           if (folded.length === 0 || before.some(segmentAwaitsApproval)) {
             return segments.map(renderSegment);

@@ -65,6 +65,7 @@ export interface TaskChildSession {
   workspaceId: number | null
   providerId: string | null
   modelId: string | null
+  effort?: string
   updatedAt: number
 }
 

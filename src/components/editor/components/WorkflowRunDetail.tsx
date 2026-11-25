@@ -30,13 +30,8 @@ import {
 import { type WorkflowRunView, type WorkflowAgentView } from '@/lib/api';
 import { useChatApi } from '@/lib/chat-api-context';
 import { useProviders } from '@/lib/provider-queries';
-import { invalidateWorkflowAgentChunks, useWorkflowAgentChunks, useWorkflowRunScript } from '@/lib/workflow-run-queries';
-import {
-  AgentStreamView,
-  INITIAL_AGENT_STREAM_STATE,
-  reduceAgentChunk,
-  type AgentStreamState,
-} from './agent-stream';
+import { useWorkflowAgentTranscript, useWorkflowRunScript } from '@/lib/workflow-run-queries';
+import { AgentStreamView, INITIAL_AGENT_STREAM_STATE } from './agent-stream';
 import { WorkflowApprovalPrompt } from './WorkflowRunsWatcher';
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import {
@@ -271,7 +266,7 @@ function resultValue(result: unknown): { text: string } | { value: unknown } {
 }
 
 /**
- * One agent: who ran it, how long it took, what came back — expandable to its stream.
+ * One agent: who ran it, how long it took, what came back — expandable to its transcript.
  * Also lists a spec's agents on its progress card, which has no engine task id.
  *
  * An agent that ran as a chat links to it; `onOpenChat` says where that opens
@@ -280,41 +275,20 @@ function resultValue(result: unknown): { text: string } | { value: unknown } {
 export function AgentRow({
   runId,
   agent,
-  stream,
   onOpenChat,
   referenceRootPath = null,
 }: {
   referenceRootPath?: string | null;
   runId: string | undefined;
   agent: Omit<WorkflowAgentView, 'taskId'>;
-  stream: AgentStreamState | undefined;
   onOpenChat?: (chatId: number) => void;
 }) {
   const [open, setOpen] = useState(false);
-  // A finished run has no live frames left, but the node recorded them. Replay
-  // through the SAME reducer the live stream uses, so there is only ever one
-  // rendering of an agent's work. Fetched on expand — a run can have many agents
-  // and their transcripts are the bulk of it.
-  const wantsReplay = open && !stream && runId != null;
-  // Without a live stream, a running agent's transcript is re-read every few
-  // seconds (and right after a message is sent), so the row keeps up with it.
-  const chunksQuery = useWorkflowAgentChunks(runId, agent.index, {
-    enabled: wantsReplay,
-    running: agent.state === 'running',
-  });
-  const replay = useMemo<{ state: AgentStreamState; truncated: boolean } | null>(() => {
-    // A failed read renders as an empty transcript rather than spinning forever.
-    if (chunksQuery.isError) return { state: INITIAL_AGENT_STREAM_STATE, truncated: false };
-    if (!chunksQuery.data) return null;
-    const state = chunksQuery.data.chunks.reduce<AgentStreamState>(
-      (acc, chunk) => reduceAgentChunk(acc, chunk as Record<string, unknown>),
-      INITIAL_AGENT_STREAM_STATE,
-    );
-    return { state, truncated: chunksQuery.data.truncated };
-  }, [chunksQuery.data, chunksQuery.isError]);
-  const loading = chunksQuery.isFetching;
   // The latest one: a handoff to another provider starts a new chat.
   const chatId = agent.chatIds?.at(-1);
+  // Fetched on expand — a run can have many agents and their transcripts are the
+  // bulk of it. A turn the agent is running is watched on its chat's stream.
+  const transcript = useWorkflowAgentTranscript(runId, agent.index, chatId, { enabled: open });
   const elapsed =
     agent.startedAt != null ? (agent.endedAt ?? (agent.state === 'running' ? Date.now() : undefined)) : undefined;
   const duration = elapsed != null && agent.startedAt != null ? formatDuration(elapsed - agent.startedAt) : null;
@@ -368,13 +342,11 @@ export function AgentRow({
       {open && (
         <div className="border-t border-border/30 px-3 py-2 sm:pl-9">
           {agent.error && <div className="mb-2 text-xs leading-5 text-status-error">{fileCitationsToText(agent.error)}</div>}
-          {/* `replay` outranks `loading`: once the transcript is in hand it is
-              what the user wants to see, whatever the in-flight flag says. */}
-          {stream ? (
-            <AgentStreamView state={stream} />
-          ) : replay ? (
+          {/* The transcript outranks `loading`: once it is in hand it is what
+              the user wants to see, whatever the in-flight flag says. */}
+          {transcript.state ? (
             <>
-              {replay.truncated && (
+              {transcript.truncated && (
                 <div className="pb-1 text-[11px] text-status-warn">
                   <FormattedMessage
                     id="editor.workflow.transcriptTruncated"
@@ -382,9 +354,9 @@ export function AgentRow({
                   />
                 </div>
               )}
-              <AgentStreamView state={replay.state} />
+              <AgentStreamView state={transcript.state} />
             </>
-          ) : loading ? (
+          ) : transcript.loading ? (
             <div className="flex items-center gap-2 py-1 text-[11px] text-muted-foreground/60">
               <Loader2 className="h-3 w-3 animate-spin" />
               <FormattedMessage id="editor.workflow.loadingTranscript" defaultMessage="loading transcript…" />
@@ -397,7 +369,6 @@ export function AgentRow({
               runId={runId}
               index={agent.index}
               current={agent.agentType}
-              onSent={() => { if (runId != null) void invalidateWorkflowAgentChunks(runId, agent.index) }}
             />
           )}
         </div>
@@ -415,13 +386,11 @@ function AgentSteerBox({
   runId,
   index,
   current,
-  onSent,
 }: {
   runId: string;
   index: number;
   /** The provider running it now — not offered as a replacement. */
   current: string | undefined;
-  onSent: () => void;
 }) {
   const api = useChatApi();
   const intl = useIntl();
@@ -432,8 +401,9 @@ function AgentSteerBox({
   const handTo = async (providerId: string) => {
     setError(null);
     try {
+      // The new provider's chat joins the agent's `chatIds` on the run feed;
+      // the expanded transcript follows it from there.
       await api.aiWorkflowAgentReplace(runId, index, providerId);
-      onSent();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -445,8 +415,8 @@ function AgentSteerBox({
     setError(null);
     try {
       await api.aiWorkflowAgentSteer(runId, index, message);
+      // Shows up in the transcript where the agent takes it in, on its turn stream.
       setText('');
-      onSent();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -522,17 +492,10 @@ function AgentSteerBox({
 export function WorkflowRunDetail({
   run,
   fallbackName,
-  agentStreams,
   defaultOpen = true,
 }: {
   run: WorkflowRunView | null;
   fallbackName: string;
-  /**
-   * Per-agent live stream state, keyed by agent index. Empty for a run restored
-   * from the durable list — each row then replays its recorded transcript on
-   * expand, so a finished run shows the same detail a live one does.
-   */
-  agentStreams: Map<number, AgentStreamState>;
   defaultOpen?: boolean;
 }) {
   const api = useChatApi();
@@ -767,7 +730,6 @@ export function WorkflowRunDetail({
                         key={agent.index}
                         runId={run?.runId}
                         agent={agent}
-                        stream={agentStreams.get(agent.index)}
                       />
                     ))}
                   </div>

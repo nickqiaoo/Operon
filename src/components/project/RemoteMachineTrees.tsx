@@ -8,7 +8,7 @@ import { subscribeEvents } from "@/lib/event-stream"
 import { delegationMachinesQuery } from "@/lib/delegation-queries"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { remoteFoldKey, useProjectStore, type Project, type Workspace } from "@/stores/project-store"
-import { useChatPresenceStore } from "@/stores/chat-presence-store"
+import { useChatRunningStore } from "@/stores/chat-running-store"
 import { chatHistoryKeys } from "@/lib/chat-queries"
 import { providersQueryFor } from "@/lib/provider-queries"
 import { nodeChatIds } from "@/lib/chat-ref"
@@ -233,9 +233,9 @@ function RemoteMachineTree({ machine, activeWorkspaceId, renderWorkspace }: {
   }, [queryClient, nodeId, online, reachable])
 
   // A turn starting or ending there moves its chat to the top of its workspace's
-  // rows, as this machine's do (ActiveConversations). Presence of another machine
+  // rows, as this machine's do (ActiveConversations). Turn status of another machine
   // is followed while one of its chats is open; the lists also poll.
-  const runningKey = useChatPresenceStore((s) => [...nodeChatIds(s.runningChats, nodeId)].sort((a, b) => a - b).join(","))
+  const runningKey = useChatRunningStore((s) => [...nodeChatIds(s.runningChats, nodeId)].sort((a, b) => a - b).join(","))
   // It is also when an agent's edits land, so the rows' +N/-N are read again.
   useEffect(() => {
     void queryClient.invalidateQueries({

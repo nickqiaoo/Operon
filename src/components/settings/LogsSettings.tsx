@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils"
-import { Eye, EyeOff, FileText, FolderOpen, RefreshCw } from "lucide-react"
+import { Eye, EyeOff, FolderOpen, RefreshCw } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { FormattedMessage } from "react-intl"
 import { Button } from "@/components/ui/button"
@@ -34,7 +34,6 @@ export function LogsSettings() {
 
     return (
         <SettingsSection
-            icon={FileText}
             title={<FormattedMessage id="settings.logs.title" defaultMessage="Debug Logging" />}
             description={
                 <>

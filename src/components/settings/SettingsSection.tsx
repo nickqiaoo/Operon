@@ -1,24 +1,14 @@
-import type { ComponentType, ReactNode } from "react"
+import type { ReactNode } from "react"
 
 import { cn } from "@/lib/utils"
 
-/**
- * The one card every Settings tab is built from (see CLAUDE.md "Settings 页签卡片").
- *
- * Header is icon + title + one-line description, with an optional `action` pinned
- * to the right (a status badge, a Refresh button). Body goes below with `space-y-4`.
- * Tabs used to hand-copy these classes, and the ones that didn't ended up as bare
- * rows on the canvas — which is why some tabs read as cards and others as a list.
- */
 export function SettingsSection({
-  icon: Icon,
   title,
   description,
   action,
   className,
   children,
 }: {
-  icon?: ComponentType<{ className?: string }>
   title: ReactNode
   description?: ReactNode
   action?: ReactNode
@@ -26,11 +16,10 @@ export function SettingsSection({
   children?: ReactNode
 }) {
   return (
-    <section className={cn("space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5", className)}>
+    <section className={cn("settings-section space-y-4", className)}>
       <div className="flex items-start gap-3">
-        {Icon && <Icon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />}
         <div className="min-w-0 flex-1">
-          <div className="mb-1 text-sm font-semibold">{title}</div>
+          <h2 className="mb-1 text-sm font-semibold">{title}</h2>
           {description && <div className="text-xs text-muted-foreground">{description}</div>}
         </div>
         {action && <div className="flex shrink-0 items-center gap-1.5">{action}</div>}

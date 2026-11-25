@@ -1,5 +1,5 @@
 import { useEffect } from "react"
-import { watchPendingInput } from "@/lib/live-turn-events"
+import { watchChatStatus } from "@/lib/chat-status-events"
 
 /**
  * One app-level watch of what every conversation is waiting on a person for.
@@ -8,6 +8,6 @@ import { watchPendingInput } from "@/lib/live-turn-events"
  * `nodeId` set: another machine's, while a tab shows one of its chats.
  */
 export function PendingInputSync({ nodeId }: { nodeId?: string } = {}) {
-  useEffect(() => watchPendingInput(nodeId), [nodeId])
+  useEffect(() => watchChatStatus(nodeId), [nodeId])
   return null
 }

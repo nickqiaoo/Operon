@@ -40,7 +40,7 @@ export function BrowserUseSettings() {
     return (
         <div className="space-y-4">
             {error && <div className="flex items-center gap-2 text-xs text-destructive"><AlertCircle className="size-4" />{error}</div>}
-            <section className="rounded-xl border border-border/40 bg-muted/10 p-5">
+            <section className="settings-section">
                 <div className="flex items-start gap-3">
                     <AppWindow className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
                     <div className="flex-1">
@@ -49,7 +49,7 @@ export function BrowserUseSettings() {
                     </div>
                     <Switch checked={enabled} disabled={busy} onCheckedChange={(next) => void toggle(next)} />
                 </div>
-                {!enabled && <p className="mt-4 rounded-lg border border-border/40 bg-background/40 p-3 text-xs text-muted-foreground"><FormattedMessage id="settings.browserUse.enabled.off" defaultMessage="Agents cannot see the browser. Sites you approved before are kept and apply again once you turn this back on." /></p>}
+                {!enabled && <p className="mt-4 py-3 text-xs text-muted-foreground"><FormattedMessage id="settings.browserUse.enabled.off" defaultMessage="Agents cannot see the browser. Sites you approved before are kept and apply again once you turn this back on." /></p>}
             </section>
         </div>
     )

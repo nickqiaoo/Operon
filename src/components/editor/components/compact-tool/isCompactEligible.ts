@@ -1,5 +1,5 @@
 import { isAskUserQuestionTool } from '../AskUserQuestionRenderer';
-import { isExternalAgentTool } from '../ExternalAgentRenderer';
+import { hasExternalAgentResult } from '../ExternalAgentRenderer';
 import { createdTaskNumber } from '../TaskCreatedRenderer';
 import { createdWorkspace } from '../WorkspaceCreatedRenderer';
 import { isScheduleTaskResult } from '../ScheduleTaskRenderer';
@@ -36,11 +36,6 @@ const EXIT_PLAN_NAMES = new Set([
  * - A Code Mode program (RunCode / OpenCode `execute`) → CodeProgramRenderer, which holds
  *   the calls it made. Work groups use that renderer too, rather than a generic compact row.
  */
-const hasToolResult = (part: ToolPartLike) => {
-  const record = part as { output?: unknown; result?: unknown };
-  return record.output !== undefined || record.result !== undefined;
-};
-
 export function isCompactEligible(part: ToolPartLike & { state?: string }): boolean {
   const toolName = getToolDisplayName(part);
   if (EXIT_PLAN_NAMES.has(toolName)) return false;
@@ -63,7 +58,7 @@ export function isCompactEligible(part: ToolPartLike & { state?: string }): bool
   // Same condition MessagePartRenderer uses to draw the agent card. Without it
   // the card only showed while the call was the streaming tail; once the parent
   // said anything after it, the run folded into "Ran N commands" as a raw row.
-  if (isExternalAgentTool(part) && hasToolResult(part)) return false;
+  if (hasExternalAgentResult(part)) return false;
   return true;
 }
 

@@ -1,3 +1,4 @@
+import type { CodexAccountsView } from '@operon/agent-runtime/codex'
 import type { WorkspaceTask } from '@/stores/project-store'
 import type { ClaudeToggles } from '@shared/claude-toggles'
 import type { CliAutoUpdateAdapterId, CliAutoUpdateState, CliAutoUpdateStatus } from '@shared/cli-auto-update'
@@ -19,7 +20,7 @@ import type {
 import type { CanvasWorkflow, CanvasWorkflowListItem, CanvasWorkflowRun, CreateCanvasWorkflowInput, UpdateCanvasWorkflowInput } from '@/types/canvas-workflow'
 import type { FileUIPart, UIMessage } from 'ai'
 import type {
-  DelegationMachine, IncomingDelegation, MachinePairingCode, MachinePairingCodeStatus, MachinePeer,
+  DelegationMachine, DirectInfo, DirectLinkStatus, DirectRouteMode, IncomingDelegation, MachinePairingCode, MachinePairingCodeStatus, MachinePeer,
 } from '@shared/delegations'
 import type { DetailedContextUsage } from '@/types/context-usage'
 import type { ClaudeRateLimits, CodexRateLimits } from '@/components/editor/utils/chatMetadata'
@@ -288,17 +289,16 @@ export interface WorkflowRunView {
 }
 
 /**
- * One frame of a workflow feed (`/ai/workflow/feed`, `/ai/workflow/run/:id/feed`).
+ * One frame of the workflow feed (`/ai/workflow/feed`).
  *
  * The server folds run views before sending them, so the client never
- * reconstructs run state from events — it only accumulates sub-agent `chunk`
- * frames, through the same reducer the rest of the app uses. `id` is the event
- * log position, passed back as `since` on reconnect.
+ * reconstructs run state from events. A sub-agent's output is not on it: the
+ * agent is a chat, watched on that chat's turn stream. `id` is the event log
+ * position.
  */
 export type WorkflowFeedFrame =
-  | { t: 'sync'; id: number; runs?: WorkflowRunView[]; run?: WorkflowRunView }
+  | { t: 'sync'; id: number; runs?: WorkflowRunView[] }
   | { t: 'run'; id: number; run: WorkflowRunView; kind?: WorkflowFeedEventKind }
-  | { t: 'chunk'; id: number; runId: string; index: number; chunks: unknown[] }
 
 /**
  * The event kind behind a `run` frame, as the server's log spells it.
@@ -431,6 +431,14 @@ export function createApi(transport: ApiTransport) {
       /** A code for a server to join the account and pair with this machine (`operon node join`). Also shows a pairing code. */
       startNodeEnrollment: () => post<MachinePairingCode>('/delegations/local/enroll/code', {}),
       revokeMachinePeer: (nodeId: string) => post<{ peer: MachinePeer }>(`/delegations/local/peers/${encodeURIComponent(nodeId)}/revoke`, {}),
+      /** Direct connections to paired machines over Tailscale. `probe` checks each machine's route now. */
+      directLinkStatus: (probe = false) => get<DirectLinkStatus>(`/delegations/local/direct${probe ? '?probe=1' : ''}`),
+      /** `phones`: publish this machine for paired phones through Tailscale Serve. */
+      setDirectLink: (input: { enabled?: boolean; port?: number; broker?: boolean }) => post<DirectLinkStatus>('/delegations/local/direct', input),
+      /** Sealed, from a paired phone or browser: where this machine can be reached directly (`DIRECT_INFO_PATH`). */
+      directInfo: () => get<DirectInfo>('/e2ee/direct'),
+      setDirectPeerMode: (nodeId: string, mode: DirectRouteMode) =>
+        post<DirectLinkStatus>(`/delegations/local/direct/peers/${encodeURIComponent(nodeId)}`, { mode }),
       // --- Git (HTTP) ---
       gitStatus: httpClient.gitStatus,
       gitDiff: httpClient.gitDiff,
@@ -516,10 +524,13 @@ export function createApi(transport: ApiTransport) {
         ),
       aiWorkflowRuns: (limit = 50) =>
         get<{ runs: WorkflowRunView[] }>(`/ai/workflow/runs?limit=${limit}`),
-      /** One sub-agent's recorded output — for expanding an agent on a finished run. */
-      aiWorkflowAgentChunks: (runId: string, agentIndex: number) =>
+      /**
+       * One sub-agent's recorded output. `settled` leaves out a turn still
+       * running, for a reader watching that turn on the chat's stream.
+       */
+      aiWorkflowAgentChunks: (runId: string, agentIndex: number, options: { settled?: boolean } = {}) =>
         get<{ chunks: unknown[]; truncated: boolean }>(
-          `/ai/workflow/run/${encodeURIComponent(runId)}/agent/${agentIndex}/chunks`,
+          `/ai/workflow/run/${encodeURIComponent(runId)}/agent/${agentIndex}/chunks${options.settled ? '?settled=1' : ''}`,
         ),
       /** The script a run was launched with — fetched on demand, never on the list. */
       aiWorkflowScript: (runId: string) =>
@@ -546,12 +557,6 @@ export function createApi(transport: ApiTransport) {
       /** The always-open feeds on one stream — see `lib/event-stream.ts`. */
       eventStreamUrl: async (channels: readonly string[]) =>
         `${await getBaseUrl()}/events?ch=${channels.map(encodeURIComponent).join(',')}&limit=30`,
-      /** `since` resumes an interrupted connection; omit it to replay the run's whole log. */
-      aiWorkflowRunFeedUrl: async (runId: string, since?: number) => {
-        const baseUrl = await getBaseUrl()
-        const query = since != null ? `?since=${since}` : ''
-        return `${baseUrl}/ai/workflow/run/${encodeURIComponent(runId)}/feed${query}`
-      },
       aiCCDynamicSet: (payload: { chatId: number; modelId?: string; modeId?: string; thinkingLevel?: string; serviceTier?: string }) =>
         softPost<{ success: boolean; error?: string }>('/ai/cc/dynamic-set', payload),
       aiCompact: (payload: { chatId: number; modelId: string; providerId?: string; workspaceId?: number }) =>
@@ -704,6 +709,14 @@ export function createApi(transport: ApiTransport) {
         softPost<{ success: boolean; cronjob?: CronjobTask; error?: string }>(`/cronjobs/${id}/run`, {}),
       cronjobHistory: (id: number) =>
         get<{ history: CronjobExecutionHistoryItem[] }>(`/cronjobs/${id}/history`),
+
+      codexAccounts: (refresh = false) => get<CodexAccountsView>('/codex-accounts' + (refresh ? '?refresh=1' : '')),
+      codexAccountLogin: (device: boolean, id?: string) => post<{ url: string; code?: string }>('/codex-accounts/login', { device, id }),
+      codexAccountCancel: () => post('/codex-accounts/cancel', {}),
+      codexWorkspaceSelect: (id: string, workspace: string) => post('/codex-accounts/' + encodeURIComponent(id) + '/workspaces/' + encodeURIComponent(workspace) + '/select', {}),
+      codexAccountSelect: (id: string) => post('/codex-accounts/' + encodeURIComponent(id) + '/select', {}),
+      codexAccountRemove: (id: string) => del('/codex-accounts/' + encodeURIComponent(id)),
+      codexAccountAutomatic: (enabled: boolean) => put('/codex-accounts/automatic', { enabled }),
 
       // --- CLI Paths ---
       cliPathsGet: () =>

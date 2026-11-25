@@ -553,10 +553,10 @@ export function ProvidersTab() {
   }
 
   return (
-    <div className="grid min-h-[520px] gap-4 lg:grid-cols-[232px_minmax(0,1fr)] lg:gap-5">
+    <div className="grid min-h-[520px] gap-4 lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-6">
 
       {/* Left column */}
-      <div className="flex min-h-0 max-h-72 flex-col self-start overflow-hidden rounded-xl border border-border/60 bg-muted/15 p-2 lg:max-h-[min(640px,70dvh)]">
+      <div className="flex min-h-0 max-h-72 flex-col self-start overflow-hidden lg:border-r lg:border-border/40 lg:pr-4 lg:max-h-[min(640px,70dvh)]">
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 pb-2 shrink-0">
           <FormattedMessage id="settings.providers.heading" defaultMessage="Providers" />
         </p>
@@ -608,7 +608,7 @@ export function ProvidersTab() {
       </div>
 
       {/* Right column */}
-      <div className="min-w-0 rounded-xl border border-border/60 bg-background/80 p-4 sm:p-5">
+      <div className="min-w-0">
         {selectedProvider && <ProviderPanel
           key={selectedProvider.id}
           provider={selectedProvider}

@@ -1,5 +1,5 @@
 import type { UIMessage } from 'ai'
-import { handleChat } from './chat-flow.js'
+import { ChatBusyError, runChatTurn } from './chat-flow.js'
 import { injectIntoChat } from './session-ops.js'
 import { getChatStorage, getSessionManager } from './state.js'
 import { findLatestUserMessage } from './helpers.js'
@@ -68,11 +68,15 @@ export async function deliverChatMessage(chatId: number, message: UIMessage, req
       continue
     }
     if (requestedMode !== 'auto') throw new Error(`No active execution for ${requestedMode}`)
-    const response = await handleChat({ chatId, requestId, messages: [message], providerId: meta.providerId, modelId: meta.model,
-      modeId: meta.metadata?.modeId, thinkingLevel: meta.thinkingLevel, workspaceId: meta.workspaceId }, undefined, { onlyIfIdle: true })
-    void response.body?.cancel().catch(() => {})
-    if (response.status === 409) continue
-    return { delivery: response.ok ? 'started' : 'unknown', requestId,
-      ...(!response.ok ? { error: `HTTP ${response.status}; delivery unconfirmed. Do not resend automatically.` } : {}) }
+    try {
+      await runChatTurn({ chatId, requestId, messages: [message], providerId: meta.providerId, modelId: meta.model,
+        modeId: meta.metadata?.modeId, thinkingLevel: meta.thinkingLevel, workspaceId: meta.workspaceId },
+      { userFacing: true, notifyInbox: true, admission: 'idle-only' })
+    } catch (error) {
+      if (error instanceof ChatBusyError) continue
+      return { delivery: 'unknown', requestId,
+        error: `${error instanceof Error ? error.message : String(error)}; delivery unconfirmed. Do not resend automatically.` }
+    }
+    return { delivery: 'started', requestId }
   }
 }

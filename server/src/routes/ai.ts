@@ -1,3 +1,4 @@
+import { canScheduleAt } from '@shared/scheduled-messages'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { FileUIPart } from 'ai'
@@ -6,6 +7,7 @@ import { getChatStorage } from '../services/ai/state.js'
 import type { PermissionOutcome } from '../services/ai.js'
 import type { AiChatRequest } from '../services/ai/types.js'
 import { waitForChatTurnIdle } from '../services/ai/chat-turn-lifecycle.js'
+import { publishExternalAgentSettings } from '../services/external-agent.js'
 import { rememberChatTurnSettings } from '../services/ai/persistence.js'
 import { replaceLiveAgent, steerLiveAgent } from '../services/workflow/live-agents.js'
 import { getOrCreateWorkspaceAssistant } from '../services/workspace-assistant.js'
@@ -51,7 +53,7 @@ function userTextOf(messages: unknown[]): string {
  * sourceChatId would change the session params key and destroy the cached,
  * stateful provider session mid-chat).
  */
-function enrichChatAgentContext(payload: AiChatRequest, storage: AiRouteStorage): void {
+export function enrichChatAgentContext(payload: AiChatRequest, storage: AiRouteStorage): void {
   if (
     payload.agentContext || payload.sshEnvironmentId !== undefined ||
     (payload.chatId && getChatStorage()?.getChatMeta(payload.chatId)?.metadata?.sshEnvironment)
@@ -80,8 +82,25 @@ function enrichChatAgentContext(payload: AiChatRequest, storage: AiRouteStorage)
   }
 }
 
-export function aiRoutes(storage: AiRouteStorage) {
+export function aiRoutes(storage: AiRouteStorage, scheduled?: import('../services/scheduled-messages.js').ScheduledMessages) {
   const router = new Hono()
+
+  if (scheduled) {
+    router.post('/scheduled', async (c) => {
+      const { sendAt, payload } = await c.req.json<{ sendAt: number; payload: AiChatRequest }>()
+      const msg = payload?.messages?.[0]
+      if (!canScheduleAt(sendAt)) return c.json({ code: 'schedule_time_invalid', error: 'Choose a time within the next 12 hours.' }, 400)
+      if (!msg || payload.messages.length !== 1 ||
+          msg.role !== 'user' || !msg.id || !Array.isArray(msg.parts) || !msg.parts.length ||
+          !msg.parts.every(p => (p.type === 'text' && typeof p.text === 'string') || (p.type === 'file' && typeof p.url === 'string' && !p.url.startsWith('blob:')))) {
+        return c.json({ code: 'schedule_message_invalid', error: 'Choose a future time and enter a message.' }, 400)
+      }
+      return c.json(scheduled.enqueue(sendAt, payload))
+    })
+    router.get('/scheduled/:chatId', c => c.json(scheduled.list(Number(c.req.param('chatId')))))
+    router.delete('/scheduled/:chatId/:id', c => scheduled.cancel(Number(c.req.param('chatId')), c.req.param('id'))
+      ? c.json({ success: true }) : c.json({ error: 'This message is no longer pending.' }, 409))
+  }
 
   // POST /api/ai/chat - returns standard AI SDK UIMessageStream response
   router.post('/chat', async (c) => {
@@ -98,44 +117,37 @@ export function aiRoutes(storage: AiRouteStorage) {
     if (payload.workspaceId && msgs[msgs.length - 1]?.role === 'user') {
       void nameWorkspaceFromMessage(storage, payload.workspaceId, userTextOf(msgs))
     }
-    // Deliberately NOT passing c.req.raw.signal: a dropped request must not kill
-    // the turn. Other surfaces may be attached to it via /chat/live/:chatId, and
-    // the requester itself can re-attach after a reload or a tunnel blip. Only a
-    // deliberate POST /api/ai/abort ends a turn early.
+    // Deliberately NOT passing c.req.raw.signal: a dropped request only ends its
+    // subscription, never the turn. Other surfaces may be attached to it via
+    // /chat/stream/:chatId, and the requester itself can re-attach after a reload
+    // or a tunnel blip. Only a deliberate POST /api/ai/abort ends a turn early.
     const response = await aiService.handleChat(payload)
     return response
   })
 
-  // GET /api/ai/chat/live/:chatId — attach to the turn currently streaming on
-  // this chat. Replays the buffered UIMessageChunk bytes from the start, then
-  // tails to completion; the SDK reconciles by message/part id so a full replay
-  // rebuilds the assistant message without duplicating it. 204 when there is
-  // nothing live (the SDK reads that as "nothing to resume").
-  router.get('/chat/live/:chatId', (c) => {
+  // GET /api/ai/chat/stream/:chatId — attach to the chat's turn. Answers with
+  // the reply as it stands, then every chunk after it until the turn ends, over
+  // the same response; the SDK rebuilds the assistant message by id, replacing
+  // what the client already showed of it. 204 when there is no turn to attach to
+  // (the SDK reads that as "nothing to resume"; the client reads history).
+  router.get('/chat/stream/:chatId', (c) => {
     const chatId = parseInt(c.req.param('chatId'), 10)
-    const turn = Number.isFinite(chatId) ? aiService.getLiveTurn(chatId) : undefined
-    if (!turn) return c.body(null, 204)
-    // Replay the turn's own response headers verbatim — the SDK decodes a UI
-    // message stream only when it sees x-vercel-ai-ui-message-stream. X-Chat-Id
-    // is stripped on purpose: that header is what the broker uses to decide a
-    // response is a fresh turn worth buffering, and letting a replay carry it
-    // would make the broker open a second buffer over the real one.
-    const headers = new Headers(turn.headers)
-    headers.delete('X-Chat-Id')
-    return new Response(turn.toReadableStream(c.req.raw.signal), { status: 200, headers })
+    const stream = Number.isFinite(chatId) ? aiService.getChatTurnStream(chatId) : undefined
+    if (!stream) return c.body(null, 204)
+    return aiService.turnStreamResponse(stream)
   })
 
-  // GET /api/ai/chat/live-status — presence for EVERY chat, on one stream.
+  // GET /api/ai/chat/status — what every chat is doing, on one stream: whether
+  // it has a turn, what it waits on a person for, its background sub-agents,
+  // its next-prompt guess. It opens with a `sync` frame holding all of it, then
+  // sends a frame per change.
   //
-  // Replaces one SSE per open conversation. The renderer reaches this server at
-  // http://127.0.0.1:<port> over plain HTTP/1.1, where a browser allows 6 sockets
-  // per origin and never multiplexes; a stream that stays open spends one for its
-  // whole life, so a handful of open tabs filled the pool and every later request
-  // — sending a message included — queued behind connections that never close.
-  //
-  // Registered before the /:chatId form so 'live-status' with no argument is not
-  // read as a chat id.
-  router.get('/chat/live-status', (c) => {
+  // One stream for every chat, not one per open conversation: the renderer
+  // reaches this server over plain HTTP/1.1, where a browser allows 6 sockets per
+  // origin, and a handful of per-chat streams filled the pool so every later
+  // request — sending a message included — queued behind them. In the app it is
+  // one channel of `/api/events` (see app.ts).
+  router.get('/chat/status', (c) => {
     return streamSSE(c, async (stream) => {
       let closed = false
       let wake: () => void = () => {}
@@ -153,9 +165,9 @@ export function aiRoutes(storage: AiRouteStorage) {
       // already serialized, and not yet reaching a listener. The overlap can only
       // duplicate an event, and clients are idempotent on turnId; the gap cannot
       // be recovered at all.
-      const unsub = aiService.subscribeAllLiveTurnPresence((status) => {
+      const unsub = aiService.onChatTurnStatus((status) => {
         if (closed) return
-        stream.writeSSE({ data: JSON.stringify({ type: 'presence', status }) }).catch(close)
+        stream.writeSSE({ data: JSON.stringify({ type: 'turn', status }) }).catch(close)
       })
       // What each chat is waiting on a person for (chat-pending-input.ts). Same
       // subscribe-before-snapshot order, same idempotent frames: each one carries
@@ -178,14 +190,13 @@ export function aiRoutes(storage: AiRouteStorage) {
         stream.writeSSE({ data: JSON.stringify({ type: 'prompt-suggestion', chatId: change.chatId, text: change.text }) }).catch(close)
       })
 
-      // Every chat currently running a turn. A chat missing from this list has no
-      // live turn, which is how one stream answers for conversations the client
-      // never named.
+      // Every chat with a turn. A chat missing from this list has none, which is
+      // how one stream answers for conversations the client never named.
       await stream
         .writeSSE({
           data: JSON.stringify({
             type: 'sync',
-            statuses: aiService.listActiveLiveTurnStatuses(),
+            turns: aiService.listActiveChatTurns(),
             pendingInput: aiService.listChatsAwaitingInput(),
             backgroundTasks: aiService.listChatBackgroundTasks(),
             promptSuggestions: aiService.listChatPromptSuggestions(),
@@ -210,42 +221,6 @@ export function aiRoutes(storage: AiRouteStorage) {
     const transcript = await aiService.getSubagentTranscript(chatId, c.req.param('toolUseId'))
     if (!transcript) return c.json({ error: 'Sub-agent transcript not found' }, 404)
     return c.json(transcript)
-  })
-
-  // GET /api/ai/chat/live-status/:chatId — the single-chat form of the stream
-  // above. SUPERSEDED: the app now subscribes to every chat at once, because one
-  // connection per open conversation exhausted the renderer's 6-socket budget.
-  // Kept for clients built before that change (a web build still cached in a
-  // browser reaches this node through the broker) — nothing in `src/` calls it.
-  // Registered before any other /chat/:param route so 'live-status' is never
-  // read as an argument.
-  router.get('/chat/live-status/:chatId', (c) => {
-    const chatId = parseInt(c.req.param('chatId'), 10)
-    return streamSSE(c, async (stream) => {
-      let closed = false
-      // The handler has to outlive its last write — returning ends the SSE
-      // response — so it parks on this promise. Resolved from onAbort, and from a
-      // failed write for the case where the client is gone but onAbort never
-      // fired: either way the subscription is released rather than leaked.
-      let wake: () => void = () => {}
-      const untilClosed = new Promise<void>((resolve) => {
-        wake = resolve
-      })
-      const close = (): void => {
-        closed = true
-        wake()
-      }
-      stream.onAbort(close)
-      await stream
-        .writeSSE({ data: JSON.stringify(aiService.getLiveTurnStatus(chatId)) })
-        .catch(close)
-      const unsub = aiService.subscribeLiveTurnPresence(chatId, (status) => {
-        if (closed) return
-        stream.writeSSE({ data: JSON.stringify(status) }).catch(close)
-      })
-      await untilClosed
-      unsub()
-    })
   })
 
   // POST /api/ai/permission-response
@@ -325,7 +300,7 @@ export function aiRoutes(storage: AiRouteStorage) {
     return c.json(result)
   })
 
-  // --- Workflows: two feeds over one event log (services/workflow/store.ts) ---
+  // --- Workflows: one feed over the event log (services/workflow/store.ts) ---
 
   const sseHeaders = {
     'Content-Type': 'text/event-stream',
@@ -341,26 +316,12 @@ export function aiRoutes(storage: AiRouteStorage) {
     return c.json({ runs: aiService.listWorkflowRuns(limit) })
   })
 
-  // GET /api/ai/workflow/feed — SSE: every run's view, kept current. Sub-agent
-  // chunks are NOT on this feed; open a run's own feed for those.
+  // GET /api/ai/workflow/feed — SSE: every run's view, kept current. A
+  // sub-agent's output is not on it: the agent is a chat, watched on that chat's
+  // turn stream (GET /chat/stream/:chatId).
   router.get('/workflow/feed', (c) => {
     const limit = Number.parseInt(c.req.query('limit') ?? '50', 10)
     return new Response(aiService.getWorkflowFeed(Number.isFinite(limit) ? limit : 50), { headers: sseHeaders })
-  })
-
-  // GET /api/ai/workflow/run/:runId/feed?since=<eventId> — SSE for one run,
-  // including its sub-agents' output. Without `since` the run's whole log is
-  // replayed first, which is how a panel opened mid-run sees what already
-  // happened; with it, only the missed tail is sent.
-  router.get('/workflow/run/:runId/feed', (c) => {
-    const sinceRaw = c.req.query('since')
-    const since = sinceRaw != null ? Number.parseInt(sinceRaw, 10) : undefined
-    const stream = aiService.getWorkflowRunFeed(
-      c.req.param('runId'),
-      since != null && Number.isFinite(since) ? since : undefined,
-    )
-    if (!stream) return c.json({ error: 'Workflow run not found' }, 404)
-    return new Response(stream, { headers: sseHeaders })
   })
 
   // POST /api/ai/workflow/run/:runId/stop — abort an in-flight run (→ 'stopped')
@@ -381,12 +342,14 @@ export function aiRoutes(storage: AiRouteStorage) {
     return c.json(aiService.getWorkflowScript(c.req.param('runId')))
   })
 
-  // GET /api/ai/workflow/run/:runId/agent/:index/chunks — one sub-agent's
-  // recorded output, for expanding an agent on a finished run.
+  // GET /api/ai/workflow/run/:runId/agent/:index/chunks?settled=1 — one
+  // sub-agent's recorded output. `settled` leaves out a turn still running: a
+  // panel watching that turn's stream renders it from there.
   router.get('/workflow/run/:runId/agent/:index/chunks', (c) => {
     const index = Number.parseInt(c.req.param('index'), 10)
     if (!Number.isFinite(index)) return c.json({ error: 'Invalid agent index' }, 400)
-    return c.json(aiService.getWorkflowAgentChunks(c.req.param('runId'), index))
+    const settled = c.req.query('settled') === '1'
+    return c.json(aiService.getWorkflowAgentChunks(c.req.param('runId'), index, { settled }))
   })
 
   // POST /api/ai/workflow/run/:runId/agent/:index/steer — message a sub-agent
@@ -425,7 +388,8 @@ export function aiRoutes(storage: AiRouteStorage) {
       serviceTier?: string
     }>()
     const { chatId, modelId, modeId, thinkingLevel } = payload
-    rememberChatTurnSettings(chatId, { modeId, modelId, thinkingLevel })
+    const agentMeta = rememberChatTurnSettings(chatId, { modeId, modelId, thinkingLevel })
+    if (agentMeta) publishExternalAgentSettings(chatId, agentMeta)
     const result = await aiService.handleCCDynamicSet(chatId, {
       model: modelId,
       mode: modeId,

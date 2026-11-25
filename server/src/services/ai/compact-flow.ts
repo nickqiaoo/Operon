@@ -2,8 +2,7 @@ import { randomUUID } from 'crypto'
 import type { UIMessage } from 'ai'
 import type { CompactRequest } from './types.js'
 import { getChatHistoryService } from './state.js'
-import { startChat } from './chat-flow.js'
-import { readStreamAsAsyncIterable } from '@operon/agent-runtime'
+import { runChatTurn } from './chat-flow.js'
 import { COMPACT_PROMPT_TEXT } from '../compact-service.js'
 
 export async function handleCompact(
@@ -33,8 +32,9 @@ export async function handleCompact(
     parts: [{ type: 'text', text: COMPACT_PROMPT_TEXT }],
   }
 
+  let turnError: string | undefined
   try {
-    const ctx = await startChat(
+    const turn = await runChatTurn(
       {
         chatId,
         messages: [compactUserMsg],
@@ -43,15 +43,12 @@ export async function handleCompact(
         workspaceId: payload.workspaceId,
         skipSnapshot: true,
       },
-      undefined,
-      { assistantMetadata: { compact: true }, skipUserMessagePersistence: true },
+      // The summary replaces the transcript once saved; streaming it into the
+      // open tab as a new reply first would only flash it there.
+      { assistantMetadata: { compact: true }, skipUserMessagePersistence: true, visible: false },
     )
-
-    for await (const _ of readStreamAsAsyncIterable(ctx.preparedParts)) {
-      // drain the stream so the background onFinish branch can persist the summary
-    }
-    await ctx.persistDone
-    ctx.finish()
+    const completion = await turn.ended
+    if (completion.status === 'failed') turnError = completion.error
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Compact failed'
     console.error('[Compact] Stream run failed:', err)
@@ -70,7 +67,7 @@ export async function handleCompact(
       success: false,
       originalMessageCount: originalCount,
       newMessageCount: updatedMessages.length,
-      error: 'Compact assistant response missing',
+      error: turnError ?? 'Compact assistant response missing',
     }
   }
 

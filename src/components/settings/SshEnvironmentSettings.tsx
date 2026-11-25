@@ -108,7 +108,7 @@ export function SshEnvironmentSettings() {
           disabled={pending}
           aria-pressed={editing?.id === profile.id}
           onClick={() => edit(profile)}
-          className="flex w-full min-w-0 items-center gap-3 rounded-lg border border-border/50 px-3 py-2.5 text-left hover:bg-accent-hover aria-pressed:bg-accent-active"
+          className="flex w-full min-w-0 items-center gap-3 rounded-md px-2 py-2.5 text-left hover:bg-accent-hover aria-pressed:bg-accent-active"
         >
           <Server className="size-4 shrink-0 text-muted-foreground" />
           <span className="min-w-0">
@@ -118,7 +118,7 @@ export function SshEnvironmentSettings() {
         </button>
       ))}
       {editing && (
-        <form onSubmit={submit} className="space-y-4 rounded-xl border border-border/50 bg-muted/20 p-3 sm:p-4">
+        <form onSubmit={submit} className="settings-section space-y-4">
           <fieldset disabled={pending} className="grid gap-3 sm:grid-cols-2">
             {fields.map(({ key, label, placeholder }) => (
               <div key={key} className="min-w-0 space-y-1.5">
@@ -191,7 +191,7 @@ export function SshEnvironmentSettings() {
           </fieldset>
           {feedback && <p role={feedback.error ? 'alert' : 'status'} className={feedback.error ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>{feedback.text}</p>}
           {hostKey && (
-            <div className="space-y-2 rounded-lg border border-border/50 bg-background p-3">
+            <div className="space-y-2 py-3">
               <div role="status" className="space-y-1 text-xs">
                 <p className="font-medium">Confirm the host key for {editing.profile.host}:{editing.profile.port}</p>
                 <p className="break-all font-mono">{hostKey.fingerprint}</p>

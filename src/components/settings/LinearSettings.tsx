@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useState } from "react"
 import { FormattedMessage, useIntl } from "react-intl"
-import { Bot, CheckCircle2, Copy, Link2, Loader2, RefreshCw, Trash2, Unlink, UserRound } from "lucide-react"
+import { CheckCircle2, Copy, Link2, Loader2, RefreshCw, Trash2, Unlink } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { api } from "@/lib/api"
 import { ApiError } from "@/lib/api-client"
 import { runIntegrationFlow } from "@/lib/integration-flow"
-import { LinearIcon } from "@/components/icons/LinearIcon"
 import type { Agent } from "@/types/channel"
 import type { GithubCoverageProject, IntegrationAppStatus, LinearDelegationConfig, LinearInstallView } from "@/types/integrations"
 
@@ -101,7 +100,7 @@ export function LinearSettings() {
 
   if (unavailable || (status?.saasConnected && !status.brokerError && !status.linear.enabled)) {
     return (
-      <div className="rounded-lg border border-border/40 bg-muted/10 p-4 text-xs text-muted-foreground">
+      <div className="py-4 text-xs text-muted-foreground">
         {unavailable ? 'Linear is currently unavailable on this machine.' : 'Linear is not enabled.'}
       </div>
     )
@@ -117,7 +116,7 @@ export function LinearSettings() {
   return (
     <div className="space-y-6">
       {!saasConnected && (
-        <div className="rounded-lg border border-border/40 bg-background/40 p-3 text-xs text-muted-foreground">
+        <div className="py-3 text-xs text-muted-foreground">
           <FormattedMessage
             id="settings.linear.signInFirst"
             defaultMessage="Sign in on the Remote tab first. The Linear agent is installed through your operon account."
@@ -128,9 +127,8 @@ export function LinearSettings() {
       {error && <div className="flex items-center gap-2 text-xs text-destructive">{error}</div>}
 
       {/* Card 1: the workspace agent (once per workspace, admin) */}
-      <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+      <section className="space-y-4 settings-section">
         <div className="flex items-start gap-3">
-          <LinearIcon className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
           <div className="flex-1">
             <h2 className="text-sm font-semibold mb-1">
               <FormattedMessage id="settings.linear.agent.title" defaultMessage="Workspace agent" />
@@ -151,7 +149,7 @@ export function LinearSettings() {
         </div>
 
         {install ? (
-          <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-muted-foreground rounded-lg bg-background/40 border border-border/40 p-3">
+          <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-muted-foreground py-3">
             <span><FormattedMessage id="settings.linear.agent.workspace" defaultMessage="Workspace" /></span>
             <span className="text-foreground/80">{install.workspaceName || install.urlKey}</span>
             <span><FormattedMessage id="settings.linear.agent.name" defaultMessage="Agent" /></span>
@@ -208,9 +206,8 @@ export function LinearSettings() {
       </section>
 
       {/* Card 2: this member's Linear identity */}
-      <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+      <section className="space-y-4 settings-section">
         <div className="flex items-start gap-3">
-          <UserRound className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
           <div className="flex-1">
             <h2 className="text-sm font-semibold mb-1">
               <FormattedMessage id="settings.linear.account.title" defaultMessage="My Linear account" />
@@ -231,7 +228,7 @@ export function LinearSettings() {
         </div>
 
         {linked && local && (
-          <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-muted-foreground rounded-lg bg-background/40 border border-border/40 p-3">
+          <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-muted-foreground py-3">
             <span><FormattedMessage id="settings.linear.account.user" defaultMessage="Linear user" /></span>
             <span className="text-foreground/80">{local.linearUserName ?? local.linearUserId}</span>
             <span><FormattedMessage id="settings.linear.account.workspace" defaultMessage="Workspace" /></span>
@@ -335,9 +332,8 @@ function DelegationCard({
   const withRepo = projects.filter((p) => p.repo)
 
   return (
-    <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+    <section className="space-y-4 settings-section">
       <div className="flex items-start gap-3">
-        <Bot className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
         <div className="flex-1">
           <h2 className="text-sm font-semibold mb-1">
             <FormattedMessage id="settings.linear.delegation.title" defaultMessage="Delegations from Linear" />
@@ -385,7 +381,7 @@ function DelegationCard({
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
           </div>
 
-          <div className="rounded-lg bg-background/40 border border-border/40 p-3 space-y-2">
+          <div className="py-3 space-y-2">
             <p className="text-xs text-muted-foreground">
               <FormattedMessage
                 id="settings.linear.delegation.labelsHint"

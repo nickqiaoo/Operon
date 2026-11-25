@@ -22,7 +22,7 @@ import { abortChat } from '../ai.js'
 import { stopDesignRun } from '../spec/design-run.js'
 import { initOrchestrator } from './agent-orchestrator.js'
 
-vi.mock('../ai.js', () => ({ abortChat: vi.fn(), startChat: vi.fn(), startServerChat: vi.fn() }))
+vi.mock('../ai.js', () => ({ abortChat: vi.fn(), runChatTurn: vi.fn() }))
 vi.mock('./binding-reset.js', () => ({ resetBinding: vi.fn() }))
 vi.mock('../channel-bus.js', () => ({ emitChannelEvent: vi.fn(), emitProjectEvent: vi.fn(), emitProjectTreeEvent: vi.fn(), publishChannelUnread: vi.fn(), registerChannelAttention: vi.fn() }))
 vi.mock('../task-events.js', () => ({ broadcastTask: vi.fn() }))

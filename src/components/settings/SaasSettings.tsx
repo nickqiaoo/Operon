@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { FormattedMessage, useIntl, type IntlShape } from 'react-intl'
-import { AlertCircle, Cloud, Github, Loader2, LogOut } from 'lucide-react'
-import { Switch } from '@/components/ui/switch'
+import { AlertCircle, Github, Loader2, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { api } from '@/lib/api'
@@ -9,6 +8,7 @@ import { syncAnalyticsIdentity } from '@/lib/analytics'
 import { RemoteEncryptionSettings } from './RemoteEncryptionSettings'
 import { RemoteDelegationSettings } from './RemoteDelegationSettings'
 import { RemoteMachines } from './RemoteMachines'
+import { RemoteDirectSettings } from './RemoteDirectSettings'
 
 // Which broker this build talks to is decided in the main process
 // (server/src/gateway/saas/broker.ts) and never surfaces here — it is not a
@@ -164,31 +164,20 @@ export function SaasSettings() {
     await refresh()
   }
 
-  function onToggle(next: boolean) {
-    if (next) {
-      setErr(null)
-      setChoosing(true)
-    } else {
-      setChoosing(false)
-      void disconnect()
-    }
-  }
-
   const connected = status?.connected === true
   const loginErrorCopy = err ? getLoginErrorCopy(err, intl) : null
 
   return (
-    <div className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+    <div className="space-y-4 settings-section">
       <div className="flex items-start gap-3">
-        <Cloud className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
         <div className="flex-1">
           <h3 className="mb-1 text-sm font-semibold">
             <FormattedMessage id="settings.saas.title" defaultMessage="Remote" />
           </h3>
           <p className="text-xs text-muted-foreground">
             <FormattedMessage
-              id="settings.saas.desc"
-              defaultMessage="Connect this machine to operon so you can drive its agents from the web app anywhere. Requests are tunneled back to this computer, with content protected by end-to-end encryption."
+              id="settings.saas.connectionDesc"
+              defaultMessage="Choose how your devices connect to this machine."
             />
           </p>
         </div>
@@ -201,7 +190,7 @@ export function SaasSettings() {
         </div>
       ) : (
         <>
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-background/40 p-3">
+          <div className="flex items-center justify-between gap-3 py-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-sm font-medium">
                 {connecting ? (
@@ -211,11 +200,11 @@ export function SaasSettings() {
                   </>
                 ) : connected ? (
                   <span className="text-status-ok">
-                    <FormattedMessage id="settings.saas.connected" defaultMessage="Connected" />
+                    <FormattedMessage id="settings.saas.accountSignedIn" defaultMessage="Signed in" />
                   </span>
                 ) : (
                   <span className="text-muted-foreground">
-                    <FormattedMessage id="settings.saas.notConnected" defaultMessage="Not connected" />
+                    <FormattedMessage id="settings.saas.accountSignedOut" defaultMessage="Signed out" />
                   </span>
                 )}
               </div>
@@ -234,21 +223,38 @@ export function SaasSettings() {
                   status?.label || status?.nodeId
                 ) : (
                   <FormattedMessage
-                    id="settings.saas.turnOnHint"
-                    defaultMessage="Turn on to make this machine reachable from the web app"
+                    id="settings.saas.accountHint"
+                    defaultMessage="Sign in to use Broker, or connect directly with Tailscale."
                   />
                 )}
               </p>
             </div>
-            <Switch
-              checked={connected || connecting || choosing}
-              disabled={connecting}
-              onCheckedChange={onToggle}
-            />
+            {connected ? (
+              <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => void disconnect()}>
+                <LogOut className="h-3.5 w-3.5" />{' '}
+                <FormattedMessage id="settings.saas.signOut" defaultMessage="Sign out" />
+              </Button>
+            ) : connecting || choosing ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1.5 text-xs"
+                onClick={() => {
+                  setConnecting(false)
+                  setChoosing(false)
+                }}
+              >
+                <FormattedMessage id="settings.saas.cancel" defaultMessage="Cancel" />
+              </Button>
+            ) : (
+              <Button size="sm" variant="secondary" onClick={() => { setErr(null); setChoosing(true) }}>
+                <FormattedMessage id="settings.saas.accountSignIn" defaultMessage="Sign in" />
+              </Button>
+            )}
           </div>
 
           {choosing && (
-            <div className="space-y-2 rounded-lg border border-border/40 bg-background/40 p-3">
+            <div className="space-y-2 py-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"
@@ -283,27 +289,11 @@ export function SaasSettings() {
             </div>
           )}
 
-          {connected ? (
-            <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => void disconnect()}>
-              <LogOut className="h-3.5 w-3.5" />{' '}
-              <FormattedMessage id="settings.saas.signOut" defaultMessage="Sign out" />
-            </Button>
-          ) : connecting || choosing ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 gap-1.5 text-xs"
-              onClick={() => {
-                setConnecting(false)
-                setChoosing(false)
-              }}
-            >
-              <FormattedMessage id="settings.saas.cancel" defaultMessage="Cancel" />
-            </Button>
-          ) : null}
-          {connected && <RemoteMachines />}
-          {connected && <RemoteDelegationSettings />}
-          {connected && <RemoteEncryptionSettings />}
+          {/* All of these work without an account too, over Tailscale (RemoteDirectSettings). */}
+          <RemoteDirectSettings />
+          <RemoteMachines />
+          <RemoteDelegationSettings />
+          <RemoteEncryptionSettings />
         </>
       )}
 

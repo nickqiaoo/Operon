@@ -6,9 +6,10 @@ import { Input } from '@/components/ui/input'
 import { pairRemoteNode, parsePairingQr } from '@/lib/e2ee/pairing'
 
 interface SecurePairingCardProps {
-  nodeId: string
+  /** The machine picked to pair with; absent when pairing is how this device meets it (no account). */
+  nodeId?: string
   nodeLabel: string
-  onPaired: () => void
+  onPaired: (machine: { nodeId: string; label: string }) => void
   onBack: () => void
   /** The way out; by default back to the machine picker. */
   backLabel?: string
@@ -41,14 +42,14 @@ export function SecurePairingCard({ nodeId, nodeLabel, onPaired, onBack, backLab
       const qr = parsePairingQr(raw.trim())
       await pairRemoteNode({
         qr,
-        expectedNodeId: nodeId,
+        ...(nodeId ? { expectedNodeId: nodeId } : {}),
         deviceName: deviceLabel(),
         signal: controller.signal,
         onStatus: (next) => {
           if (next === 'pending') setStatus('pending')
         },
       })
-      onPaired()
+      onPaired({ nodeId: qr.nodeId, label: qr.desktopName })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not pair this device')
       setStatus('idle')

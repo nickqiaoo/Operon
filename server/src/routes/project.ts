@@ -79,7 +79,8 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
         chatId,
         workspaceId: t.workspaceId,
         providerId: meta?.providerId ?? t.assignedAgent?.provider ?? null,
-        modelId: t.assignedAgent?.model ?? null,
+        modelId: meta?.model ?? t.assignedAgent?.model ?? null,
+        effort: meta?.thinkingLevel,
         updatedAt: t.updatedAt,
       })
     }

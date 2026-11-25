@@ -1,7 +1,6 @@
 import { randomUUID } from 'crypto'
 import { existsSync } from 'fs'
 import {
-  createUIMessageStream,
   convertToModelMessages,
   createUIMessageStreamResponse,
   type UIMessage,
@@ -28,7 +27,6 @@ import {
   findLatestUserMessage,
   findLastAssistantMessage,
   createErrorResponse,
-  createChatResponseHeaders,
   resolveWorkspaceCwd,
 } from './helpers.js'
 import { captureCheckpointIfNeeded, captureTurnEndSnapshot } from './rewind.js'
@@ -43,27 +41,43 @@ import {
   beginAssistantMessage,
   endAssistantMessage,
 } from './persistence.js'
-import { preparedToUIChunks, runAgentTurn, writePreparedPartToUiStream } from './agent-turn.js'
-import { startLiveTurn, pumpToLiveTurn } from './live-turn-hub.js'
+import { runAgentTurn } from './agent-turn.js'
+import { TurnStream } from './turn-stream.js'
 import { recordUsageSample } from '../analytics/cache-monitor.js'
 import {
   isUserFacingRuntimeError,
-  readStreamAsAsyncIterable,
+  type AgentSession,
   type RuntimeStreamPart,
 } from '@operon/agent-runtime'
-import { beginChatTurn, markChatTurnReady, emitChatTurnStarted, emitChatTurnFinished, registerChatTurnAbort } from './chat-turn-lifecycle.js'
+import {
+  beginChatTurn,
+  markChatTurnReady,
+  emitChatTurnStarted,
+  emitChatTurnFinished,
+  registerChatTurnAbort,
+  type ChatTurnAdmission,
+  type ChatTurnFinished,
+} from './chat-turn-lifecycle.js'
 import { buildCompactAwareView } from '../compact-service.js'
-
-// ---- Public API ----
 
 // A server-delivered result must retain the launching chat's MCP context and
 // instructions. Weak keys follow SessionManager's session lifetime.
 const chatContexts = new WeakMap<object, Pick<AiChatRequest, 'agentContext' | 'instructions' | 'env'>>()
 
-export async function startChat(
+/** The text an error chunk carries: only what a provider wrote for the user, never internals. */
+const userFacingStreamError = (error: unknown): string =>
+  isUserFacingRuntimeError(error) ? error.message : 'An error occurred.'
+
+/**
+ * Set up and start one turn on a chat: resolve the provider session, persist the
+ * prompt and run the agent into the turn's stream. Internal — every caller goes
+ * through `runChatTurn`, which owns the turn's lifecycle.
+ */
+async function startChat(
   payload: AiChatRequest,
-  clientSignal?: AbortSignal,
-  options?: StartChatOptions,
+  clientSignal: AbortSignal,
+  options: StartChatOptions,
+  stream: TurnStream,
 ) {
   const sessionManager = getSessionManager()
   const chatHistoryService = getChatHistoryService()
@@ -281,7 +295,8 @@ export async function startChat(
   // SSE wrapping stay here (and in handleChat).
   if (chatId > 0) clearPendingApprovals(chatId)
   if (checkpointEnabled) beginAssistantMessage(chatId, assistantMessageId)
-  const { preparedParts, done } = runAgentTurn(session.runtime, {
+  stream.messageId = assistantMessageId
+  const { done } = runAgentTurn(session.runtime, {
     requestId,
     input: latestUserInput(messages),
     signal: request.abortController.signal,
@@ -289,6 +304,8 @@ export async function startChat(
     originalMessages: normalizedMessages,
     onSessionId: (sessionId) => persistSessionId(chatId, sessionIdRef, sessionId),
     onCheckpoint,
+    onChunk: (chunk) => stream.publish(chunk),
+    onError: userFacingStreamError,
     onPart: (part: RuntimeStreamPart) => {
       if (part.type === 'error') turnError = 'error' in part ? String(part.error) : 'Agent execution failed'
       if (chatId > 0) observePendingInputPart(chatId, part, { userFacing: options?.notifyInbox === true })
@@ -318,7 +335,8 @@ export async function startChat(
   })
 
   const persistDone = done
-    .then(async ({ message }) => {
+    .then(async ({ message, error }) => {
+      if (error !== undefined) turnError ??= error instanceof Error ? error.message : String(error)
       resultMessage = message
       await persistResponseMessage(message)
     })
@@ -341,13 +359,10 @@ export async function startChat(
     chatId,
     requestId,
     assistantMessageId,
-    normalizedMessages,
-    preparedParts,
     session,
-    sessionId: sessionIdRef,
+    stream,
     persistDone,
-    recordError: (error: unknown) => { turnError = error instanceof Error ? error.message : String(error) },
-    completion: () => ({
+    completion: (): ChatTurnFinished => ({
       chatId,
       turnId: requestId,
       status: request.abortController.signal.aborted ? 'cancelled' as const : turnError ? 'failed' as const : 'completed' as const,
@@ -360,89 +375,104 @@ export async function startChat(
 }
 
 /**
- * A turn the server starts on its own (an agent woken for a channel message, a
- * task dispatched from the board), shaped like `startChat` so the caller drains
- * `preparedParts` itself.
- *
- * Calling `startChat` directly runs the turn where no surface can see it: it is
- * never tee'd into the live-turn hub, so an open tab neither renders the reply
- * nor the approval card the turn is blocked on — the chat just shows "waiting
- * for your input" with nothing to answer. This runs it through the same
- * lifecycle as `handleChat` (turn admission, Stop, presence, live tee) while the
- * caller keeps reading the runtime parts.
- *
- * The caller must `await persistDone` and then call `finish()`, as with
- * `startChat`; `finish()` is what reports the turn as ended.
+ * Set up a turn whose output is already on its way (`ChatTurnOptions.output`):
+ * the agent started replying on its own, so there is no prompt to persist and no
+ * provider call to make. Only the reply is mapped, published and saved.
  */
-export async function startServerChat(payload: AiChatRequest, options?: StartChatOptions) {
-  payload = { ...payload, requestId: payload.requestId ?? randomUUID() }
-  const requestId = payload.requestId!
-  const controller = new AbortController()
-  const abort = () => controller.abort()
-  let unregisterAbort: (() => void) | undefined
-  if (payload.chatId) {
-    beginChatTurn(payload.chatId, requestId)
-    unregisterAbort = registerChatTurnAbort(payload.chatId, abort)
-  }
-  emitChatTurnStarted(payload)
-
-  let ctx: Awaited<ReturnType<typeof startChat>>
-  try {
-    ctx = await startChat(payload, controller.signal, options)
-  } catch (err) {
-    unregisterAbort?.()
-    if (payload.chatId) {
-      emitChatTurnFinished({ chatId: payload.chatId, turnId: requestId, status: controller.signal.aborted ? 'cancelled' : 'failed',
-        prompt: findLatestUserMessage(payload.messages), error: err instanceof Error ? err.message : String(err) })
-    }
-    throw err
-  }
-  // A follow-up the user sends from the tab reuses this turn's MCP context and
-  // instructions (see handleChat).
-  chatContexts.set(ctx.session, { agentContext: payload.agentContext, instructions: payload.instructions, env: payload.env })
-  if (!payload.chatId && ctx.chatId > 0) {
-    beginChatTurn(ctx.chatId, ctx.requestId)
-    unregisterAbort = registerChatTurnAbort(ctx.chatId, abort)
-  }
-
-  let preparedParts = ctx.preparedParts
-  if (ctx.chatId > 0) {
-    const [forCaller, forHub] = ctx.preparedParts.tee()
-    preparedParts = forCaller
-    try {
-      const response = createUIMessageStreamResponse({
-        stream: preparedToUIChunks(forHub, ctx.assistantMessageId, ctx.normalizedMessages, (error) =>
-          isUserFacingRuntimeError(error) ? error.message : 'An error occurred.'),
-      })
-      const turn = startLiveTurn(ctx.chatId, headersToRecord(createChatResponseHeaders(response.headers, ctx.chatId)))
-      if (response.body) void pumpToLiveTurn(response.body, turn)
-      else turn.finish()
-    } catch (error) {
-      console.warn('[AI] live turn tee failed:', error instanceof Error ? error.message : String(error))
-      void forHub.cancel().catch(() => {})
-    }
-  }
-  markChatTurnReady(ctx.chatId, ctx.requestId)
-
-  let finished = false
-  return {
-    ...ctx,
-    preparedParts,
-    finish: () => {
-      if (finished) return
-      finished = true
-      ctx.finish()
-      unregisterAbort?.()
-      emitChatTurnFinished(ctx.completion())
+function startOutputTurn(
+  payload: AiChatRequest,
+  output: AsyncIterable<RuntimeStreamPart>,
+  signal: AbortSignal,
+  options: ChatTurnOptions,
+  stream: TurnStream,
+) {
+  const chatId = payload.chatId ?? 0
+  if (chatId <= 0) throw new Error('A turn with its output on the way needs a chat')
+  const requestId = payload.requestId ?? randomUUID()
+  const assistantMessageId = randomUUID()
+  // Stop (`abortChat`) aborts the chat's live runtime, which ends `output`.
+  const session: AgentSession = {
+    id: undefined,
+    send: async function* () {
+      yield* output
     },
+    abort: () => undefined,
+    close: async () => undefined,
+    respond: () => false,
+  }
+  const writer = createReplyWriter({ chatId, modelId: payload.modelId, providerId: payload.providerId,
+    assistantMetadata: options.assistantMetadata })
+  const sessionId = getChatHistoryService()?.getChatMeta(chatId)?.sessionId
+  let resultMessage: UIMessage | undefined
+  let turnError: string | undefined
+  let aborted = false
+
+  beginAssistantMessage(chatId, assistantMessageId)
+  stream.messageId = assistantMessageId
+  const { done } = runAgentTurn(session, {
+    requestId,
+    input: '',
+    signal,
+    assistantMessageId,
+    originalMessages: [],
+    onChunk: (chunk) => stream.publish(chunk),
+    onCheckpoint: (message) => {
+      if (!hasCheckpointContent(message)) return
+      const result = writer.save(message, sessionId)
+      if (result.saved) return checkpointGapMs(result.bytes)
+    },
+    onError: userFacingStreamError,
+    onPart: (part) => {
+      if (part.type === 'abort') aborted = true
+      if (part.type === 'error') {
+        const error = (part as { error?: unknown }).error
+        turnError ??= error instanceof Error ? error.message : String(error ?? 'stream error')
+      }
+      observePendingInputPart(chatId, part, { userFacing: options.notifyInbox === true })
+      options.onPart?.(part)
+    },
+  })
+
+  const persistDone = done
+    .then(({ message, error }) => {
+      if (error !== undefined) turnError ??= error instanceof Error ? error.message : String(error)
+      const hasContent = message.parts.some((p) => p.type !== 'step-start')
+      if (!hasContent && !turnError) return
+      // The SDK masks a stream error behind a generic notice and drops it from
+      // the assembled message; a failed model call would show as an empty bubble.
+      const toPersist: UIMessage = hasContent
+        ? message
+        : { ...message, parts: [...message.parts, { type: 'text', text: `Error: ${turnError}` }] }
+      if (!writer.save(toPersist, sessionId).saved) {
+        turnError = 'Failed to save the assistant response'
+        return
+      }
+      resultMessage = toPersist
+    })
+    .catch((err) => {
+      turnError = err instanceof Error ? err.message : String(err)
+      console.error('[AI] Persistence stream error:', err)
+    })
+    .finally(() => endAssistantMessage(chatId, assistantMessageId))
+
+  return {
+    chatId,
+    requestId,
+    assistantMessageId,
+    session: undefined,
+    stream,
+    persistDone,
+    completion: (): ChatTurnFinished => ({
+      chatId,
+      turnId: requestId,
+      status: aborted || signal.aborted ? 'cancelled' as const : turnError ? 'failed' as const : 'completed' as const,
+      message: resultMessage,
+      error: turnError,
+    }),
+    finish: () => undefined,
   }
 }
 
-/**
- * The response headers a late attacher must replay verbatim — the AI SDK keys
- * its UI-message-stream decoding off them (x-vercel-ai-ui-message-stream), so
- * an attach that invents its own headers would be parsed as a plain SSE.
- */
 /**
  * A workflow sub-agent's chat runs where the agent was put — often a disposable
  * worktree of its own, not its workspace's checkout. Once that is gone (it is
@@ -479,14 +509,6 @@ function resolveForkSource(chatId: number): { fork?: { from: string; ephemeral: 
   return { fork: { from: parentSessionId, ephemeral: true } }
 }
 
-function headersToRecord(headers: Headers): Record<string, string> {
-  const out: Record<string, string> = {}
-  headers.forEach((value, key) => {
-    out[key] = value
-  })
-  return out
-}
-
 /**
  * First ~180 chars of the turn's final assistant reply, for the inbox row body.
  * Reads the persisted tail (runs after persistDone), so it reflects what the
@@ -519,9 +541,6 @@ function finalReplySnippet(chatId: number): string | null {
 }
 
 /**
- * Core chat handler. Returns a standard AI SDK UIMessageStream Response.
- */
-/**
  * Session instructions for an external agent's child chat.
  *
  * Whatever a child ends its turn with is delivered to the delegating agent, not
@@ -542,150 +561,234 @@ function withExternalAgentChildInstructions(instructions?: string): string {
   return [own, EXTERNAL_AGENT_CHILD_INSTRUCTIONS].filter(Boolean).join('\n\n')
 }
 
+/** A turn refused because the chat is already taken (see `ChatTurnOptions.admission`). */
+export class ChatBusyError extends Error {
+  constructor() {
+    super('Chat is busy')
+    this.name = 'ChatBusyError'
+  }
+}
+
+export interface ChatTurnOptions extends StartChatOptions {
+  /**
+   * Ends the turn when it aborts — for a caller whose turn must not outlive it
+   * (an IM conversation reset, a plugin request). The chat's own Stop
+   * (`/api/ai/abort`) works either way.
+   */
+  signal?: AbortSignal
+  /** See `ChatTurnAdmission`; a refused turn throws `ChatBusyError`. Defaults to `force`. */
+  admission?: ChatTurnAdmission
+  /**
+   * A turn in a person's conversation — sent from a chat tab, or delivered into
+   * one on their behalf. It restores the configuration the chat was launched
+   * with, and when it ends it runs the agent-finish callback and leaves an
+   * inbox notification. Turns the server runs for itself (cron, canvas,
+   * channels, tasks) stay silent.
+   */
+  userFacing?: boolean
+  /**
+   * The reply is already on its way: the agent started it on its own (Claude
+   * Code answering a background agent that finished, an operon lead woken by a
+   * teammate's report). The turn takes no prompt and makes no provider call; it
+   * maps, publishes and saves `output` like any other reply. Needs `chatId`.
+   */
+  output?: AsyncIterable<RuntimeStreamPart>
+}
+
+/** A running chat turn. Observe it through `stream` (every surface does) and `ended`. */
+export interface ChatTurn {
+  chatId: number
+  requestId: string
+  assistantMessageId: string
+  /** The turn's reply; `stream.subscribe()` is how anyone watches it. */
+  stream: TurnStream
+  /** Resolves once the reply is saved and the turn is over. Never rejects. */
+  ended: Promise<ChatTurnFinished>
+}
+
+/**
+ * Settings a chat tab may not send yet (its catalog still loading) or must not
+ * override (an agent conversation's own model) — restored from what the chat
+ * was launched with and what is saved on it.
+ */
+function withChatLaunchContext(payload: AiChatRequest): AiChatRequest {
+  // A server-owned child keeps its selected configuration even when a newly
+  // attached UI has not loaded its model catalog yet.
+  const stored = payload.chatId ? getChatStorage()?.getChatMeta(payload.chatId) : undefined
+  const existingSession = payload.chatId ? getSessionManager().get(payload.chatId) : undefined
+  const context = existingSession ? chatContexts.get(existingSession) : undefined
+  if (context) payload = { ...payload,
+    agentContext: payload.agentContext ?? context.agentContext,
+    instructions: payload.instructions ?? context.instructions,
+    env: payload.env ?? context.env,
+  }
+  // A workflow sub-agent's chat keeps what it ran on when a person picks it up
+  // (the tab sends `tp: 'subagent'` for every agent conversation). What the
+  // tab sends is not used: until its catalog loads it can hold a stand-in
+  // model or mode. A pick made in the tab is saved at once instead
+  // (`/cc/dynamic-set` → `rememberChatTurnSettings`), so it is what is read
+  // here, for the tab's turns and for the ones its parent starts alike.
+  if (stored?.tp === 'workflow-agent') {
+    payload = { ...payload, providerId: stored.providerId, modelId: stored.model,
+      modeId: stored.metadata?.modeId, thinkingLevel: stored.thinkingLevel, tp: 'workflow-agent' }
+  }
+  if (stored?.metadata?.externalAgent) {
+    payload = { ...payload, providerId: stored.providerId, modelId: stored.model,
+      modeId: stored.metadata.modeId, workspaceId: stored.workspaceId,
+      thinkingLevel: stored.thinkingLevel, agentContext: undefined, tp: 'subagent',
+      instructions: withExternalAgentChildInstructions(payload.instructions) }
+  }
+  return payload
+}
+
+/** What a finished turn in a person's conversation sets off. */
+function afterUserFacingTurn(chatId: number, workspaceId: number | undefined): void {
+  try {
+    getAgentFinishCallback()?.(chatId)
+  } catch (err) {
+    console.error('[AI] agent finish callback failed:', err)
+  }
+  // Inbox: record a "finished responding" notification for this workspace chat.
+  const notificationStorage = getNotificationStorage()
+  if (!notificationStorage || chatId <= 0) return
+  const title = getChatHistoryService()?.getChatMeta(chatId)?.title
+  notify(notificationStorage, {
+    kind: 'chat_complete',
+    severity: 'info',
+    sourceKey: `chat:${chatId}`,
+    chatId,
+    workspaceId: workspaceId ?? null,
+    title: title?.trim() || 'Workspace chat',
+    body: finalReplySnippet(chatId) ?? 'Agent finished responding',
+  })
+}
+
+/**
+ * Run one turn on a chat. The only way a chat turn starts — a person's message,
+ * a delivered notice, a channel or task agent, cron, canvas, IM, compact, a
+ * reply the agent started on its own (`output`) — so
+ * every one of them is admitted, stoppable, announced, visible live on every
+ * surface showing the chat, and reported when it ends.
+ *
+ * The turn runs on the node and does not depend on anyone watching it: the
+ * caller gets a handle, not a stream it must drain. Throws when the turn could
+ * not start (`ChatBusyError`, a setup failure), already reported as failed.
+ */
+export async function runChatTurn(payload: AiChatRequest, options: ChatTurnOptions = {}): Promise<ChatTurn> {
+  payload = { ...payload, requestId: payload.requestId ?? randomUUID() }
+  const requestId = payload.requestId!
+  const admission = options.admission ?? 'force'
+  // Exists before the turn is announced, so a surface that attaches the moment
+  // it hears of the turn finds its stream. A turn kept off screen (compact's
+  // summary, about to replace the transcript) still streams into one, just not
+  // one registered for anyone to attach to.
+  const stream = new TurnStream(requestId)
+  const registered = options.visible === false ? undefined : stream
+  // Admission and setup reservation happen together, before any asynchronous
+  // provider work.
+  if (payload.chatId) {
+    const running = admission === 'idle-only' && getSessionManager().get(payload.chatId)?.activeRequest != null
+    if (running || !beginChatTurn(payload.chatId, requestId, { admission, stream: registered })) throw new ChatBusyError()
+  }
+
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  if (options.signal?.aborted) controller.abort()
+  else options.signal?.addEventListener('abort', abort, { once: true })
+  let unregisterAbort = payload.chatId ? registerChatTurnAbort(payload.chatId, abort) : undefined
+  const release = () => {
+    options.signal?.removeEventListener('abort', abort)
+    unregisterAbort?.()
+  }
+
+  if (options.userFacing) payload = withChatLaunchContext(payload)
+  emitChatTurnStarted(payload)
+  let ctx: Awaited<ReturnType<typeof startChat>> | ReturnType<typeof startOutputTurn>
+  try {
+    ctx = options.output
+      ? startOutputTurn(payload, options.output, controller.signal, options, stream)
+      : await startChat(payload, controller.signal, options, stream)
+  } catch (err) {
+    release()
+    if (payload.chatId) {
+      getSessionManager().finishRequest(payload.chatId, requestId)
+      emitChatTurnFinished({ chatId: payload.chatId, turnId: requestId,
+        status: controller.signal.aborted ? 'cancelled' : 'failed', prompt: findLatestUserMessage(payload.messages),
+        error: err instanceof Error ? err.message : String(err) })
+    }
+    throw err
+  }
+  // A follow-up the user sends from the tab reuses this turn's MCP context and
+  // instructions (see withChatLaunchContext).
+  if (ctx.session) chatContexts.set(ctx.session, { agentContext: payload.agentContext, instructions: payload.instructions, env: payload.env })
+  // A new chat's id is only known now.
+  if (!payload.chatId && ctx.chatId > 0) {
+    beginChatTurn(ctx.chatId, ctx.requestId, { admission: 'force', stream: registered })
+    unregisterAbort = registerChatTurnAbort(ctx.chatId, abort)
+  }
+  markChatTurnReady(ctx.chatId, ctx.requestId)
+
+  const ended = (async (): Promise<ChatTurnFinished> => {
+    await ctx.persistDone
+    ctx.finish()
+    if (options.userFacing) afterUserFacingTurn(ctx.chatId, payload.workspaceId)
+    // Last, after the reply is saved: a viewer whose stream ends here and reads
+    // history finds the reply there.
+    ctx.stream.end()
+    release()
+    const completion = ctx.completion()
+    emitChatTurnFinished(completion)
+    return completion
+  })()
+
+  return {
+    chatId: ctx.chatId,
+    requestId: ctx.requestId,
+    assistantMessageId: ctx.assistantMessageId,
+    stream: ctx.stream,
+    ended,
+  }
+}
+
+/**
+ * A subscription to a turn's stream as the AI SDK's UI-message-stream response
+ * — the reply so far, then the rest. Both the POST that starts a turn and the
+ * GET that attaches to one answer with this. X-Turn-Id is how a surface tells
+ * "the turn I hold" from "a turn a peer started"; X-Message-Id names the reply
+ * it rebuilds, so a surface can clear an older copy of it first.
+ */
+export function turnStreamResponse(stream: TurnStream, options: { chatId?: number } = {}): Response {
+  const headers: Record<string, string> = { 'X-Turn-Id': stream.turnId }
+  if (stream.messageId) headers['X-Message-Id'] = stream.messageId
+  if (options.chatId !== undefined) headers['X-Chat-Id'] = String(options.chatId)
+  return createUIMessageStreamResponse({ stream: stream.subscribe(), headers })
+}
+
+/**
+ * POST /api/ai/chat: start a turn and answer with a subscription to it. A
+ * dropped request only ends the subscription — the turn keeps running and the
+ * client attaches again — unless the caller passes `clientSignal`, which ends
+ * the turn with the request.
+ */
 export async function handleChat(
   payload: AiChatRequest,
   clientSignal?: AbortSignal,
   options?: { onlyIfIdle?: boolean },
 ): Promise<Response> {
-  payload = { ...payload, requestId: payload.requestId ?? randomUUID() }
-  // Background notifications must never preempt a user request. Admission and
-  // setup reservation happen together, before any asynchronous provider work.
-  if (payload.chatId && (
-    (options?.onlyIfIdle && getSessionManager().get(payload.chatId)?.activeRequest) ||
-    !beginChatTurn(payload.chatId, payload.requestId!, options?.onlyIfIdle)
-  )) return Response.json({ error: 'Chat is busy' }, { status: 409 })
-  let unregisterAbort: (() => void) | undefined
-  const controller = new AbortController()
-  const abort = () => controller.abort()
-  if (clientSignal?.aborted) controller.abort()
-  else clientSignal?.addEventListener('abort', abort, { once: true })
-  const cleanup = () => {
-    clientSignal?.removeEventListener('abort', abort)
-    unregisterAbort?.()
-  }
-  let sshChatId: number | undefined
+  let createdChatId: number | undefined
   try {
-    // A server-owned child keeps its selected configuration even when a newly
-    // attached UI has not loaded its model catalog yet.
-    const stored = payload.chatId ? getChatStorage()?.getChatMeta(payload.chatId) : undefined
-    const existingSession = payload.chatId ? getSessionManager().get(payload.chatId) : undefined
-    const context = existingSession ? chatContexts.get(existingSession) : undefined
-    if (context) payload = { ...payload,
-      agentContext: payload.agentContext ?? context.agentContext,
-      instructions: payload.instructions ?? context.instructions,
-      env: payload.env ?? context.env,
-    }
-    // A workflow sub-agent's chat keeps what it ran on when a person picks it up
-    // (the tab sends `tp: 'subagent'` for every agent conversation). What the
-    // tab sends is not used: until its catalog loads it can hold a stand-in
-    // model or mode. A pick made in the tab is saved at once instead
-    // (`/cc/dynamic-set` → `rememberChatTurnSettings`), so it is what is read
-    // here, for the tab's turns and for the ones its parent starts alike.
-    if (stored?.tp === 'workflow-agent') {
-      payload = { ...payload, providerId: stored.providerId, modelId: stored.model,
-        modeId: stored.metadata?.modeId, thinkingLevel: stored.thinkingLevel, tp: 'workflow-agent' }
-    }
-    if (stored?.metadata?.externalAgent) {
-      payload = { ...payload, providerId: stored.providerId, modelId: stored.model,
-        modeId: stored.metadata.modeId, workspaceId: stored.workspaceId,
-        thinkingLevel: stored.thinkingLevel, agentContext: undefined, tp: 'subagent',
-        instructions: withExternalAgentChildInstructions(payload.instructions) }
-    }
-    if (payload.chatId) unregisterAbort = registerChatTurnAbort(payload.chatId, abort)
-    emitChatTurnStarted(payload)
-    const ctx = await startChat(payload, controller.signal, {
+    const turn = await runChatTurn(payload, {
+      userFacing: true,
       notifyInbox: true,
-      onChatRecord: (chatId) => { sshChatId = chatId },
+      admission: options?.onlyIfIdle ? 'idle-only' : 'reject',
+      signal: clientSignal,
+      onChatRecord: (chatId) => { createdChatId = chatId },
     })
-    chatContexts.set(ctx.session, { agentContext: payload.agentContext, instructions: payload.instructions, env: payload.env })
-
-    if (!payload.chatId && ctx.chatId > 0) {
-      beginChatTurn(ctx.chatId, ctx.requestId)
-      unregisterAbort = registerChatTurnAbort(ctx.chatId, abort)
-    }
-    const finishTurn = () => {
-      cleanup()
-      emitChatTurnFinished(ctx.completion())
-    }
-    const clientStream = createUIMessageStream({
-      originalMessages: ctx.normalizedMessages,
-      generateId: () => ctx.assistantMessageId,
-      // The SDK masks stream errors behind a generic notice, which is right for
-      // internal failures but hides the few a provider writes for the user (an
-      // expired side chat, say). Forward only those; everything else stays
-      // generic so internals never reach the client.
-      onError: (error) =>
-        isUserFacingRuntimeError(error) ? error.message : 'An error occurred.',
-      execute: async ({ writer }) => {
-        try {
-          for await (const preparedPart of readStreamAsAsyncIterable(ctx.preparedParts)) {
-            writePreparedPartToUiStream(writer, preparedPart, ctx.assistantMessageId)
-          }
-        } catch (error) {
-          ctx.recordError(error)
-          throw error
-        } finally {
-          await ctx.persistDone
-          ctx.finish()
-          const agentFinishCallback = getAgentFinishCallback()
-          if (agentFinishCallback) {
-            agentFinishCallback(ctx.chatId)
-          }
-          // Inbox: record a "finished responding" notification for this workspace
-          // chat. handleChat is the user-facing chat path only — cron / canvas /
-          // channel / task turns call startChat directly and never reach here, so
-          // this won't flood the inbox with background agent turns.
-          const notificationStorage = getNotificationStorage()
-          if (notificationStorage && ctx.chatId > 0) {
-            const title = getChatHistoryService()?.getChatMeta(ctx.chatId)?.title
-            notify(notificationStorage, {
-              kind: 'chat_complete',
-              severity: 'info',
-              sourceKey: `chat:${ctx.chatId}`,
-              chatId: ctx.chatId,
-              workspaceId: payload.workspaceId ?? null,
-              title: title?.trim() || 'Workspace chat',
-              body: finalReplySnippet(ctx.chatId) ?? 'Agent finished responding',
-            })
-          }
-        }
-      },
-    })
-
-    const response = createUIMessageStreamResponse({ stream: clientStream })
-    const headers = createChatResponseHeaders(response.headers, ctx.chatId)
-
-    // Tee the wire bytes into the live-turn hub so surfaces that did NOT make
-    // this request (the web client over the broker tunnel, a second window, the
-    // phone) can attach to the same turn via GET /api/ai/chat/live/:chatId.
-    // Splitting at the byte level keeps this transparent to the turn itself —
-    // the requester's stream is unchanged, and a cancelled requester branch
-    // does not stop the hub branch from draining.
-    let clientBody = response.body
-    if (clientBody && ctx.chatId > 0) {
-      const [toRequester, toHub] = clientBody.tee()
-      clientBody = toRequester
-      const turn = startLiveTurn(ctx.chatId, headersToRecord(headers))
-      // Tell the requester which turn its POST opened, so its live-attach
-      // watcher can recognise the presence event for this turn as its own.
-      headers.set('X-Turn-Id', turn.turnId)
-      void pumpToLiveTurn(toHub, turn).finally(finishTurn)
-    }
-
-    if (!clientBody || ctx.chatId <= 0) void ctx.persistDone.finally(finishTurn)
-    markChatTurnReady(ctx.chatId, ctx.requestId)
-    return new Response(clientBody, {
-      status: response.status,
-      headers,
-    })
+    return turnStreamResponse(turn.stream, { chatId: turn.chatId })
   } catch (err) {
-    if (payload.chatId) getSessionManager().finishRequest(payload.chatId, payload.requestId!)
-    cleanup()
-    if (payload.chatId) emitChatTurnFinished({ chatId: payload.chatId, turnId: payload.requestId!,
-      status: controller.signal.aborted ? 'cancelled' : 'failed', prompt: findLatestUserMessage(payload.messages),
-      error: err instanceof Error ? err.message : String(err) })
+    if (err instanceof ChatBusyError) return Response.json({ error: 'Chat is busy' }, { status: 409 })
     const response = createErrorResponse('[AI] Setup Error:', err)
-    if (!payload.chatId && sshChatId) response.headers.set('X-Chat-Id', String(sshChatId))
+    if (!payload.chatId && createdChatId) response.headers.set('X-Chat-Id', String(createdChatId))
     return response
   }
 }

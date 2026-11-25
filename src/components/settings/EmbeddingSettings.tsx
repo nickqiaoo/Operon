@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { Loader2, Download, Check, Cpu, Database, HardDrive } from "lucide-react"
+import { Loader2, Download, Check, Cpu, HardDrive } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { SettingsSection } from "./SettingsSection"
@@ -122,7 +122,6 @@ export function EmbeddingSettings() {
 
     return (
         <SettingsSection
-            icon={Database}
             title={enableLabel}
             description={<FormattedMessage id="settings.embedding.desc" defaultMessage="Local vector search for memory extraction and retrieval" />}
             action={<Switch aria-label={enableLabel} checked={config.enabled} onCheckedChange={() => void handleToggle()} />}
@@ -236,7 +235,7 @@ export function EmbeddingSettings() {
 
 function ModelRow({ model, label, notDownloadedLabel }: { model: ModelStatus; label: string; notDownloadedLabel: string }) {
     return (
-        <div className="flex items-center justify-between rounded-lg border border-border/40 bg-background/40 px-3 py-2">
+        <div className="flex items-center justify-between border-b border-border/40 py-2 last:border-b-0">
             <div>
                 <div className="text-sm font-medium">{label}</div>
                 <div className="text-xs text-muted-foreground">{model.name}</div>

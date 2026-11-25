@@ -42,6 +42,7 @@ interface RemoteAgentRecord {
   workspace: string
   providerId: string
   modelId?: string
+  effort?: string
   modeId?: string
   description: string
   model: string
@@ -96,6 +97,7 @@ function viewOf(record: RemoteAgentRecord): ExternalAgentView {
     agentId: record.agentId, parentChatId: record.parentChatId, description: record.description, model: record.model,
     ...(record.lastTurn ? { lastTurn: record.lastTurn } : {}),
     childChatId: record.childChatId, providerId: record.providerId, modelId: record.modelId, modeId: record.modeId,
+    effort: record.effort,
     workspaceId: record.workspaceId, turnId: record.lastTurn?.turnId, status: record.lastTurn?.status ?? 'idle',
     error: record.lastTurn?.error, updatedAt: record.updatedAt,
     remote: { nodeId: record.nodeId, machine: record.machine, workspace: record.workspace },
@@ -154,6 +156,7 @@ export async function startRemoteAgent(params: {
     agentId: remoteAgentId(params.nodeId, started.childChatId), nodeId: params.nodeId, machine,
     parentChatId: params.parentChatId, childChatId: started.childChatId, workspaceId: started.workspaceId,
     workspace: `${workspace.project} / ${workspace.name}`, providerId: started.providerId,
+    effort: started.effort,
     modelId: started.modelId, modeId: started.modeId, description: params.description, model: params.model,
     lastTurn: { turnId: started.turnId, status: started.status }, delivered: [], updatedAt: Date.now(),
   }
@@ -184,7 +187,7 @@ export async function sendRemoteAgent(parentChatId: number, agentId: string, pro
   const call: DelegatedAgentCall = { parentChatId, prompt, mode }
   const result = await delegationRequest<{ turn_id: string; status: 'running' | 'queued' } & Record<string, unknown>>(
     record.nodeId, callPath(record, 'send'), call)
-  saveRecord({ ...record, lastTurn: { turnId: result.turn_id, status: result.status }, updatedAt: Date.now() })
+  saveRecord({ ...ownedRecord(parentChatId, agentId), lastTurn: { turnId: result.turn_id, status: result.status }, updatedAt: Date.now() })
   return asParentSees(record, result)
 }
 
@@ -209,6 +212,10 @@ export async function remoteAgentStatus(parentChatId: number, agentId: string) {
 export function receiveAgentEvent(sourceNodeId: string, event: DelegatedAgentEvent): void {
   const record = records().find((item) => item.nodeId === sourceNodeId && item.childChatId === event.childChatId)
   if (!record) throw new DelegationHttpError(404, 'No such agent was started from this machine', 'unknown_agent')
+  if (event.type === 'settings') {
+    saveRecord({ ...record, modelId: event.modelId, effort: event.effort, updatedAt: Date.now() })
+    return
+  }
   if (event.type === 'turn') {
     saveRecord({ ...record, lastTurn: { turnId: event.turnId, status: event.status }, updatedAt: Date.now() })
     return
@@ -271,6 +278,7 @@ async function flushOutbox(): Promise<void> {
   }
 }
 
+const eventKey = (event: DelegatedAgentEvent) => event.type === 'settings' ? event.eventId : event.turnId
 const sameEntry = (a: OutboxEntry, b: OutboxEntry) =>
-  a.queuedAt === b.queuedAt && a.parent.nodeId === b.parent.nodeId && a.event.turnId === b.event.turnId && a.event.type === b.event.type
+  a.queuedAt === b.queuedAt && a.parent.nodeId === b.parent.nodeId && eventKey(a.event) === eventKey(b.event) && a.event.type === b.event.type
 

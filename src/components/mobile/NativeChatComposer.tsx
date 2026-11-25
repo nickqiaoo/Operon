@@ -2,8 +2,12 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalSto
 import { flushSync } from 'react-dom'
 import { useNativeShellOverlayCount } from '@/hooks/useNativeShellOverlay'
 import { usePageVisible } from '@/lib/page-visibility'
-import { NativeComposer, composerThumbnail, type NativeComposerState, type ComposerMenuItem, type ComposerSuggestion, type ComposerToken } from '@/lib/native-composer'
+import { NativeComposer, type NativeComposerState, type ComposerMenuItem, type ComposerSuggestion, type ComposerToken } from '@/lib/native-composer'
 import { usePromptInputAttachments, usePromptInputSubmitting, usePromptInputSubmit } from '@/components/ai-elements/prompt-input'
+
+import { composerThumbnail } from '@/lib/attachment-thumbnails'
+import { ImageViewer } from '@/components/ai-elements/image-viewer'
+import { Dialog } from '@/components/ui/dialog'
 
 interface NativeChatComposerProps {
   value: string
@@ -224,6 +228,14 @@ export function NativeChatComposer(props: NativeChatComposerProps) {
     for (let parent: HTMLElement | null = el; parent; parent = parent.parentElement) observer.observe(parent)
     const mutations = new MutationObserver(measure)
     mutations.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] })
+    // A sliding panel moves the spacer without resizing it. UIKit lives outside
+    // the panel, so its last measured position must follow the settled slide.
+    const onTransitionFinish = (event: TransitionEvent) => {
+      if (event.target instanceof Element && event.target.contains(el) &&
+          ['translate', 'transform'].includes(event.propertyName)) measure()
+    }
+    document.addEventListener('transitionend', onTransitionFinish)
+    document.addEventListener('transitioncancel', onTransitionFinish)
     window.addEventListener('resize', measure)
     measure()
     return () => {
@@ -231,6 +243,8 @@ export function NativeChatComposer(props: NativeChatComposerProps) {
       observer.disconnect()
       mutations.disconnect()
       cancelAnimationFrame(frame)
+      document.removeEventListener('transitionend', onTransitionFinish)
+      document.removeEventListener('transitioncancel', onTransitionFinish)
       window.removeEventListener('resize', measure)
     }
   }, [id, ready, active, height])
@@ -269,15 +283,23 @@ export function NativePromptComposer(props: Omit<NativeChatComposerProps, 'onSub
     })
     return () => { cancelled = true }
   }, [imageKey])
-  return <NativeChatComposer
-    {...props}
-    submitting={submitting}
-    onSubmit={submit}
-    onFiles={(files) => attachments.add(files)}
-    attachments={attachments.files.map((file) => ({ id: file.id, title: file.filename ?? 'Attachment', ...(thumbs[file.id] ? { thumbnail: thumbs[file.id] } : {}) }))}
-    onAction={(action) => {
-      if (action.startsWith('attachment:')) attachments.remove(action.slice('attachment:'.length))
-      else props.onAction?.(action)
-    }}
-  />
+  const [previewId, setPreviewId] = useState<string | null>(null)
+  const preview = attachments.files.find((file) => file.id === previewId)
+  return <>
+    <NativeChatComposer
+      {...props}
+      submitting={submitting}
+      onSubmit={submit}
+      onFiles={(files) => attachments.add(files)}
+      attachments={attachments.files.map((file) => ({ id: file.id, title: file.filename ?? 'Attachment', ...(thumbs[file.id] ? { thumbnail: thumbs[file.id] } : {}) }))}
+      onAction={(action) => {
+        if (action.startsWith('preview:attachment:')) setPreviewId(action.slice('preview:attachment:'.length))
+        else if (action.startsWith('attachment:')) attachments.remove(action.slice('attachment:'.length))
+        else props.onAction?.(action)
+      }}
+    />
+    {preview && <Dialog open onOpenChange={(open) => { if (!open) setPreviewId(null) }}>
+      <ImageViewer src={preview.url} filename={preview.filename} />
+    </Dialog>}
+  </>
 }

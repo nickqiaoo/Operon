@@ -13,11 +13,11 @@ import (
 // cluster.go is the shared state that lets several broker instances cooperate.
 //
 // A node's AgentConn is a singleton living on ONE instance (the owner): all traffic
-// for that node — web requests, chat resume/cancel, and the node's own uplink — must
+// for that node — web requests and the node's own uplink — must
 // reach that instance. The Directory is the shared routing table that makes this
 // possible: each owner publishes node→self and connId→self here, and the front
 // router (OpenResty's balancer_by_lua) reads it to route every request straight to
-// the owner. Connections and chat buffers stay in the owner's memory; only this
+// the owner. Connections stay in the owner's memory; only this
 // directory is shared, and the broker itself never reads it (routing is the router's
 // job — see deploy/openresty).
 //

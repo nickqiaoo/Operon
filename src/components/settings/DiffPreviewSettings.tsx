@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { FormattedMessage, useIntl } from "react-intl"
-import { Loader2, Save, Check, AlertCircle, Eye, EyeOff, FileDiff } from "lucide-react"
+import { Loader2, Save, Check, AlertCircle, Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { api } from "@/lib/api"
 import { useDraft } from "@/hooks/useDraft"
@@ -43,7 +43,6 @@ export function DiffPreviewSettings() {
 
     return (
         <SettingsSection
-            icon={FileDiff}
             title={<FormattedMessage id="settings.diffPreview.title" defaultMessage="Diff Preview" />}
             description={
                 <FormattedMessage

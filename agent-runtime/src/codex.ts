@@ -3,3 +3,4 @@ export { codex, type CodexNative, type CodexEffort } from './providers/codex/ind
 export type { CodexSessionNative } from './providers/codex/session.js'
 export type { CodexModeId, CodexOptions, CodexSessionOptions } from './providers/codex/config.js'
 export type { CodexGoal, AccountRateLimitsReadResult } from './providers/codex/sdk/protocol/index.js'
+export type { CodexAccountsView } from './providers/codex/accounts.js'

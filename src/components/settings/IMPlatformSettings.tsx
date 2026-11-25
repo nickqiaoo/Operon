@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Plus, Pencil, Trash2, Loader2, AlertCircle, Eye, EyeOff, XIcon, Hash, Send, MessageCircle, MessagesSquare, Zap } from "lucide-react"
+import { Plus, Pencil, Trash2, Loader2, AlertCircle, Eye, EyeOff, XIcon, Hash, Send, MessageCircle, Zap } from "lucide-react"
 import { SlackQuickSetupDialog } from "./SlackQuickSetupDialog"
 import { TelegramQuickSetupDialog } from "./TelegramQuickSetupDialog"
 import type { LucideIcon } from "lucide-react"
@@ -262,7 +262,6 @@ export function IMPlatformSettings() {
 
   return (
     <SettingsSection
-      icon={MessagesSquare}
       title={<FormattedMessage id="settings.im.title" defaultMessage="IM Platform" />}
       description={
         <FormattedMessage
@@ -333,11 +332,11 @@ export function IMPlatformSettings() {
           <FormattedMessage id="settings.im.loading" defaultMessage="Loading..." />
         </div>
       ) : providers.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border/40 p-8 text-center text-sm text-muted-foreground">
+        <div className="p-8 text-center text-sm text-muted-foreground">
           <FormattedMessage id="settings.im.empty" defaultMessage="No IM providers yet. Create one to connect a bot." />
         </div>
       ) : (
-        <div className="rounded-lg border border-border/40 bg-background/40 divide-y divide-border/40 overflow-hidden">
+        <div className="divide-y divide-border/40 overflow-hidden">
           {providers.map((p) => {
             const meta = sourceMetaByKey.get(p.source)
             const Icon = iconFor(meta?.icon ?? "")

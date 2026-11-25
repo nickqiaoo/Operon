@@ -244,7 +244,7 @@ export function ExtensionsSettings() {
         ) : marketplace.length === 0 ? (
           <EmptyBlock message={<FormattedMessage id="settings.extensions.marketplaceEmpty" defaultMessage="No extensions are available right now." />} />
         ) : (
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="divide-y divide-border/40">
             {marketplace.map((entry) => (
               <MarketplaceCard key={entry.id} entry={entry} busy={marketBusy === entry.id} onInstall={() => void installFromMarketplace(entry)} />
             ))}
@@ -271,7 +271,7 @@ export function ExtensionsSettings() {
         ) : items.length === 0 ? (
           <EmptyBlock message={<FormattedMessage id="settings.extensions.empty" defaultMessage="No extensions installed yet. Choose one from the marketplace above." />} />
         ) : (
-          <div className="divide-y divide-border/40 rounded-xl border border-border/40 bg-background/40">
+          <div className="divide-y divide-border/40">
             {items.map((extension) => (
               <ExtensionRow
                 key={extension.id}
@@ -288,9 +288,8 @@ export function ExtensionsSettings() {
         )}
       </section>
 
-      <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+      <section className="space-y-4 settings-section">
         <div className="flex items-start gap-3">
-          <Download className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <h3 className="mb-1 text-sm font-semibold">
               <FormattedMessage id="settings.extensions.advancedTitle" defaultMessage="Advanced install" />
@@ -354,7 +353,7 @@ export function ExtensionsSettings() {
             </DialogDescription>
           </DialogHeader>
           {confirmLoad?.description ? (
-            <div className="rounded-lg border border-border/40 bg-background/40 p-3 text-xs text-muted-foreground">
+            <div className="py-3 text-xs text-muted-foreground">
               {confirmLoad.description}
             </div>
           ) : null}
@@ -393,7 +392,7 @@ function MarketplaceCard({ entry, busy, onInstall }: { entry: ExtensionMarketpla
   const name = entry.name
   const description = entry.description
   return (
-    <article className="flex min-h-44 flex-col rounded-xl border border-border/40 bg-muted/10 p-4">
+    <article className="py-4">
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand"><Puzzle className="h-5 w-5" /></div>
         <div className="min-w-0 flex-1">
@@ -571,9 +570,9 @@ function InlineMessage({ tone, message }: { tone: "error" | "success"; message: 
 }
 
 function LoadingBlock() {
-  return <div className="flex min-h-24 items-center justify-center gap-2 rounded-xl border border-dashed border-border/40 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /><FormattedMessage id="settings.extensions.loading" defaultMessage="Loading…" /></div>
+  return <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /><FormattedMessage id="settings.extensions.loading" defaultMessage="Loading…" /></div>
 }
 
 function EmptyBlock({ message }: { message: ReactNode }) {
-  return <div className="rounded-xl border border-dashed border-border/50 px-4 py-7 text-center text-xs text-muted-foreground">{message}</div>
+  return <div className="px-4 py-7 text-center text-xs text-muted-foreground">{message}</div>
 }

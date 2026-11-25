@@ -129,7 +129,7 @@ export function RemoteMachines() {
       </div>
 
       {shown && (
-        <div className="space-y-3 rounded-lg bg-background/50 p-4">
+        <div className="space-y-3 py-4">
           <div>
             <div className="text-sm font-medium">
               {expired
@@ -155,7 +155,7 @@ export function RemoteMachines() {
             </p>
           </div>
           {!expired && (serverCommand
-            ? <div className="select-all break-all rounded-lg border border-border/40 bg-background/40 px-3 py-2 font-mono text-xs" aria-label={intl.formatMessage({ id: 'settings.remote.machines.serverCommandLabel', defaultMessage: 'Command to run on the server' })}>{serverCommand}</div>
+            ? <div className="select-all break-all border-b border-border/40 py-2 last:border-b-0 font-mono text-xs" aria-label={intl.formatMessage({ id: 'settings.remote.machines.serverCommandLabel', defaultMessage: 'Command to run on the server' })}>{serverCommand}</div>
             : <div className="select-all font-mono text-lg tracking-[0.2em]" aria-label={intl.formatMessage({ id: 'settings.remote.machines.codeLabel', defaultMessage: 'Pairing code' })}>{shown.code}</div>)}
           <div className="flex gap-1.5">
             {expired ? (
@@ -181,7 +181,7 @@ export function RemoteMachines() {
 
       {entering && (
         <form
-          className="space-y-3 rounded-lg bg-background/50 p-4"
+          className="space-y-3 py-4"
           onSubmit={(event) => {
             event.preventDefault()
             if (code.trim()) join.mutate(code.trim())
@@ -245,7 +245,7 @@ export function RemoteMachines() {
         </p>
       )}
       {rows.length > 0 && (
-        <ul className="divide-y divide-border/40 rounded-lg bg-background/40 dark:divide-border/35">
+        <ul className="divide-y divide-border/40 dark:divide-border/35">
           {rows.map((row) => (
             <li key={row.nodeId} className="flex items-center gap-3 px-3 py-2">
               <Monitor aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />

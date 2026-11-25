@@ -21,6 +21,7 @@ import { getLocalLLM } from './services/vector/local-llm.js'
 import { MemoryService } from './services/memory/index.js'
 import { startMemoryMaintenanceScheduler } from './services/memory-maintenance/scheduler.js'
 import { startSaasRuntime } from './services/saas-runtime.js'
+import { startDirectLink } from './services/direct-link.js'
 import { initTelemetry } from './services/analytics/telemetry.js'
 import { isApiTokenAuthDisabled, publishApiToken } from './services/api-token.js'
 import type { RemoteE2EEMode } from '@shared/e2ee/protocol'
@@ -129,7 +130,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
   const remoteE2eeMode = options.remoteE2eeMode
     ?? (process.env.OPERON_REMOTE_E2EE === 'off' ? 'off' : 'required')
-  const { app, injectWebSocket } = await createApp({
+  const { app, injectWebSocket, scheduledMessages } = await createApp({
     storage, remoteE2eeMode, secureApprovalChannel, onDevicePaired,
     sshPasswordEncryption: options.sshPasswordEncryption,
   })
@@ -210,6 +211,9 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         console.log(`OPERON server running on http://${hostname}:${info.port}`)
         // If the user has already signed in to the SaaS, bring the tunnel up now.
         startSaasRuntime()
+        // And, if turned on, the direct listener for paired machines on the tailnet.
+        if (process.env.NODE_ENV !== 'test') startDirectLink()
+        server.once('close', () => scheduledMessages.stop())
         resolve({ port: info.port, storage })
         // The Electron main window is created after startServer() resolves.
         // Defer provider warm-up to the next event-loop turn so model discovery

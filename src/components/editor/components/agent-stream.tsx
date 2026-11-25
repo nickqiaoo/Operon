@@ -7,9 +7,9 @@ import { StructuredOrText } from './StructuredValue';
 // ── Shared agent-stream model ────────────────────────────────────────
 // A reducer (`reduceAgentChunk`) + presentational view (`AgentStreamView`)
 // over an `AgentStreamState`, agnostic to which transport produced the chunks.
-// Sub-agent inner chunks are multiplexed through the single per-run workflow
-// stream (see useWorkflowStream) and folded with this SAME reducer, so every
-// sub-agent path renders identically.
+// A sub-agent's saved transcript and the turn stream of the chat it runs as are
+// folded with this SAME reducer (see useWorkflowAgentTranscript), so both
+// render identically.
 
 export interface TrackedToolCall {
   toolCallId: string;
@@ -117,6 +117,13 @@ export function reduceAgentChunk(prev: AgentStreamState, chunk: Record<string, u
           ? [...prev.timeline.slice(0, -1), { kind: 'text', text: (last.text ?? '') + delta }]
           : [...prev.timeline, { kind: 'text', text: delta }];
       return { ...prev, text: prev.text + delta, timeline };
+    }
+    // A turn stream marks where the agent took in a steer; a saved transcript
+    // sends it as `data-steer`. An automated notice is not a steer anyone sent.
+    case 'data-injected-input': {
+      const data = (chunk.data ?? {}) as { text?: unknown; notice?: unknown };
+      if (data.notice === true || typeof data.text !== 'string' || !data.text) return prev;
+      return { ...prev, timeline: [...prev.timeline, { kind: 'steer', text: data.text }] };
     }
     case 'data-steer': {
       const text = String((chunk.data as { text?: unknown } | undefined)?.text ?? '');

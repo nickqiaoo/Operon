@@ -2,7 +2,7 @@
  * Something a conversation is blocked on until a person answers: a tool
  * approval, an AskUserQuestion, a plan review, or a detached sub-agent's request
  * forwarded onto the conversation that launched it. Carried per chat on the
- * live-status stream (`GET /api/ai/chat/live-status`).
+ * chat status stream (`GET /api/ai/chat/status`).
  */
 export interface PendingInputSummary {
   approvalId: string

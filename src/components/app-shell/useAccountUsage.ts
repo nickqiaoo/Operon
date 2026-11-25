@@ -1,4 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { subscribeEvents } from '@/lib/event-stream';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { aiUsageKeys } from '@/lib/chat-queries';
 import { useCodexUsagePolling } from '@/components/editor/hooks/useCodexUsagePolling';
@@ -80,8 +82,7 @@ const codexUsage = (limits: CodexRateLimits | null): ProviderUsage | null => {
   const plan: RateLimitSnapshot | undefined =
     limits?.rateLimitsByLimitId?.codex ??
     (limits?.rateLimits?.limitId === 'codex' ? limits.rateLimits : undefined) ??
-    limits?.rateLimits ??
-    undefined;
+    (limits?.rateLimits?.limitId == null ? limits?.rateLimits ?? undefined : undefined);
   if (!plan) return null;
 
   const windows = [plan.primary, plan.secondary].filter((window) => window != null);
@@ -110,6 +111,7 @@ const codexUsage = (limits: CodexRateLimits | null): ProviderUsage | null => {
 
 export function useAccountUsage(): {
   providers: ProviderUsage[];
+  loadingCodex: boolean;
 } {
   const claude = useQuery({
     queryKey: aiUsageKeys.claude(),
@@ -129,6 +131,18 @@ export function useAccountUsage(): {
   });
 
   const codex = useCodexUsagePolling();
+  const client = useQueryClient();
+  useEffect(() => {
+    let lastRevision: string | undefined;
+    const sub = subscribeEvents<string>('codex-selection', { onEvent(revision) {
+      if (revision === lastRevision) return;
+      lastRevision = revision;
+      // Clear old percentages immediately, including while the new request is pending.
+      void client.resetQueries({ queryKey: aiUsageKeys.codex(), exact: true });
+      void client.invalidateQueries({ queryKey: ['settings', 'codex-accounts'] });
+    } });
+    return () => sub.close();
+  }, [client]);
 
   // A provider with nothing to report is left out rather than shown empty: not
   // signed in, no CLI, or a plan without limits are all "there is no number
@@ -139,5 +153,5 @@ export function useAccountUsage(): {
 
   // No manual refresh: both windows poll every two minutes, which is finer
   // than a 5-hour / weekly budget moves.
-  return { providers };
+  return { providers, loadingCodex: codex.isLoading };
 }

@@ -1,6 +1,7 @@
 import type { ComponentType, ReactNode } from "react"
 import { FileJson, FileText, Keyboard } from "lucide-react"
 import { FormattedMessage } from "react-intl"
+import { CodexAccountsSettings } from "./CodexAccountsSettings"
 import { ConfigEditor } from "./ConfigEditor"
 import { CliPathSetting } from "./CliPathSetting"
 import { CliAutoUpdateSettings } from "./CliAutoUpdateSettings"
@@ -96,6 +97,7 @@ export const AGENT_SETTINGS: readonly AgentSettingsEntry[] = [
         content: () => (
             <>
                 {cliPath("codex", "Codex", "/usr/local/bin/codex")}
+                <CodexAccountsSettings />
                 <CliAutoUpdateSettings adapterId="codex" name="Codex" />
                 <ConfigEditor configDir=".codex" files={CODEX_FILES} />
             </>

@@ -22,7 +22,6 @@ type Server struct {
 	store     *Store
 	auth      *Auth
 	oauth     *OAuth
-	chatBufs  *ChatBufferStore
 	conns     *ConnTable // live tunnels by connId, for uplink batch routing
 	dir       *Directory // publishes node→owner routes for the front router (nil-safe)
 	lifecycle *Lifecycle
@@ -97,7 +96,6 @@ func main() {
 		store:        store,
 		auth:         auth,
 		oauth:        oauth,
-		chatBufs:     NewChatBufferStore(),
 		conns:        NewConnTable(),
 		dir:          dir,
 		lifecycle:    NewLifecycle(dir, os.Getenv("ADMIN_TOKEN")),
@@ -183,12 +181,9 @@ func main() {
 	mux.HandleFunc("GET /agent/delegation-nodes", s.handleDelegationNodes)
 	mux.HandleFunc("POST /agent/enroll", s.handleCreateEnrollCode)
 	mux.HandleFunc("DELETE /agent/self", s.handleRevokeSelf)
-	// Stream resilience (web/mobile): resume replays a buffered chat turn after a
-	// dropped connection; cancel is the explicit user-stop path. Registered before
-	// the catch-all — these literal patterns are more specific, so ServeMux routes
-	// them here and everything else falls through to handleProxy.
-	mux.HandleFunc("GET /u/{uid}/n/{nid}/api/ai/chat/resume/{chatId}", s.handleChatResume)
-	mux.HandleFunc("POST /u/{uid}/n/{nid}/api/ai/chat/cancel/{chatId}", s.handleChatCancel)
+	// Chat stream resilience lives on the node: a dropped request does not end
+	// the turn, and clients re-attach through GET …/api/ai/chat/stream/{chatId}
+	// (server/src/services/ai/turn-stream.ts), which this catch-all tunnels.
 	mux.HandleFunc("/u/{uid}/n/{nid}/api/{rest...}", s.handleProxy)
 
 	slog.Info("operon broker listening", "addr", addr, "publicURL", publicURL)
@@ -251,11 +246,11 @@ func withCORS(next http.Handler) http.Handler {
 			// Authorization must be listed explicitly — `*` does NOT cover it.
 			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Admin-Token")
 		}
-		// X-Turn-Id identifies the live turn a chat response belongs to; the web
+		// X-Turn-Id identifies the chat turn a response belongs to; the web
 		// client reads it to tell its own turn from a peer's, so it must be
 		// exposed or the header is invisible to JS. Keep in sync with the node's
 		// cors() exposeHeaders in server/src/app.ts.
-		h.Set("Access-Control-Expose-Headers", "X-Chat-Id, X-Turn-Id, X-Operon-Error-Code, X-Operon-E2EE, X-Operon-E2EE-Context, X-Operon-E2EE-Framing, X-Operon-Inner-Content-Type")
+		h.Set("Access-Control-Expose-Headers", "X-Chat-Id, X-Turn-Id, X-Message-Id, X-Operon-Error-Code, X-Operon-E2EE, X-Operon-E2EE-Context, X-Operon-E2EE-Framing, X-Operon-Inner-Content-Type")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

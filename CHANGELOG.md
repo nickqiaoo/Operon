@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-11-25
+
+### Added
+
+- Schedule a chat message for a specific time or for when your Codex quota resets.
+- Manage multiple Codex accounts and switch accounts when a quota limit is reached.
+- Connect paired machines and mobile devices directly over Tailscale.
+
+### Changed
+
+- Chat, remote agent, and workflow updates use a shared turn stream for progress and pending input.
+- Settings use a more consistent layout across desktop and mobile.
+
+### Fixed
+
+- The iOS composer stays aligned after panels slide and lets you preview attached images before sending.
+
 ## [1.6.0] - 2026-11-25
 
 ### Added

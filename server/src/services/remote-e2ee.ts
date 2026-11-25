@@ -12,6 +12,7 @@ import { DELEGATION_NODE_ID, MACHINE_PAIR_CLAIM_PATH, nodeDelegationRoute } from
 import { deriveDelegationKeys } from '@shared/e2ee/crypto'
 import { trustedDelegationTunnel } from './delegation-tunnel.js'
 import { touchPeer, trustedPeerKey } from './machine-peers.js'
+import { selfNodeId } from './local-identity.js'
 import { parseE2EETime, remoteReplayGuard } from './replay-guard.js'
 import {
   DELEGATION_SOURCE_HEADER,
@@ -119,12 +120,15 @@ function gcPendingPairings(): void {
   }
 }
 
-export function startRemotePairing(): RemotePairingQrPayload {
+/**
+ * A pairing code for a phone or browser. `broker`: whether the device may
+ * pair, and later connect, through Broker; without it the code only works
+ * over Tailscale, at the `direct` address the route adds (no account needed).
+ */
+export function startRemotePairing(options: { broker?: boolean } = {}): RemotePairingQrPayload {
   gcPendingPairings()
-  const saas = getSaasConfig()
-  if (!saas.nodeId || !saas.nodeToken) {
-    throw new Error('Connect this machine to Remote before pairing a device')
-  }
+  const broker = options.broker ?? !!getSaasConfig().nodeToken
+  const nodeId = selfNodeId()
   const identity = getDesktopIdentity()
   const pairingId = crypto.randomUUID()
   const secret = crypto.randomBytes(32)
@@ -133,15 +137,15 @@ export function startRemotePairing(): RemotePairingQrPayload {
   pendingPairings.set(pairingId, {
     pairingId,
     secret,
-    nodeId: saas.nodeId,
+    nodeId,
     createdAt,
     expiresAt,
     approvalNonce: crypto.randomBytes(32).toString('hex'),
   })
   return {
     v: 1,
-    brokerUrl: BROKER_URL,
-    nodeId: saas.nodeId,
+    ...(broker ? { brokerUrl: BROKER_URL } : {}),
+    nodeId,
     desktopId: identity.desktopId,
     desktopName: identity.desktopName,
     nodePublicKey: bytesToBase64(identity.publicKey),
@@ -501,7 +505,7 @@ export function createRemoteE2EEMiddleware(options: RemoteE2EEMiddlewareOptions 
  * another identity.
  */
 export function delegationKeysFor(source: string, deviceId: string, keyId: string): DirectionKeys | null {
-  const target = getSaasConfig().nodeId
+  const target = selfNodeId()
   const peer = trustedPeerKey(source)
   if (!target || !peer || deviceId !== source || peer.fingerprint !== keyId) return null
   return deriveDelegationKeys(getDelegationKeypair().privateKey, peer.publicKey, source, target)

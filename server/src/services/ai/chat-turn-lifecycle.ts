@@ -1,5 +1,13 @@
+// The chat turn registry: the one place that knows whether a chat has a turn,
+// from the moment it is admitted (before its provider has even started) until
+// its reply is saved. Everything that asks "is this chat busy?" asks here —
+// admission, waiting for idle, the status every surface shows — and each turn's
+// reply stream is registered with it, so attaching to "the chat's turn" finds
+// the same turn the status announced.
+
 import type { UIMessage } from 'ai'
 import type { AiChatRequest } from './types.js'
+import type { TurnStream } from './turn-stream.js'
 
 export interface ChatTurnFinished {
   chatId: number
@@ -10,27 +18,116 @@ export interface ChatTurnFinished {
   error?: string
 }
 
-// Observation and startup admission only. No promises wait for a model turn.
-const turns = new Map<number, Map<string, 'starting' | 'running'>>()
-const listeners = new Set<(event: ChatTurnFinished) => void>()
+/** Whether a chat has a turn, as every surface is told it. */
+export interface ChatTurnStatus {
+  chatId: number
+  active: boolean
+  /** The chat's newest turn while one is admitted. */
+  turnId: string | null
+  startedAt: number | null
+}
+
+/**
+ * How a new turn treats a chat whose previous turn is still starting: `force`
+ * runs anyway (server work that must not be dropped), `reject` refuses it, and
+ * `idle-only` also refuses one whose turn is running (a background notice must
+ * never preempt a person).
+ */
+export type ChatTurnAdmission = 'force' | 'reject' | 'idle-only'
+
+interface TurnRecord {
+  phase: 'starting' | 'running'
+  startedAt: number
+  /** Its reply, for surfaces to attach to. Absent for a turn kept off screen. */
+  stream?: TurnStream
+}
+
+/** A finished turn's stream stays attachable this long. History has the reply by then. */
+const FINISHED_STREAM_GRACE_MS = 30_000
+
+/** Turns admitted per chat, oldest first (a new turn can start while a preempted one winds down). */
+const turns = new Map<number, Map<string, TurnRecord>>()
+/** The stream of each chat's last finished turn, while a client that blinked out may still want its end. */
+const finishedStreams = new Map<number, { stream: TurnStream; timer: ReturnType<typeof setTimeout> }>()
+
+const finishListeners = new Set<(event: ChatTurnFinished) => void>()
 const startListeners = new Set<(payload: AiChatRequest) => void>()
 const readyListeners = new Set<(chatId: number) => void>()
 const abortListeners = new Set<(chatId: number) => void>()
+const statusListeners = new Set<(status: ChatTurnStatus) => void>()
 const aborters = new Map<number, () => void>()
 
-/** Reserve setup synchronously, before the first await in handleChat. */
-export function beginChatTurn(chatId: number, turnId: string, onlyIfIdle = false): boolean {
-  if (isChatTurnStarting(chatId) || (onlyIfIdle && isChatTurnBusy(chatId))) return false
-  const active = turns.get(chatId) ?? new Map<string, 'starting' | 'running'>()
-  active.set(turnId, 'starting')
+function newestTurn(chatId: number): [string, TurnRecord] | undefined {
+  const active = turns.get(chatId)
+  if (!active || active.size === 0) return undefined
+  let last: [string, TurnRecord] | undefined
+  for (const entry of active) last = entry
+  return last
+}
+
+export function getChatTurnStatus(chatId: number): ChatTurnStatus {
+  const newest = newestTurn(chatId)
+  return {
+    chatId,
+    active: newest !== undefined,
+    turnId: newest?.[0] ?? null,
+    startedAt: newest?.[1].startedAt ?? null,
+  }
+}
+
+/** Every chat with a turn admitted — the status stream's connect-time snapshot. */
+export function listActiveChatTurns(): ChatTurnStatus[] {
+  return [...turns.keys()].map(getChatTurnStatus)
+}
+
+/** Told every time any chat's status changes. */
+export function onChatTurnStatus(listener: (status: ChatTurnStatus) => void): () => void {
+  statusListeners.add(listener)
+  return () => { statusListeners.delete(listener) }
+}
+
+function emitStatus(chatId: number): void {
+  const status = getChatTurnStatus(chatId)
+  for (const listener of statusListeners) {
+    try { listener(status) } catch (error) { console.warn('[chat-turn] status observer failed', error) }
+  }
+}
+
+/**
+ * The stream a surface attaches to for this chat: its newest turn's, or the
+ * one that just finished.
+ */
+export function getChatTurnStream(chatId: number): TurnStream | undefined {
+  const newest = newestTurn(chatId)
+  if (newest) return newest[1].stream
+  return finishedStreams.get(chatId)?.stream
+}
+
+/**
+ * Admit a turn and announce it. Synchronous, so admission and setup
+ * reservation happen together, before any asynchronous provider work. Returns
+ * false when `admission` refuses it (nothing is registered then).
+ */
+export function beginChatTurn(
+  chatId: number,
+  turnId: string,
+  options: { admission?: ChatTurnAdmission; stream?: TurnStream } = {},
+): boolean {
+  const admission = options.admission ?? 'reject'
+  if (admission !== 'force' && (isChatTurnStarting(chatId) || (admission === 'idle-only' && isChatTurnBusy(chatId)))) {
+    return false
+  }
+  const active = turns.get(chatId) ?? new Map<string, TurnRecord>()
+  active.set(turnId, { phase: 'starting', startedAt: Date.now(), stream: options.stream })
   turns.set(chatId, active)
+  emitStatus(chatId)
   return true
 }
 
 export function markChatTurnReady(chatId: number, turnId: string): void {
-  const active = turns.get(chatId)
-  if (!active?.has(turnId)) return
-  active.set(turnId, 'running')
+  const record = turns.get(chatId)?.get(turnId)
+  if (!record) return
+  record.phase = 'running'
   for (const listener of readyListeners) {
     try { listener(chatId) } catch (error) { console.warn('[chat-turn] ready observer failed', error) }
   }
@@ -61,7 +158,8 @@ export function listBusyChats(): number[] {
 }
 
 export function isChatTurnStarting(chatId: number): boolean {
-  return [...(turns.get(chatId)?.values() ?? [])].includes('starting')
+  for (const record of turns.get(chatId)?.values() ?? []) if (record.phase === 'starting') return true
+  return false
 }
 
 export function onChatTurnReady(listener: (chatId: number) => void): () => void {
@@ -75,8 +173,8 @@ export function onChatTurnAborted(listener: (chatId: number) => void): () => voi
 }
 
 export function onChatTurnFinished(listener: (event: ChatTurnFinished) => void): () => void {
-  listeners.add(listener)
-  return () => { listeners.delete(listener) }
+  finishListeners.add(listener)
+  return () => { finishListeners.delete(listener) }
 }
 
 export function onChatTurnStarted(listener: (payload: AiChatRequest) => void): () => void {
@@ -90,13 +188,29 @@ export function emitChatTurnStarted(payload: AiChatRequest): void {
   }
 }
 
+/** The turn is over and its reply saved: unregister it, announce the chat's new status, tell observers. */
 export function emitChatTurnFinished(event: ChatTurnFinished): void {
   const active = turns.get(event.chatId)
-  active?.delete(event.turnId)
-  if (active?.size === 0) turns.delete(event.chatId)
-  for (const listener of listeners) {
+  const record = active?.get(event.turnId)
+  if (record) {
+    active!.delete(event.turnId)
+    if (active!.size === 0) turns.delete(event.chatId)
+    if (record.stream) keepFinishedStream(event.chatId, record.stream)
+    emitStatus(event.chatId)
+  }
+  for (const listener of finishListeners) {
     try { listener(event) } catch (error) { console.warn('[chat-turn] finish observer failed', error) }
   }
+}
+
+function keepFinishedStream(chatId: number, stream: TurnStream): void {
+  const previous = finishedStreams.get(chatId)
+  if (previous) clearTimeout(previous.timer)
+  const timer = setTimeout(() => {
+    if (finishedStreams.get(chatId)?.stream === stream) finishedStreams.delete(chatId)
+  }, FINISHED_STREAM_GRACE_MS)
+  ;(timer as { unref?: () => void }).unref?.()
+  finishedStreams.set(chatId, { stream, timer })
 }
 
 /**
@@ -110,25 +224,28 @@ export function emitChatTurnFinished(event: ChatTurnFinished): void {
  * transcript by deleting it.
  *
  * Best-effort: a runtime that never honours the abort would otherwise hang the
- * caller, so the wait gives up after `timeoutMs` and resolves anyway.
+ * caller, so the wait gives up after `timeoutMs` and resolves `false`.
  */
-export function waitForChatTurnIdle(chatId: number, timeoutMs = 5000): Promise<void> {
-  if (!isChatTurnBusy(chatId)) return Promise.resolve()
-  return new Promise<void>((resolve) => {
+export function waitForChatTurnIdle(chatId: number, timeoutMs = 5000, signal?: AbortSignal): Promise<boolean> {
+  if (!isChatTurnBusy(chatId)) return Promise.resolve(true)
+  return new Promise<boolean>((resolve) => {
     let done = false
-    const settle = () => {
+    const settle = (idle: boolean) => {
       if (done) return
       done = true
       clearTimeout(timer)
       unsubscribe()
-      resolve()
+      signal?.removeEventListener('abort', onAbort)
+      resolve(idle)
     }
-    const timer = setTimeout(settle, timeoutMs)
+    const onAbort = () => settle(false)
+    const timer = setTimeout(() => settle(false), timeoutMs)
     const unsubscribe = onChatTurnFinished((event) => {
       if (event.chatId !== chatId) return
-      if (!isChatTurnBusy(chatId)) settle()
+      if (!isChatTurnBusy(chatId)) settle(true)
     })
+    signal?.addEventListener('abort', onAbort, { once: true })
     // The turn may have ended between the check above and the subscription.
-    if (!isChatTurnBusy(chatId)) settle()
+    if (!isChatTurnBusy(chatId)) settle(true)
   })
 }

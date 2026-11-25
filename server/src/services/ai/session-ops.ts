@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { abortManagedChatTurn } from './chat-turn-lifecycle.js'
+import { abortManagedChatTurn, isChatTurnBusy } from './chat-turn-lifecycle.js'
 import { convertToModelMessages, type FileUIPart, type UIMessage } from 'ai'
 import { getRuntime, getSessionManager, getChatStorage, getProjectStorage } from './state.js'
 import { runSessionControl, supportsSessionControl } from './session-control.js'
 import { createSteerUserMessage } from './helpers.js'
 import { persistInjectedUserMessage } from './persistence.js'
 import { latestUserInput, normalizeUiMessagesFileAttachments } from './message-utils.js'
-import { getLiveTurn } from './live-turn-hub.js'
 import { isAgentOwnedChat } from '../channel/agent-orchestrator.js'
 import { RuntimeInjectionUnavailableError, type AgentInput, type InputDeliveryReceipt } from '@operon/agent-runtime'
 import type { AccountRateLimitsReadResult } from '@operon/agent-runtime/codex'
@@ -26,7 +25,6 @@ const CLAUDE_USAGE_CACHE_TTL_MS = 2_000
 
 let claudeUsageCache: { data: RuntimeUsageLimits; fetchedAt: number } | null = null
 let claudeUsageInFlight: Promise<RuntimeUsageLimits | null> | null = null
-let codexUsageInFlight: Promise<AccountRateLimitsReadResult | null> | null = null
 
 export function handleSessionCleanup(chatId: number): boolean {
   const sessionManager = getSessionManager()
@@ -98,9 +96,9 @@ export async function injectIntoChat(
 
   // A turn the agent started on its own (Claude answering a finished background
   // agent) runs on the same live session but through no `/chat` request, so it
-  // has no `activeRequest`. Its live turn is what the open tab is streaming.
-  const liveTurn = getLiveTurn(chatId)
-  if (!session.activeRequest && !(liveTurn && !liveTurn.isDone)) {
+  // has no `activeRequest`. It is still a turn on the chat, which is what the
+  // open tab is streaming.
+  if (!session.activeRequest && !isChatTurnBusy(chatId)) {
     console.warn(`[AI] injectIntoChat(${chatId}): no active request — session may have already finished`)
     return { success: false, delivery: 'not-sent', error: 'Session is not currently generating' }
   }
@@ -261,26 +259,14 @@ export async function getCodexUsageLimits(options?: { force?: boolean }): Promis
 }> {
   const force = options?.force === true
 
-  // A forced read never joins an in-flight one: that request may itself have
-  // been answered from the cache this press is trying to get past.
-  if (!force && codexUsageInFlight) {
-    const data = await codexUsageInFlight.catch(() => null)
-    return data ? { success: true, data } : { success: false, error: 'No Codex usage data available' }
-  }
-
-  const request = getRuntime().native('codex').accountUsage(force ? 0 : undefined)
-  codexUsageInFlight = request
+  // Each app-server already coalesces reads. Keep that cache scoped to the current selection.
   try {
-    const data = await request
+    const data = await getRuntime().native('codex').accountUsage(force ? 0 : undefined)
     return data ? { success: true, data } : { success: false, error: 'No Codex usage data available' }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[AI] getCodexUsageLimits failed:', message)
     return { success: false, error: message }
-  } finally {
-    if (codexUsageInFlight === request) {
-      codexUsageInFlight = null
-    }
   }
 }
 

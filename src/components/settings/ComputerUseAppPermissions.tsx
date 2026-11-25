@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
     AlertCircle,
-    AppWindow,
     Ban,
     Check,
     ChevronsUpDown,
-    Layers,
     Loader2,
     RefreshCw,
     Trash2,
@@ -199,9 +197,8 @@ export function ComputerUseAppPermissions() {
             )}
 
             {data && (
-                <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+                <section className="space-y-4 settings-section">
                     <div className="flex items-start gap-3">
-                        <AppWindow className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
                         <div className="flex-1">
                             <h2 className="text-sm font-semibold mb-1">
                                 <FormattedMessage id="settings.computerUse.apps.title" defaultMessage="App access" />
@@ -250,7 +247,7 @@ export function ComputerUseAppPermissions() {
                     </div>
 
                     {rules.length === 0 ? (
-                        <div className="rounded-lg border border-dashed border-border/50 p-6 text-center text-xs text-muted-foreground">
+                        <div className="p-6 text-center text-xs text-muted-foreground">
                             <FormattedMessage
                                 id="settings.computerUse.apps.empty"
                                 defaultMessage="No saved decisions. Agents will ask before operating each app."
@@ -261,7 +258,7 @@ export function ComputerUseAppPermissions() {
                             {rules.map(({ app, rule }) => (
                                 <li
                                     key={`${rule}:${app.bundleId}`}
-                                    className="flex items-center gap-3 rounded-lg border border-border/40 bg-background/40 px-3 py-2"
+                                    className="flex items-center gap-3 border-b border-border/40 py-2 last:border-b-0"
                                 >
                                     <AppLabel app={app} />
                                     <span
@@ -295,7 +292,7 @@ export function ComputerUseAppPermissions() {
                     )}
 
                     {data.conversationsWithApprovals > 0 && (
-                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/40 bg-background/40 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3 py-3">
                             <p className="text-xs text-muted-foreground">
                                 <FormattedMessage
                                     id="settings.computerUse.apps.conversations"
@@ -319,9 +316,8 @@ export function ComputerUseAppPermissions() {
             )}
 
             {data && (
-                <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
+                <section className="space-y-4 settings-section">
                     <div className="flex items-start gap-3">
-                        <Layers className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
                         <div className="flex-1">
                             <h2 className="text-sm font-semibold mb-1">
                                 <FormattedMessage id="settings.computerUse.capabilities.title" defaultMessage="Across all apps" />
@@ -340,7 +336,7 @@ export function ComputerUseAppPermissions() {
                             return (
                                 <div
                                     key={row.id}
-                                    className="flex items-center gap-3 rounded-lg border border-border/40 bg-background/40 p-3"
+                                    className="flex items-center gap-3 py-3"
                                 >
                                     <div className="min-w-0 flex-1">
                                         <div className="text-xs font-medium">

@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 import { useChatHistoryList, type ChatHistoryListItem } from "@/lib/chat-queries"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useEditorStore } from "@/stores/editor-store"
-import { useChatPresenceStore } from "@/stores/chat-presence-store"
+import { useChatRunningStore } from "@/stores/chat-running-store"
 import { chatKey, chatRefFromTabId, chatTabId, type ChatRef } from "@/lib/chat-ref"
 import { useSessionPanelStore } from "@/stores/session-panel-store"
 import { useBackHandler } from "@/hooks/useAndroidBackButton"
@@ -90,9 +90,9 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
   const setTabChatId = useEditorStore((s) => s.setTabChatId)
   const setActiveTab = useEditorStore((s) => s.setActiveTab)
   const closeTab = useEditorStore((s) => s.closeTab)
-  // Server-reported turn presence for every chat (the shell keeps the stream
+  // Server-reported turn status for every chat (the shell keeps the stream
   // open), so a row shows its turn running even with no panel mounted.
-  const runningChats = useChatPresenceStore((s) => s.runningChats)
+  const runningChats = useChatRunningStore((s) => s.runningChats)
   const isRunning = (chat: ChatRef) => runningChats.has(chatKey(chat))
 
   const [openId, setOpenId] = useState<string | null>(initialChatTabId ?? null)

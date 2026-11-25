@@ -49,7 +49,7 @@ export function RemoteDelegationSettings() {
           <h4 className="text-xs font-medium text-muted-foreground">
             <FormattedMessage id="settings.remote.delegation.recent" defaultMessage="Recent" />
           </h4>
-          <ul className="divide-y divide-border/40 rounded-lg border border-border/40 bg-background/40">
+          <ul className="divide-y divide-border/40">
             {settings.data.recent.map((item) => (
               <li key={item.childChatId} className="flex items-center justify-between gap-3 px-3 py-2">
                 <div className="min-w-0">

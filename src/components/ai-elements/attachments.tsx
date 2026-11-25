@@ -9,6 +9,7 @@ import {
 import { Dialog, DialogTrigger } from "@/components/ui/dialog";
 import { ImageViewer } from "@/components/ai-elements/image-viewer";
 import { cn } from "@/lib/utils";
+import { getAttachmentThumbnail } from "@/lib/attachment-thumbnails";
 import { isAttachmentUrl, resolveAttachmentUrl } from "@/lib/attachments";
 import { getBaseUrl, getBaseUrlSync, type ApiTransport } from "@/lib/api-client";
 import { useChatTransport } from "@/lib/chat-api-context";
@@ -220,7 +221,8 @@ export const AttachmentPreview = ({
       ? resolvedImageSrc
       : null;
   const objectUrl = useAuthedObjectUrl(brokerMediaSrc);
-  const mediaSrc = brokerMediaSrc ? objectUrl : resolvedImageSrc;
+  const localThumbnail = data.type === "file" && isAttachmentUrl(data.url) ? getAttachmentThumbnail(data.url) : undefined;
+  const mediaSrc = (brokerMediaSrc ? objectUrl : resolvedImageSrc) ?? localThumbnail;
 
   useEffect(() => {
     if (baseUrlReady) return;

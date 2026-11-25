@@ -1,4 +1,5 @@
 import { getUserId } from '../web-auth'
+import { isAccountless } from '../remote-route'
 
 // Long enough for a cold tunnel hop, short enough that a wedged broker doesn't
 // leave the machine picker looking frozen.
@@ -25,6 +26,8 @@ const PROBE_TIMEOUT_MS = 8_000
  * machine that never agreed to one.
  */
 export async function nodeRequiresPairing(nodeId: string): Promise<boolean> {
+  // Without an account, a machine is only ever reached sealed.
+  if (isAccountless()) return true
   const broker = (import.meta.env.VITE_BROKER_URL ?? '').replace(/\/$/, '')
   const userId = getUserId()
   if (!broker || !userId) return true

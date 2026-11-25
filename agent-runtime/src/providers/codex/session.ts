@@ -25,7 +25,7 @@ import { inputText, toUserMessages } from '../../utils/agent-input.js'
 import { UserFacingRuntimeError, RuntimeInjectionUnavailableError, type InjectOptions } from '../../types.js'
 import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
 import { createRuntimeLogger } from '../../logger.js'
-import { acquireAppServerClient } from './sdk/client-registry.js'
+import { codexAccounts } from './accounts.js'
 import {
   buildDeveloperInstructions,
   CODEX_PLAN_MODE_ID,
@@ -140,6 +140,7 @@ function isCodexMcpStartupState(value: unknown): value is CodexMcpStartupState {
 export const DEFAULT_CODEX_MODEL_ID = 'gpt-5.6-sol'
 
 export interface CodexModelState {
+  accountGeneration?: number
   models: Model[]
   thinkingLevels: NonNullable<ProviderDescriptor['thinkingLevels']>
   currentModelId: string
@@ -374,14 +375,25 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
     return { ...settings, configOverrides: { ...(settings.configOverrides ?? {}), ...overrides } }
   }
 
+  private accountGeneration = 0
   private getClient(): AppServerClient {
+    const accounts = codexAccounts(this.ctx)
+    if (this.client && this.accountGeneration !== accounts.generation) {
+      for (const unsubscribe of this.clientUnsubscribers) unsubscribe()
+      this.clientUnsubscribers = []
+      this.clientLease?.()
+      this.codexSession = null
+      this.client = null
+    }
+    this.accountGeneration = accounts.generation
     if (!this.client) {
       const settings = this.buildSettings()
       // One app-server per host, shared by every conversation on it — see
       // `sdk/client-registry.ts`. Everything below therefore has to be scoped to
       // this session's thread and unhooked when the session ends, because the
       // connection outlives us.
-      const lease = acquireAppServerClient(settings)
+      const lease = accounts.acquire(settings)
+      accounts.observeUsage(lease)
       this.client = lease.client
       this.clientLease = lease.release
       // MCP elicitation is auto-accepted by the connection itself, once per
@@ -747,7 +759,14 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
   }
 
   send(input: AgentInput, options?: SendOptions): AsyncIterable<RuntimeStreamPart> {
-    return this.followups.run(input, options, (next, opts) => this.runTurn(toUserMessages(next), opts?.signal))
+    return this.followups.run(input, options, (next, opts) => this.withAccountTurn(this.runTurn(toUserMessages(next), opts?.signal), opts?.signal))
+  }
+
+  private async *withAccountTurn(stream: AsyncIterable<RuntimeStreamPart>, signal?: AbortSignal) {
+    const release = await codexAccounts(this.ctx).enterTurn()
+    try {
+      if (!signal?.aborted) yield* stream
+    } finally { release() }
   }
 
   private async *runTurn(messages: ModelMessage[], signal: AbortSignal | undefined) {
@@ -1377,7 +1396,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
     clear: () => this.clearGoal(),
     run: (objective, options) => {
       this.logger.info('Running goal pursuit loop')
-      return this.streamGoalLoop(toUserMessages(objective), options?.signal)
+      return this.withAccountTurn(this.streamGoalLoop(toUserMessages(objective), options?.signal), options?.signal)
     },
   }
 
@@ -1488,7 +1507,9 @@ export async function refreshCodexModels(ctx: RuntimeContext, modelState: CodexM
     await modelState.refreshInFlight
     return
   }
-  if (modelState.hasLoaded) return
+  const accounts = codexAccounts(ctx)
+  if (modelState.hasLoaded && (modelState.accountGeneration ?? 0) === accounts.generation) return
+  modelState.accountGeneration = accounts.generation
 
   const refresh = (async () => {
     let loaded = false
@@ -1496,6 +1517,7 @@ export async function refreshCodexModels(ctx: RuntimeContext, modelState: CodexM
       const codexPath = ctx.resolveBinary('codex')
       if (!codexPath) return
       const { models, defaultModel } = await listModels({
+        acquire: settings => accounts.acquire(settings),
         codexPath,
         env: ctx.env(),
       })

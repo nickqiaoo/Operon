@@ -14,15 +14,15 @@ vi.mock('../ai/state.js', () => ({
 }))
 vi.mock('../ai/persistence.js', () => ({ persistInjectedUserMessage: () => undefined }))
 vi.mock('../notification-service.js', () => ({ notify: () => undefined }))
-vi.mock('../ai/detached-turn.js', () => ({
-  replySnippet: () => undefined,
-  // Stand-in for the live-turn pipeline: drain the passive turn's parts, letting the test react.
-  runDetachedTurn: async (_target: unknown, parts: AsyncIterable<RuntimeStreamPart>) => {
-    for await (const part of parts) {
+vi.mock('../ai/message-utils.js', () => ({ replySnippet: () => undefined }))
+vi.mock('../ai/chat-flow.js', () => ({
+  // Stand-in for the chat turn pipeline: drain the passive turn's parts, letting the test react.
+  runChatTurn: async (_payload: unknown, options: { output: AsyncIterable<RuntimeStreamPart> }) => {
+    for await (const part of options.output) {
       captured.parts.push(part)
       captured.onPart?.(part)
     }
-    return undefined
+    return { ended: Promise.resolve({ status: 'completed', message: undefined }) }
   },
 }))
 

@@ -250,7 +250,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
                         <FormattedMessage id="settings.tab.title" defaultMessage="Settings" />
                     </Button>
                 </div>
-                {/* The two master/detail tabs get more room: their list takes 232px off the panel. */}
+                {/* The two master/detail tabs get more room: their list shares the content width. */}
                 <div className={cn(
                     "mx-auto py-6 px-6 lg:px-10",
                     activeTab === "agents" || activeTab === "providers" ? "max-w-5xl" : "max-w-4xl",

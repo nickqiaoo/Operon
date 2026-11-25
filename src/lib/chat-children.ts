@@ -35,6 +35,7 @@ export interface ChatChild {
   remote?: ExternalAgentView['remote']
   providerId: string
   modelId?: string
+  effort?: string
   modeId?: string
   /** Where it works: its parent's workspace, or one of its own. */
   workspaceId?: number
@@ -97,6 +98,7 @@ export function buildChatChildren(input: ChatChildrenInput): ChatChild[] {
       childChatId: view.childChatId,
       ...(view.remote ? { nodeId: view.remote.nodeId, remote: view.remote } : {}),
       providerId: view.providerId,
+      effort: view.effort,
       modelId: view.modelId,
       modeId: view.modeId,
       workspaceId: view.workspaceId,
@@ -115,6 +117,7 @@ export function buildChatChildren(input: ChatChildrenInput): ChatChild[] {
       agentId: `task:${task.taskId}`,
       childChatId: task.chatId,
       providerId: task.providerId ?? '',
+      effort: task.effort,
       modelId: task.modelId ?? undefined,
       workspaceId: task.workspaceId ?? undefined,
       title: `#${task.number} ${task.title}`,

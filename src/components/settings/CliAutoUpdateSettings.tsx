@@ -54,7 +54,6 @@ export function CliAutoUpdateSettings({ adapterId, name }: { adapterId: CliAutoU
 
   return (
     <SettingsSection
-      icon={RefreshCw}
       title={<FormattedMessage id="settings.cliAutoUpdate.title" defaultMessage="Auto-update" />}
       description={
         <FormattedMessage

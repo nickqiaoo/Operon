@@ -44,6 +44,12 @@ export function trustedPeerKey(nodeId: string): { publicKey: Uint8Array; fingerp
   return row?.status === 'trusted' ? { publicKey: row.publicKey, fingerprint: row.fingerprint } : null
 }
 
+/** The name a trusted machine goes by here, as it said when it paired or was introduced. */
+export function getMachinePeerLabel(nodeId: string): string | null {
+  const row = storage?.getMachinePeer(nodeId)
+  return row?.status === 'trusted' ? row.label : null
+}
+
 export function isTrustedPeer(nodeId: string): boolean {
   return trustedPeerKey(nodeId) !== null
 }

@@ -1,3 +1,4 @@
+import type { ChatMeta } from '../types/chat.js'
 import { randomUUID } from 'node:crypto'
 import type { UIMessage } from 'ai'
 import type { ExternalAgentBinding, ExternalAgentFrame, ExternalAgentView } from '../../../shared/external-agent.js'
@@ -30,19 +31,28 @@ export function subscribeExternalAgents(listener: (event: ExternalAgentFrame) =>
   return () => { listeners.delete(listener) }
 }
 
-export function externalAgentView(childChatId: number): ExternalAgentView | undefined {
-  const meta = getChatStorage()?.getChatMeta(childChatId)
+export function externalAgentView(childChatId: number, meta = getChatStorage()?.getChatMeta(childChatId)): ExternalAgentView | undefined {
   const binding = meta?.metadata?.externalAgent
   if (!binding || !meta?.providerId) return undefined
   const last = binding.lastTurn
   const pending = last?.status === 'running' || last?.status === 'queued'
   return {
     ...binding, childChatId, modelId: meta.model, modeId: meta.metadata?.modeId, providerId: meta.providerId, workspaceId: meta.workspaceId,
+    effort: meta.thinkingLevel,
     turnId: last?.turnId,
     status: pending && !activeTurns.has(childChatId) ? 'interrupted' : last?.status ?? 'idle',
     error: last?.error,
     updatedAt: meta.updatedAt,
   }
+}
+
+export function publishExternalAgentSettings(chatId: number, meta: ChatMeta): void {
+  const agent = externalAgentView(chatId, meta)
+  if (!agent) return
+  publish({ type: 'updated', agent })
+  if (agent.remoteParent) reportToParentMachine(agent.remoteParent, {
+    type: 'settings', childChatId: chatId, eventId: randomUUID(), modelId: agent.modelId, effort: agent.effort,
+  })
 }
 
 /** This machine's external agents, and those its conversations started on other machines. */
@@ -169,11 +179,19 @@ export async function createExternalAgent(params: {
   const parentChatId = 'chatId' in parent ? parent.chatId : 0
   const owner: ExternalAgentOwner = 'chatId' in parent ? parent.chatId
     : 'remoteParent' in parent ? { nodeId: parent.remoteParent.nodeId, chatId: parent.remoteParent.chatId } : 'assistant'
-  const needsModels = params.model === 'default' || !!params.effort
-  const models = needsModels ? await getProviderModels(params.providerId) : undefined
+  const models = await getProviderModels(params.providerId).catch((error: unknown) => {
+    // A missing catalog must not block starting an explicitly named model at its native effort.
+    if (params.model === 'default' || params.effort) throw error
+    return undefined
+  })
   const modelId = params.model === 'default' ? models?.currentModelId || undefined : params.model
+  const thinking = models?.configOptions.find((option) => option.category === 'thought_level')
+  const model = models?.configOptions.find((option) => option.category === 'model')?.options.find((item) => item.value === modelId)
+  const defaultEffort = model?.defaultEffort ?? models?.defaultEffort
+  const supported = model?.supportedEffortLevels ?? thinking?.options.map((option) => option.value)
+  const effort = params.effort ?? (defaultEffort && supported?.includes(defaultEffort) ? defaultEffort : undefined)
   if (params.effort) {
-    const levels = models?.configOptions?.find((option) => option.category === 'thought_level')?.options.map((option) => option.value) ?? []
+    const levels = supported ?? []
     if (!levels.includes(params.effort)) {
       throw new Error(levels.length ? `Effort levels for ${params.providerId}: ${levels.join(', ')}` : `${params.providerId} has no effort setting`)
     }
@@ -184,7 +202,7 @@ export async function createExternalAgent(params: {
     tp: 'subagent',
     title: `Agent: ${params.description}`, workspaceId,
     providerId: params.providerId, model: modelId,
-    ...(params.effort ? { thinkingLevel: params.effort } : {}),
+    thinkingLevel: effort,
     updatedAt: Date.now(), metadata: { modeId },
   })
   const agentId = `ext-${chatId}`

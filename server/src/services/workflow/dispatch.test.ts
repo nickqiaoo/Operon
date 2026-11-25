@@ -34,34 +34,21 @@ vi.mock('../ai.js', () => ({
     return running.delete(chatId)
   },
   // The first provider never answers until it is stopped; any other answers at once.
-  startServerChat: vi.fn(
+  runChatTurn: vi.fn(
     async (
       payload: { chatId: number; providerId: string },
       options: { onPart?: (part: { type: string }) => void },
     ) => {
-      let aborted = false
-      const preparedParts = new ReadableStream({
-        start(controller) {
-          for (const part of scripted[payload.providerId] ?? []) options.onPart?.(part)
-          if (payload.providerId !== 'opencode') return controller.close()
-          running.set(payload.chatId, () => {
-            aborted = true
-            controller.close()
-          })
-        },
+      for (const part of scripted[payload.providerId] ?? []) options.onPart?.(part)
+      const ended = new Promise<{ status: string; message?: unknown }>((resolve) => {
+        const answer = () => resolve({
+          status: 'completed',
+          message: { role: 'assistant', parts: [{ type: 'text', text: `answer from ${payload.providerId}` }] },
+        })
+        if (payload.providerId !== 'opencode') return answer()
+        running.set(payload.chatId, () => resolve({ status: 'cancelled', message: undefined }))
       })
-      return {
-        preparedParts,
-        persistDone: Promise.resolve(),
-        finish: vi.fn(),
-        recordError: vi.fn(),
-        completion: () => ({
-          status: aborted ? 'cancelled' : 'completed',
-          message: aborted
-            ? undefined
-            : { role: 'assistant', parts: [{ type: 'text', text: `answer from ${payload.providerId}` }] },
-        }),
-      }
+      return { chatId: payload.chatId, requestId: 'r', assistantMessageId: 'a', ended }
     },
   ),
 }))
