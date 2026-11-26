@@ -1,4 +1,4 @@
-import { createCSSVariablesTheme, registerCustomTheme } from '@pierre/diffs'
+import { createCSSVariablesTheme, registerCustomTheme, type DiffsTheme } from '@pierre/diffs'
 
 const themeName = 'operon-code'
 
@@ -30,7 +30,7 @@ const palette = {
 }
 
 const theme = createCSSVariablesTheme(palette)
-export const PIERRE_HIGHLIGHTS_THEME = theme.zed
+export const PIERRE_HIGHLIGHTS_THEME: DiffsTheme['zed'] = theme.zed
 if (PIERRE_HIGHLIGHTS_THEME?.style.syntax) {
   Object.assign(PIERRE_HIGHLIGHTS_THEME.style.syntax, {
     number: 'token-number',
