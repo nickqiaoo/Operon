@@ -1,4 +1,4 @@
-import type { CodexAccountsView } from '@operon/agent-runtime/codex'
+import type { CodexAccountsView, CodexResetOutcome } from '@operon/agent-runtime/codex'
 import type { WorkspaceTask } from '@/stores/project-store'
 import type { ClaudeToggles } from '@shared/claude-toggles'
 import type { CliAutoUpdateAdapterId, CliAutoUpdateState, CliAutoUpdateStatus } from '@shared/cli-auto-update'
@@ -714,6 +714,8 @@ export function createApi(transport: ApiTransport) {
       codexAccountLogin: (device: boolean, id?: string) => post<{ url: string; code?: string }>('/codex-accounts/login', { device, id }),
       codexAccountCancel: () => post('/codex-accounts/cancel', {}),
       codexWorkspaceSelect: (id: string, workspace: string) => post('/codex-accounts/' + encodeURIComponent(id) + '/workspaces/' + encodeURIComponent(workspace) + '/select', {}),
+      codexAccountReset: (id: string, params: { email: string | null; workspaceId: string | null; idempotencyKey: string; creditId?: string }) =>
+        post<{ outcome: CodexResetOutcome }>('/codex-accounts/' + encodeURIComponent(id) + '/reset', params),
       codexAccountSelect: (id: string) => post('/codex-accounts/' + encodeURIComponent(id) + '/select', {}),
       codexAccountRemove: (id: string) => del('/codex-accounts/' + encodeURIComponent(id)),
       codexAccountAutomatic: (enabled: boolean) => put('/codex-accounts/automatic', { enabled }),

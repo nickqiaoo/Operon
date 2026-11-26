@@ -6,7 +6,7 @@ import type { StorageAdapter } from '../storage/interface.js'
 
 // The login shell is irrelevant here (the CLI path is configured explicitly)
 // and spawning one per test is slow.
-vi.mock('shell-env', () => ({ shellEnvSync: () => ({}) }))
+vi.mock('./adapter/login-shell-env.js', () => ({ getShellEnv: () => ({}) }))
 
 function memoryStorage(): StorageAdapter {
   const kv = new Map<string, unknown>()

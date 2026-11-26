@@ -143,11 +143,11 @@ describe('buildHeartbeatInstructions', () => {
     Object.entries(DEFAULT_PROFILE_FILES).map(([name, content]) => [name, { name, content, updatedAt: 0, updatedBy: 'user' }]),
   ) as Parameters<typeof buildHeartbeatInstructions>[0]
 
-  it('carries the checklist and the contract the runtime parses (told section, Later, heartbeat_done)', () => {
+  it('carries the checklist and the contract the runtime parses (told section, Later, heartbeat_finish)', () => {
     const instructions = buildHeartbeatInstructions(files, [])
     expect(instructions).toContain('<heartbeat.md>')
     expect(instructions).toContain('## Already told')
     expect(instructions).toContain('### Later')
-    expect(instructions).toContain('heartbeat_done')
+    expect(instructions).toContain('heartbeat_finish')
   })
 })

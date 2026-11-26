@@ -1,4 +1,5 @@
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { getOperonHome } from '../../../../shared/operon-home.js'
 import path from 'node:path'
@@ -18,6 +19,8 @@ import path from 'node:path'
  * build next to the installed one, or two launches racing), and a record
  * without an owner would let one kill the server the other is using.
  */
+
+const execFileAsync = promisify(execFile)
 
 const RECORD_PREFIX = 'opencode-server-'
 const RECORD_SUFFIX = '.json'
@@ -41,13 +44,13 @@ function recordPath(dir: string, serverPid: number): string {
  * Asked of the OS rather than the SDK: `createOpencodeServer` resolves to
  * `{ url, close }` and never exposes the child's pid.
  */
-export function pidListeningOn(port: number): number | undefined {
+export async function pidListeningOn(port: number): Promise<number | undefined> {
   try {
-    const out = execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], {
+    const { stdout } = await execFileAsync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], {
       encoding: 'utf8',
       timeout: 2000,
     })
-    const pid = Number.parseInt(out.split('\n')[0]?.trim() ?? '', 10)
+    const pid = Number.parseInt(stdout.split('\n')[0]?.trim() ?? '', 10)
     return Number.isInteger(pid) && pid > 0 ? pid : undefined
   } catch {
     // No lsof, or nothing listening. Without a record the server can still leak
@@ -120,9 +123,9 @@ function isAlive(pid: number): boolean {
  * we read it back, and killing that would be far worse than leaking a server.
  * The command line is the confirmation.
  */
-function isOpencodeServer(pid: number): boolean {
+async function isOpencodeServer(pid: number): Promise<boolean> {
   try {
-    const command = execFileSync('ps', ['-p', String(pid), '-o', 'command='], {
+    const { stdout: command } = await execFileAsync('ps', ['-p', String(pid), '-o', 'command='], {
       encoding: 'utf8',
       timeout: 2000,
     })
@@ -138,10 +141,10 @@ function isOpencodeServer(pid: number): boolean {
  * records that no longer name a live opencode server. Servers whose owner is
  * still running are never touched. Returns the pids that were signalled.
  */
-export function reapOrphanedServers(
+export async function reapOrphanedServers(
   logger: { info: (message: string) => void; warn: (message: string) => void },
   dir: string = defaultRunDir(),
-): number[] {
+): Promise<number[]> {
   const reaped: number[] = []
   for (const { file, record } of readRecords(dir)) {
     if (record == null) {
@@ -150,7 +153,7 @@ export function reapOrphanedServers(
     }
     const { serverPid, ownerPid } = record
     if (ownerPid === process.pid || isAlive(ownerPid)) continue
-    if (serverPid === process.pid || !isOpencodeServer(serverPid)) {
+    if (serverPid === process.pid || !(await isOpencodeServer(serverPid))) {
       rmSync(file, { force: true })
       continue
     }

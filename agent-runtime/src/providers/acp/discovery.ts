@@ -129,7 +129,7 @@ export async function probeAcpModels(ctx: RuntimeContext, config: AcpProviderCon
       command: cliPath,
       args: config.agentArgs,
       cwd: process.cwd(),
-      env: config.patchEnv ? config.patchEnv(ctx.env()) : ctx.env(),
+      env: config.patchEnv ? await config.patchEnv(ctx.env()) : ctx.env(),
       // A throwaway probe keeps its own process rather than borrowing a shared
       // one: it runs before any conversation exists and is disposed immediately.
       callbacks: {

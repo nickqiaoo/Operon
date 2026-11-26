@@ -128,7 +128,7 @@ const OPERON_REPL_TOOLS = ['js', 'js_reset'] as const
 /**
  * Qoder loads MCP lazily: the model sees mcp_list / mcp_get / mcp_call and has to look a tool up
  * before calling it. Our own tools and operonrepl stay in the request as tools of their own — a
- * report-back the model never finds (finish_task, heartbeat_done) loses the work. The user's
+ * report-back the model never finds (helper_finish, heartbeat_finish) loses the work. The user's
  * services stay lazy: with every plugin's tools spelled out the window was full before the first
  * message.
  */
@@ -226,7 +226,7 @@ export async function openRuntimeSession(params: OpenParams): Promise<AgentSessi
     },
     interactive: params.caller.role === 'main',
     ...(params.writableDirs?.length ? { writableDirs: params.writableDirs } : {}),
-    opencode: { callerTag: assistantConversationId(params.caller) },
+    opencode: { callerTag: assistantConversationId(params.caller), ...(params.caller.role === 'main' ? { requiredMcpServer: own } : {}) },
     qoder: { alwaysLoadTools: qoderAlwaysLoad(params.caller, mcpServers) },
     ...(params.providerId === 'custom'
       ? { operon: { tools: operonOwnTools(params.caller), ...(params.kind === 'main' ? { disabledTools: MAIN_DISABLED_TOOLS } : {}) } }

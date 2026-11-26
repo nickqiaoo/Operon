@@ -1522,3 +1522,10 @@ samp {
   transform-origin: center;
   will-change: transform;
 }
+
+@layer base {
+  select:focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+}

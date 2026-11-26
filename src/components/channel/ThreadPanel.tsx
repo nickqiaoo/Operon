@@ -21,6 +21,7 @@ import { hasNativeComposer } from '@/lib/native-composer'
 import { NativeChatComposer } from '@/components/mobile/NativeChatComposer'
 
 interface ThreadPanelProps {
+  nativeComposerActive: boolean
   /** Which channel the thread belongs to — shown in the header so a resized or long-open panel keeps its context. */
   channelName: string | null
   rootMessage: ChannelMessage | null
@@ -43,6 +44,7 @@ interface ThreadPanelProps {
 }
 
 export function ThreadPanel({
+  nativeComposerActive,
   channelName,
   rootMessage,
   thread,
@@ -199,6 +201,7 @@ export function ThreadPanel({
         {images.items.length > 0 && <PendingImageStrip uploads={images} className="mb-2" />}
         {nativeComposer ? (
           <NativeChatComposer
+            active={nativeComposerActive}
             value={input}
             onChange={setInput}
             onSubmit={(text) => void handleSend(text)}

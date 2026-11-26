@@ -134,8 +134,7 @@ export class AcpRuntimeSession implements AgentSession {
     this.logger = createRuntimeLogger(`${config.providerId}-runtime`)
     this.initialOptions = { model: params.model, mode: params.mode, effort: params.effort }
     this.cwd = params.cwd
-    const env = ctx.env(params.env)
-    this.env = config.patchEnv ? config.patchEnv(env) : env
+    this.env = ctx.env(params.env)
     this.mcpServers = toAcpMcpServers(params.mcpServers)
     this.currentModelId = params.model ?? config.defaultModelId
     this.currentModeId = params.mode ?? config.defaultModeId
@@ -273,7 +272,7 @@ export class AcpRuntimeSession implements AgentSession {
       command: cliPath,
       args: this.config.agentArgs,
       cwd: this.cwd,
-      env: this.env,
+      env: this.config.patchEnv ? await this.config.patchEnv(this.env) : this.env,
       onStderr: (line) => this.logger.debug(`[stderr] ${line}`),
     })
     const connection = lease.connection

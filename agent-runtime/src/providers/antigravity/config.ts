@@ -1,4 +1,5 @@
-import { execFileSync } from 'node:child_process'
+import { promisify } from 'node:util'
+import { execFile } from 'node:child_process'
 import type { Model } from '../../types.js'
 import type { AcpDiscoveryContext, AcpModelDiscovery, AcpProviderConfig } from '../acp/index.js'
 
@@ -74,7 +75,8 @@ function extractAntigravityModels(
 }
 
 /** macOS system proxy, read once per process. `null` once we know there is none. */
-let cachedSystemHttpProxy: string | null | undefined
+let cachedSystemHttpProxy: Promise<string | null> | undefined
+const execFileAsync = promisify(execFile)
 
 /**
  * The macOS system HTTP proxy, as a URL — or null when there isn't one.
@@ -82,21 +84,19 @@ let cachedSystemHttpProxy: string | null | undefined
  * Only consulted to work around the SOCKS problem below, so a failure to read
  * it is not worth reporting: the caller just leaves the environment alone.
  */
-function readMacSystemHttpProxy(): string | null {
-  if (cachedSystemHttpProxy !== undefined) return cachedSystemHttpProxy
-  cachedSystemHttpProxy = null
+async function readMacSystemHttpProxy(): Promise<string | null> {
   try {
-    const out = execFileSync('/usr/sbin/scutil', ['--proxy'], { encoding: 'utf8', timeout: 2000 })
+    const { stdout: out } = await execFileAsync('/usr/sbin/scutil', ['--proxy'], { encoding: 'utf8', timeout: 2000 })
     const enabled = /HTTPEnable\s*:\s*1/.test(out)
     const host = out.match(/HTTPProxy\s*:\s*(\S+)/)?.[1]
     const port = out.match(/HTTPPort\s*:\s*(\d+)/)?.[1]
     const socksOn = /SOCKSEnable\s*:\s*1/.test(out)
     // Only bother when SOCKS is actually the thing that would break us.
-    if (socksOn && enabled && host && port) cachedSystemHttpProxy = `http://${host}:${port}`
+    if (socksOn && enabled && host && port) return `http://${host}:${port}`
   } catch {
     // scutil missing or slow — nothing to do.
   }
-  return cachedSystemHttpProxy
+  return null
 }
 
 /**
@@ -115,12 +115,13 @@ function readMacSystemHttpProxy(): string | null {
  * and the same machine also exposes an HTTP proxy to switch to — which is the
  * usual mixed-port setup. Anything else is left untouched.
  */
-function patchAntigravityEnv(env: Record<string, string>): Record<string, string> {
+async function patchAntigravityEnv(env: Record<string, string>): Promise<Record<string, string>> {
   if (process.platform !== 'darwin') return env
   const alreadySet = ['HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy', 'ALL_PROXY', 'all_proxy']
   if (alreadySet.some((key) => env[key]?.trim())) return env
 
-  const proxy = readMacSystemHttpProxy()
+  cachedSystemHttpProxy ??= readMacSystemHttpProxy()
+  const proxy = await cachedSystemHttpProxy
   if (!proxy) return env
   return { ...env, HTTP_PROXY: proxy, HTTPS_PROXY: proxy }
 }

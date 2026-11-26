@@ -92,7 +92,7 @@ it.skipIf(!binary).each([false, true])('runs V2 with usage, native switches and 
   const client = OpenCode.make({ baseUrl: server.url, headers: server.headers })
   const ctx = createRuntimeContext()
   Object.assign(OpencodeClientManager.getInstance(ctx), { getClient: async () => client })
-  const session = new OpencodeRuntimeSession({ cwd: root, model: 'operon-fixture/fixture', effort: 'low', instructions: 'Operon fixture instructions', opencode: { callerTag: 'test-chat' } }, ctx)
+  const session = new OpencodeRuntimeSession({ cwd: root, model: 'operon-fixture/fixture', effort: 'low', instructions: 'Operon fixture instructions', mcpServers: { operonrepl: { type: 'http', url: mcpUrl } }, opencode: { callerTag: 'test-chat', requiredMcpServer: 'operonrepl' } }, ctx)
   try {
     await client.mcp.add({ server: 'operonrepl', location: { directory: root }, config: { type: 'remote', url: mcpUrl, codemode } })
     const descriptor = await listOpencodeDescriptorModels(ctx, root, 'operon-fixture/fixture')
@@ -120,7 +120,15 @@ it.skipIf(!binary).each([false, true])('runs V2 with usage, native switches and 
     expect(readback.agent).toBe('plan')
     expect(readback.model?.variant).toBe('high')
     expect(readback.model?.id).toBe('fixture-2')
+    if (codemode) {
+      const location = { directory: root }
+      await client.debug.location.evict({ location })
+      expect((await client.mcp.list({ location })).data.some(server => server.name === 'operonrepl')).toBe(false)
+    }
     for await (const _part of session.send('Reply OK again.', { signal: AbortSignal.timeout(15_000) })) { /* drain */ }
+    expect((await client.mcp.list({ location: { directory: root } })).data).toContainEqual(
+      expect.objectContaining({ name: 'operonrepl', status: { status: 'connected' } }),
+    )
     expect(requests.at(-1)?.model).toBe('fixture-2')
     const compacted: RuntimeStreamPart[] = []
     for await (const part of session.send('/compact')) compacted.push(part)

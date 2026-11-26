@@ -8,6 +8,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { ChannelChat } from "@/components/channel/ChannelChat"
 import { ProjectAgentDialog } from "@/components/channel/AgentMenu"
 import { AgentManageDialog } from "@/components/channel/AgentManageDialog"
+import { AgentStackIcon } from "@/components/icons/AgentStackIcon"
 import { AgentAvatar } from "@/components/icons/AgentAvatar"
 import type { Agent } from "@/types/channel"
 import { UNREAD_CAP } from "@/types/channel"
@@ -84,6 +85,7 @@ export function MobileChannelScreen({
   const [section, setSection] = useState<Section>("tasks")
   // The agents the tasks are assigned to, pushed over either half.
   const [agentsOpen, setAgentsOpen] = useState(false)
+  const [manageAgents, setManageAgents] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState("")
   // A new channel lives in a project: the filtered one, else picked in the sheet.
@@ -97,9 +99,8 @@ export function MobileChannelScreen({
   const contentOffset = useMobileContentOffset()
   const contentBottom = useMobileContentBottom()
 
-  // An open channel is a conversation like a chat, and a new task a compose page:
-  // the shell's bars step aside and the page's own header row is the only one.
-  const immersive = activeChannelId != null || newTaskOpen
+  const showingTaskDetail = section === "tasks" && taskDetailOpen
+  const immersive = activeChannelId != null || newTaskOpen || agentsOpen || showingTaskDetail
   useEffect(() => {
     onImmersiveChange?.(immersive)
   }, [immersive, onImmersiveChange])
@@ -124,6 +125,7 @@ export function MobileChannelScreen({
     if (openTaskId == null) return
     setActiveChannel(null)
     setAgentsOpen(false)
+    setManageAgents(false)
     setSection("tasks")
     setPendingTaskId(openTaskId)
     onDeepLinkConsumed?.()
@@ -280,7 +282,6 @@ export function MobileChannelScreen({
     .filter((g) => g.list.length > 0)
 
 
-  const showingTaskDetail = section === "tasks" && taskDetailOpen
   const filtering =
     projectFilter != null ||
     (section === "tasks" &&
@@ -338,7 +339,7 @@ export function MobileChannelScreen({
       ],
     })
     // A command, not a choice: no `selected`, so nothing ticks it.
-    menuNodes.push({ kind: "item", id: "agents", label: intl.formatMessage({ id: "channel.manageAgents", defaultMessage: "Manage Agents" }) })
+    menuNodes.push({ kind: "item", id: "agents", label: intl.formatMessage({ id: "channel.section.agents", defaultMessage: "Agents" }) })
   }
 
   const selectMenu = (id: string) => {
@@ -373,6 +374,12 @@ export function MobileChannelScreen({
           onSelect: selectMenu,
         }}
         actions={[{
+          id: "manage-agents",
+          label: intl.formatMessage({ id: "channel.manageAgents", defaultMessage: "Manage Agents" }),
+          icon: <AgentStackIcon className="size-[18px]" />,
+          symbol: "AgentStack",
+          onClick: () => setManageAgents(true),
+        }, {
           id: "new",
           label: section === "tasks"
             ? intl.formatMessage({ id: "task.toolbar.newTask", defaultMessage: "New Task" })
@@ -387,7 +394,7 @@ export function MobileChannelScreen({
           it); an open task's back row only has the status bar to clear. */}
       <div
         className="min-h-0 flex-1"
-        style={showingTaskDetail ? { paddingTop: topInset, paddingBottom: contentBottom } : undefined}
+        style={showingTaskDetail ? { paddingTop: topInset } : undefined}
       >
         {section === "tasks" ? (
           <TasksPage
@@ -455,6 +462,7 @@ export function MobileChannelScreen({
         )}
       </div>
       {createSheet}
+      {manageAgents && <AgentManageDialog open onClose={() => setManageAgents(false)} />}
     </div>
   )
 }

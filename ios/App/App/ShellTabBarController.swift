@@ -315,7 +315,7 @@ final class ShellChromeController: UINavigationController {
     /// A bar button for one of the page's actions: an SF Symbol, falling back
     /// to a plain circle should the web page name one this iOS lacks.
     private func actionItem(_ action: HeaderSpec.Action) -> UIBarButtonItem {
-        let image = UIImage(systemName: action.symbol) ?? UIImage(systemName: "circle")
+        let image = UIImage(named: action.symbol) ?? UIImage(systemName: action.symbol) ?? UIImage(systemName: "circle")
         let item = UIBarButtonItem(
             image: image,
             primaryAction: UIAction { [weak self] _ in self?.onTopBarAction?("action:\(action.id)") }

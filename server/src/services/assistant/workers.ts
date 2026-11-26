@@ -44,7 +44,7 @@ const RESUME_PROMPT =
   'The app restarted while you were working on this task: your last step was cut off, and any command or process it started is gone. ' +
   'Pick up where you left off and finish the task. Steps that only read or wait (reading, listing, searching, fetching, sleeping) are safe: just run them again. ' +
   'Only for a step that sends, posts, buys or changes something, first check whether it already took effect, and never do it twice. ' +
-  'Finish with finish_task as usual.'
+  'Finish with helper_finish as usual.'
 
 export interface WorkerSpec {
   kind: WorkerKind
@@ -163,7 +163,7 @@ export class WorkerPool {
   finish(activityId: string, args: FinishArgs): boolean {
     const run = this.runs.get(activityId)
     if (!run || run.kind === 'heartbeat') return false
-    run.projector.handIn({ tool: 'finish_task', args })
+    run.projector.handIn({ tool: 'helper_finish', args })
     return true
   }
 
@@ -171,7 +171,7 @@ export class WorkerPool {
   heartbeatDone(activityId: string, args: HeartbeatArgs): boolean {
     const run = this.runs.get(activityId)
     if (!run || run.kind !== 'heartbeat' || run.end !== undefined || run.projector.finished) return false
-    run.projector.handIn({ tool: 'heartbeat_done', args })
+    run.projector.handIn({ tool: 'heartbeat_finish', args })
     return true
   }
 

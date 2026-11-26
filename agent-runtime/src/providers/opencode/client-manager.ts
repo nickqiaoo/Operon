@@ -21,6 +21,8 @@ export interface ClientManagerOptions {
 }
 
 export class OpencodeClientManager {
+  /** Live panel toggles, shared by sessions in the same directory until this server exits. */
+  readonly disabledMcpServers = new Set<string>()
   private client: OpencodeClient | null = null
   private server: OpencodeServer | null = null
   private serverPid: number | undefined
@@ -94,6 +96,7 @@ export class OpencodeClientManager {
 
   async dispose(): Promise<void> {
     this.isDisposed = true
+    await this.initPromise?.catch(() => undefined)
     this.client = null
     this.initPromise = null
     if (this.server) {
@@ -124,7 +127,7 @@ export class OpencodeClientManager {
     // fails every operonrepl call with "Unable to connect". A fixed port made
     // that collision the default; a random one makes it impossible.
     // Leftovers are still stopped here, but only to free the memory.
-    reapOrphanedServers(this.logger)
+    await reapOrphanedServers(this.logger)
 
     try {
       this.server = await startOpencodeServer({
@@ -141,7 +144,7 @@ export class OpencodeClientManager {
       })
       // Recorded with this process as its owner, so a later launch can stop it
       // if we die without closing it, and leaves it alone while we run.
-      this.serverPid = pidListeningOn(Number(new URL(this.server.url).port))
+      this.serverPid = await pidListeningOn(Number(new URL(this.server.url).port))
       recordServer(this.serverPid)
       return OpenCode.make({
         baseUrl: this.server.url,

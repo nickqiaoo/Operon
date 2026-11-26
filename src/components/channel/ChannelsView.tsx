@@ -8,7 +8,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useChannelStore } from '@/stores/channel-store'
 import { useProjectStore } from '@/stores/project-store'
 import { ChannelChat } from './ChannelChat'
-import { MemberManageDialog } from './MemberManageDialog'
 
 interface ChannelsViewProps {
   /** One project's channels, or null for every project's. */
@@ -32,7 +31,6 @@ export function ChannelsView({ projectFilter, focus, onFocusConsumed, onOpenTask
   const channels = useChannelStore((s) => s.channels)
   const activeChannelId = useChannelStore((s) => s.activeChannelId)
   const setActiveChannel = useChannelStore((s) => s.setActiveChannel)
-  const [showMembers, setShowMembers] = useState(false)
   const [focusMessageId, setFocusMessageId] = useState<number | null>(null)
 
   const activeChannel = channels.find((c) => c.id === activeChannelId) ?? null
@@ -58,7 +56,6 @@ export function ChannelsView({ projectFilter, focus, onFocusConsumed, onOpenTask
           <ChannelChat
             key={activeChannel.id}
             channelId={activeChannel.id}
-            onManageMembers={() => setShowMembers(true)}
             onOpenTask={onOpenTask}
             focusMessageId={focusMessageId}
             onFocusConsumed={() => setFocusMessageId(null)}
@@ -90,9 +87,6 @@ export function ChannelsView({ projectFilter, focus, onFocusConsumed, onOpenTask
         />
       )}
 
-      {showMembers && activeChannel && (
-        <MemberManageDialog channel={activeChannel} onClose={() => setShowMembers(false)} />
-      )}
     </div>
   )
 }

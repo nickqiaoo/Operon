@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { OperonMark } from './OperonMark'
 import { ConnectionStrip, DETAILED_GUIDE_URL } from './LandingIntro'
-import { isNativeApp } from '@/lib/native'
+import { hasNativeTabBar, isNativeApp, NativeShell } from '@/lib/native'
 import { useThemeStore, applyTheme } from '@/stores/theme-store'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import {
@@ -76,6 +76,15 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
   // browser leaves for the provider, so by the time this component can render a
   // picker it can no longer change.
   const signedInWith = getAuthProvider()
+
+  // Reloading to switch machines replaces the web document, but the native
+  // bars survive it. Only the ready app owns visible navigation.
+  const ready = phase === 'ready'
+  useEffect(() => {
+    if (ready || !hasNativeTabBar()) return
+    void NativeShell.setTabBarVisible({ visible: false }).catch(() => {})
+    void NativeShell.setTopBar({ mode: 'hidden', title: '', unread: false, interactive: false }).catch(() => {})
+  }, [ready])
 
   // The login/picker phases render WITHOUT mounting <App/>, so App's own theme
   // effect never runs there. Apply the theme here so every gate phase honors the

@@ -237,6 +237,7 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChat, onOpenCh
     return (
       <TaskScopeContext.Provider value={{ mixed }}>
         <TaskDetailView
+          key={detail.id}
           detail={detail}
           agents={agents}
           sessions={sessions}

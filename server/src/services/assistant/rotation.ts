@@ -70,7 +70,7 @@ export function buildSessionSeed(messages: readonly AssistantMessage[], activiti
   if (!lines.length && !tasks.length) return ''
   return [
     ...(lines.length ? ['The conversation so far ended with:', ...lines] : []),
-    ...(tasks.length ? ['', 'Recent tasks (continue_task works on these ids):', ...tasks] : []),
+    ...(tasks.length ? ['', 'Recent tasks (helper_continue works on these ids):', ...tasks] : []),
   ].join('\n')
 }
 

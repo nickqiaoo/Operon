@@ -1,4 +1,4 @@
-import { useRef, type ReactNode, type Ref } from "react"
+import { useRef, useState, type ReactNode, type Ref } from "react"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { X } from "lucide-react"
 import { useIntl } from "react-intl"
@@ -10,7 +10,10 @@ interface MobileSheetProps {
   open: boolean
   onClose: () => void
   title?: string
+  /** The body renders its own Radix dialog title. */
+  titleInBody?: boolean
   children: ReactNode
+  expandable?: boolean
   sheetClassName?: string
   bodyClassName?: string
   contentRef?: Ref<HTMLDivElement>
@@ -19,8 +22,9 @@ interface MobileSheetProps {
 }
 
 /** Radix owns modal focus, dismissal and scroll locking; Motion owns the drag gesture. */
-export function MobileSheet({ open, onClose, title, children, sheetClassName, bodyClassName, contentRef, showClose = true }: MobileSheetProps) {
+export function MobileSheet({ open, onClose, title, titleInBody, children, expandable = false, sheetClassName, bodyClassName, contentRef, showClose = true }: MobileSheetProps) {
   const intl = useIntl()
+  const [expanded, setExpanded] = useState(false)
   const dragControls = useDragControls()
   const openerRef = useRef<HTMLElement | null>(null)
   const sheetRef = useRef<HTMLDivElement | null>(null)
@@ -29,6 +33,14 @@ export function MobileSheet({ open, onClose, title, children, sheetClassName, bo
   useNativeShellOverlay(open)
 
   const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    if (expandable && (info.offset.y < -50 || info.velocity.y < -500)) {
+      setExpanded(true)
+      return
+    }
+    if (expandable && expanded && info.offset.y > 60 && info.velocity.y < 600) {
+      setExpanded(false)
+      return
+    }
     // Dismiss when dragged far enough down, or flicked down quickly.
     if (info.offset.y > 120 || info.velocity.y > 600) {
       onClose()
@@ -38,7 +50,7 @@ export function MobileSheet({ open, onClose, title, children, sheetClassName, bo
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => { if (!next) onClose() }}>
     <DialogPrimitive.Portal forceMount>
-    <AnimatePresence>
+    <AnimatePresence onExitComplete={() => { if (expandable) setExpanded(false) }}>
       {open && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end overflow-hidden">
           <DialogPrimitive.Overlay forceMount asChild>
@@ -74,12 +86,13 @@ export function MobileSheet({ open, onClose, title, children, sheetClassName, bo
             onClick={(event) => event.stopPropagation()}
             className={cn(
               "relative box-border max-h-[80vh] w-full min-w-0 max-w-[100vw] self-center overflow-hidden rounded-t-2xl border-t border-border/50 bg-background shadow-[0_-8px_30px_-12px_rgba(0,0,0,0.4)] outline-none",
+              expandable && "flex max-h-none flex-col transition-[height] duration-200 motion-reduce:transition-none",
               sheetClassName
             )}
             // A sheet with an input in it (e.g. "New channel") opens the keyboard
             // right away; pad past it so the field stays visible. The keyboard
             // covers the home-indicator strip, so the insets don't stack.
-            style={{ paddingBottom: "max(env(safe-area-inset-bottom), var(--keyboard-height))" }}
+            style={{ height: expandable ? (expanded ? "88dvh" : "58dvh") : undefined, paddingBottom: "max(env(safe-area-inset-bottom), var(--keyboard-height))" }}
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
@@ -106,7 +119,7 @@ export function MobileSheet({ open, onClose, title, children, sheetClassName, bo
                 </div>
               )}
             </div>
-            {!title && <DialogPrimitive.Title className="sr-only">Options</DialogPrimitive.Title>}
+            {!title && !titleInBody && <DialogPrimitive.Title className="sr-only">Options</DialogPrimitive.Title>}
             <div
               data-slot="mobile-sheet-body"
               className={cn(

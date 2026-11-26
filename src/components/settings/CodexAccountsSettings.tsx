@@ -1,9 +1,11 @@
+import { useRef, useState } from 'react'
 import { defineMessages, useIntl, type IntlShape } from 'react-intl'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, MoreHorizontal, Plus, RefreshCw } from 'lucide-react'
 import type { CodexAccountsView } from '@operon/agent-runtime/codex'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import { api } from '@/lib/api'
 import { openExternalUrl } from '@/lib/open-external'
@@ -15,6 +17,16 @@ type WorkspaceSelection = { accountId: string; workspaceId: string }
 const accountsKey = ['settings', 'codex-accounts'] as const
 
 const labels = defineMessages({
+  cardCount: { id: 'settings.codexAccounts.cardCount', defaultMessage: '{count, plural, one {# reset available} other {# resets available}}' },
+  useReset: { id: 'settings.codexAccounts.useReset', defaultMessage: 'Use reset' },
+  confirmReset: { id: 'settings.codexAccounts.confirmReset', defaultMessage: 'Use one reset for {account}?' },
+  card: { id: 'settings.codexAccounts.card', defaultMessage: 'Reset credit' },
+  expires: { id: 'settings.codexAccounts.expires', defaultMessage: 'Expires {time}' },
+  resetDone: { id: 'settings.codexAccounts.resetDone', defaultMessage: 'Usage reset.' },
+  nothingToReset: { id: 'settings.codexAccounts.nothingToReset', defaultMessage: 'No usage needs resetting.' },
+  noCredit: { id: 'settings.codexAccounts.noCredit', defaultMessage: 'No reset is available.' },
+  alreadyRedeemed: { id: 'settings.codexAccounts.alreadyRedeemed', defaultMessage: 'This reset was already used.' },
+  accountChanged: { id: 'settings.codexAccounts.accountChanged', defaultMessage: 'Account or workspace changed. Refresh and try again.' },
   workspaceUnknown: { id: 'settings.codexAccounts.workspaceUnknown', defaultMessage: 'Workspace {id}' },
   personal: { id: 'settings.codexAccounts.personal', defaultMessage: 'Personal' },
   workspace: { id: 'settings.codexAccounts.workspace', defaultMessage: 'Workspace' },
@@ -122,6 +134,18 @@ export function CodexAccountsSettings() {
       ])
     },
   })
+  const resetTitleRef = useRef<HTMLHeadingElement>(null)
+  const [attempt, setAttempt] = useState<{ id: string; workspaceId?: string; email: string | null; key: string; creditId?: string }>()
+  const [receipt, setReceipt] = useState<{ id: string; text: string }>()
+  const redeem = () => {
+    if (!attempt) return
+    action.mutate(async () => {
+      const { id, workspaceId, email, key, creditId } = attempt
+      const { outcome } = await api.codexAccountReset(id, { workspaceId: workspaceId ?? null, email, idempotencyKey: key, creditId })
+      setReceipt({ id, text: t(outcome === 'reset' ? labels.resetDone : labels[outcome]) })
+      setAttempt(undefined)
+    })
+  }
   const data = query.data
   const login = data?.login
   const busy = action.isPending
@@ -132,6 +156,11 @@ export function CodexAccountsSettings() {
     openExternalUrl(result.url)
   })
   const refresh = () => action.mutate(async () => client.setQueryData(accountsKey, await api.codexAccounts(true)))
+  const target = attempt && signedIn.find(a => a.id === attempt.id && a.workspaceId === attempt.workspaceId && a.email === attempt.email)
+  const credits = target?.resetCredits?.credits?.filter(card => card.status === 'available') ?? []
+  const selectedCredit = credits.find(card => card.id === attempt?.creditId)
+  const creditLabel = (card: typeof credits[number]) => [card.title || t(labels.card),
+    card.expiresAt && t(labels.expires, { time: resetTime(intl, card.expiresAt * 1000) })].filter(Boolean).join(' · ')
   const error = action.error ?? query.error
   return (
     <SettingsSection title={t(labels.title)} action={
@@ -150,6 +179,16 @@ export function CodexAccountsSettings() {
         <SettingsRow key={a.id} title={a.email ?? (a.id === 'default' ? t(labels.defaultAccount) : t(labels.account))}
           description={<>
             {[a.signedIn ? a.plan : t(labels.signedOut), usage(intl, a)].filter(Boolean).join(' · ')}
+            {!!a.resetCredits?.availableCount && a.signedIn && <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span>{t(labels.cardCount, { count: a.resetCredits.availableCount })}</span>
+              <Button variant="link" size="sm" className="h-auto p-0 text-xs" disabled={busy} onClick={() => {
+                action.reset()
+                setReceipt(undefined)
+                setAttempt({ id: a.id, workspaceId: a.workspaceId, email: a.email, key: crypto.randomUUID(),
+                  creditId: a.resetCredits?.credits?.find(card => card.status === 'available')?.id })
+              }}>{t(labels.useReset)}</Button>
+            </div>}
+            {receipt?.id === a.id && <p role="status" className="mt-1">{receipt.text}</p>}
             {a.workspaceId && !a.workspaces && <div className="mt-2">
               <Button size="sm" variant="ghost" disabled={busy} onClick={refresh}>{t(labels.reloadWorkspaces)}</Button>
             </div>}
@@ -189,7 +228,34 @@ export function CodexAccountsSettings() {
           onCheckedChange={enabled => action.mutate(() => api.codexAccountAutomatic(enabled))} />} />}
       {busy && !switching && !login && <p className="text-xs text-muted-foreground" role="status">{t(labels.updating)}</p>}
       {data?.message && <p className="text-xs text-muted-foreground" role="status">{status(intl, data)}</p>}
-      {error && <p className="text-xs text-destructive" role="alert">{localizeError(intl, error.message)}</p>}
+      {target && attempt && <Dialog open onOpenChange={open => { if (!open && !busy) setAttempt(undefined) }}>
+        <DialogContent className="sm:max-w-md" showCloseButton={false} onOpenAutoFocus={event => {
+          event.preventDefault()
+          resetTitleRef.current?.focus()
+        }}>
+          <DialogHeader>
+            <DialogTitle ref={resetTitleRef} tabIndex={-1} className="outline-none">{t(labels.useReset)}</DialogTitle>
+            <DialogDescription className="break-words">{t(labels.confirmReset, { account: [target.email ?? t(labels.account),
+              target.workspaces?.find(w => w.accountId === target.workspaceId)?.name].filter(Boolean).join(' · ') })}</DialogDescription>
+          </DialogHeader>
+          {credits.length === 1 && <p className="text-sm">{creditLabel(credits[0])}</p>}
+          {credits.length > 1 && <fieldset disabled={busy} className="max-h-56 space-y-1 overflow-y-auto">
+            <legend className="sr-only">{t(labels.card)}</legend>
+            {credits.map(card => <label key={card.id} className="flex cursor-pointer items-center gap-2.5 py-1.5 text-sm">
+              <input type="radio" name="reset-credit" value={card.id} checked={attempt.creditId === card.id}
+                className="size-3.5 shrink-0 accent-foreground"
+                onChange={() => setAttempt({ ...attempt, key: crypto.randomUUID(), creditId: card.id })} />
+              <span>{creditLabel(card)}</span>
+            </label>)}
+          </fieldset>}
+          {error && <p className="text-xs text-destructive" role="alert">{localizeError(intl, error.message)}</p>}
+          <DialogFooter>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => setAttempt(undefined)}>{t(labels.cancel)}</Button>
+            <Button size="sm" disabled={busy || (!!attempt.creditId && !selectedCredit)} onClick={redeem}>{t(labels.useReset)}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>}
+      {!target && error && <p className="text-xs text-destructive" role="alert">{localizeError(intl, error.message)}</p>}
     </SettingsSection>
   )
 }

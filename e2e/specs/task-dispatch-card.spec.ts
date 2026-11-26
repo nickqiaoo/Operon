@@ -44,9 +44,10 @@ async function installCreatedTask(page: Page) {
 
 /** A saved conversation opens from the tab bar's history menu. */
 async function openChat(page: Page) {
-  const workspace = page.getByText('repo-main').first()
-  if (!(await workspace.isVisible())) await page.getByText(PROJECT_NAME).first().click()
-  await workspace.click()
+  const project = page.getByRole('button', { name: new RegExp(`^(Expand|Collapse) ${PROJECT_NAME}$`) })
+  await expect(project).toBeVisible()
+  if ((await project.getAttribute('aria-expanded')) === 'false') await project.click()
+  await page.getByRole('button', { name: 'repo-main', exact: true }).click()
   await page.getByRole('button', { name: 'Chat history' }).click()
   await page.getByText(CHAT_TITLE).first().click()
 }

@@ -136,7 +136,7 @@ const changeDescription = z
 
 /** identity.md's frontmatter, field by field — no text matching on `name:` vs `user_name:`. */
 const setIdentity = defineTool({
-  name: 'set_identity',
+  name: 'identity_set',
   description: 'Set your own name and/or what you call the user, in identity.md.',
   parameters: z.object({
     name: z.string().optional().describe('Your name'),
@@ -179,7 +179,7 @@ const memorySearch = defineTool({
 })
 
 const startTask = defineTool({
-  name: 'start_task',
+  name: 'helper_start',
   description:
     'Hand a task to a helper that works in the background with tools (files, apps, the web, connected accounts). Returns at once with the task id; you get a notice when it finishes.',
   parameters: z.object({
@@ -191,7 +191,7 @@ const startTask = defineTool({
 })
 
 const continueTask = defineTool({
-  name: 'continue_task',
+  name: 'helper_continue',
   description:
     'Send more instructions to a task. A running task folds them in; a finished one picks up where it left off, with everything it already did still in its context.',
   parameters: z.object({ task_id: z.string(), message: z.string() }),
@@ -204,7 +204,7 @@ const continueTask = defineTool({
 })
 
 const stopTask = defineTool({
-  name: 'stop_task',
+  name: 'helper_stop',
   description: 'Stop a running task.',
   parameters: z.object({ task_id: z.string() }),
   roles: ['main'],
@@ -219,7 +219,7 @@ const RECENT_FINISHED = 10
 const MAX_ACTIVE = 200
 
 const listTasks = defineTool({
-  name: 'list_tasks',
+  name: 'helper_list',
   description:
     'Your tasks and the coding agents you started, newest first — for when the user asks how things are going or what is working right now. ' +
     'With no status: every task still running or waiting, then a page of finished ones. With a status: a page of just those. ' +
@@ -323,7 +323,7 @@ const workspaceList = defineTool({
 })
 
 const workspaceOverview = defineTool({
-  name: 'workspace_overview',
+  name: 'workspace_inspect',
   description:
     "One workspace in detail: its uncommitted changes, its conversations, most recent first (agent, running / waiting / idle, the last reply of the latest idle ones) and the project's open board tasks. " +
     'It shows a page of conversations and says how many there are; offset pages on (later pages are only conversations).',
@@ -333,17 +333,17 @@ const workspaceOverview = defineTool({
 })
 
 const runningList = defineTool({
-  name: 'running_list',
+  name: 'conversation_list_running',
   description:
     'Every conversation in any workspace with an agent working right now — whoever started it, you or the user — with its agent, title and where it is. ' +
-    'For "what is working right now"; those waiting for the user are counted here and listed by waiting_list.',
+    'For "what is working right now"; those waiting for the user are counted here and listed by conversation_list_waiting.',
   parameters: z.object({ offset: offsetParam }),
   roles: ['main'],
   run: ({ offset }, _caller, host) => host.operon.runningList(offset),
 })
 
 const waitingList = defineTool({
-  name: 'waiting_list',
+  name: 'conversation_list_waiting',
   description:
     'Every conversation in any workspace that is blocked on the user right now — an approval, a question or a plan to review — and what it is asking. Only the user can answer these, in that conversation.',
   parameters: z.object({}),
@@ -392,7 +392,7 @@ const projectAdd = defineTool({
 })
 
 const githubPrs = defineTool({
-  name: 'github_prs',
+  name: 'github_pr_list',
   description: "A project's GitHub pull requests: state, review, checks (failing ones named), branches. Uses the user's own gh login.",
   parameters: z.object({
     project_id: z.number().int().describe('From workspace_list'),
@@ -409,7 +409,7 @@ const githubPrs = defineTool({
 })
 
 const githubPr = defineTool({
-  name: 'github_pr',
+  name: 'github_pr_get',
   description: 'One pull request: where it stands, its description and latest comments.',
   parameters: z.object({ project_id: z.number().int(), number: z.number().int() }),
   roles: ['main'],
@@ -541,7 +541,7 @@ const boardComment = defineTool({
 })
 
 const boardAgents = defineTool({
-  name: 'board_agents',
+  name: 'board_list_agents',
   description: 'The agents a board task can be handed to. Offer them to the user before board_dispatch.',
   parameters: z.object({}),
   roles: ['main'],
@@ -555,14 +555,14 @@ const boardDispatch = defineTool({
   parameters: z.object({
     project_id: projectId,
     task: taskNumber,
-    assignee: z.string().describe('A name from board_agents'),
+    assignee: z.string().describe('A name from board_list_agents'),
     description: changeDescription,
   }),
   roles: ['main'],
   run: async ({ project_id, task, assignee }, _caller, host) => settled(() => host.actions.boardDispatch(project_id, task, assignee)),
 })
 
-const CODING_MODELS = 'coding_agents'
+const CODING_MODELS = 'coding_list_agents'
 
 const codingAgents = defineTool({
   name: CODING_MODELS,
@@ -634,7 +634,7 @@ const codingSend = defineTool({
 })
 
 const codingStatus = defineTool({
-  name: 'coding_status',
+  name: 'coding_get_status',
   description: 'The state and latest reply of a coding agent you started. Results come to you on their own: do not poll.',
   parameters: z.object({ chat_id: chatId }),
   roles: ['main'],
@@ -674,7 +674,7 @@ async function settled(run: () => Promise<string>): Promise<ToolResult> {
 const specTask = z.number().int().describe('The spec\'s task number')
 
 const startSpec = defineTool({
-  name: 'start_spec',
+  name: 'spec_start',
   description:
     `${START_SPEC_DESCRIPTION}\n\nIts agent is the design's lead and the user's choice each time: unless they already chose in this conversation, call ${CODING_MODELS} and ask them first (never pick silently).`,
   parameters: z.object({
@@ -694,7 +694,7 @@ const startSpec = defineTool({
 })
 
 const answerSpecQuestions = defineTool({
-  name: 'answer_spec_questions',
+  name: 'spec_answer_questions',
   description: "Give a spec the user's answers to the questions it asked. Never answer on their behalf.",
   parameters: z.object({
     project_id: projectId,
@@ -706,7 +706,7 @@ const answerSpecQuestions = defineTool({
 })
 
 const specStatus = defineTool({
-  name: 'spec_status',
+  name: 'spec_get_status',
   description: "Where a spec stands: its stage, and every ticket's build state, review rounds, why it is blocked and the issues still open.",
   parameters: z.object({ project_id: projectId, task: specTask }),
   roles: ['main'],
@@ -723,7 +723,7 @@ const specSwitchAgent = defineTool({
     role: z.enum(['lead', 'explorer', 'candidate', 'judge', 'builder', 'implementer', 'reviewer', 'coordinator']),
     ticket: z.number().int().optional().describe("For one ticket's implementer or reviewer: its task number"),
     candidate: z.string().optional().describe('For role candidate: which one (A, B, …)'),
-    provider: z.string().describe('The agent to move it to, one spec_status lists as usable'),
+    provider: z.string().describe('The agent to move it to, one spec_get_status lists as usable'),
     model: z.string().optional().describe("The model on that agent; omit for the agent's default"),
     description: changeDescription,
   }),
@@ -864,7 +864,7 @@ const scheduleDelete = defineTool({
 // ---------------------------------------------------------------------------
 
 const finishTask = defineTool({
-  name: 'finish_task',
+  name: 'helper_finish',
   description: 'Call exactly once when the task is done, partly done, or cannot be done, then stop.',
   parameters: z.object({
     title: z.string().describe("Short task title, 3–8 words, in the user's language"),
@@ -876,7 +876,7 @@ const finishTask = defineTool({
 })
 
 const heartbeatDone = defineTool({
-  name: 'heartbeat_done',
+  name: 'heartbeat_finish',
   description:
     'Background checks only: call exactly once, at the end of the check. List only what is worth interrupting the user for now — an empty list is the usual, right answer.',
   parameters: z.object({
@@ -906,7 +906,7 @@ const heartbeatDone = defineTool({
 })
 
 const reportProgress = defineTool({
-  name: 'report_progress',
+  name: 'helper_report_progress',
   description: 'Tell the assistant about a milestone worth relaying to the user. At most once or twice per task.',
   parameters: z.object({ text: z.string() }),
   roles: ['worker'],
@@ -916,6 +916,7 @@ const reportProgress = defineTool({
   },
 })
 
+// Name tools domain_action (for example, helper_start or schedule_list).
 export const ASSISTANT_TOOLS: readonly AssistantTool[] = [
   setIdentity,
   memorySearch,

@@ -68,15 +68,35 @@ describe('Codex account rotation', () => {
     loginUser = user
     await accounts.startLogin(false)
     push(loginClient, 'account/login/completed', { loginId: 'login', success: true })
-    await vi.waitFor(async () => expect((await accounts.view()).login).toBeNull())
+    await vi.waitFor(async () => expect((await accounts.getState()).login).toBeNull())
     return home(loginClient)
   }
+
+  it('redeems on the selected row and rejects a stale workspace', async () => {
+    const path = await login('B')
+    const target = (await accounts.getState()).accounts[1]
+    const original = vi.mocked(AppServerClient.prototype.request).getMockImplementation()!
+    const calls: string[] = []
+    vi.mocked(AppServerClient.prototype.request).mockImplementation(async function (this: AppServerClient, method, params, ...rest) {
+      if (method !== 'account/rateLimitResetCredit/consume') return original.call(this, method, params, ...rest)
+      calls.push(home(this))
+      expect(params).toEqual({ idempotencyKey: 'attempt', creditId: 'card' })
+      return { outcome: 'reset' }
+    })
+    const identity = { email: target.email, workspaceId: null }
+    const request = { accountId: target.id, expectedIdentity: identity, idempotencyKey: 'attempt', creditId: 'card' }
+    await expect(accounts.redeemReset(request)).resolves.toEqual({ outcome: 'reset' })
+    selected.set(path, 'team')
+    await expect(accounts.redeemReset(request)).rejects.toThrow('workspace changed')
+    expect(calls).toEqual([path])
+    expect((await accounts.getState()).current).toBe('default')
+  })
 
   it('uses official login, shares sessions, preserves selection and rejects a duplicate', async () => {
     const b = await login('B')
     expect(realpathSync(join(b, 'sessions'))).toBe(realpathSync(join(base, 'sessions')))
     await login('B')
-    const view = await accounts.view()
+    const view = await accounts.getState()
     expect(view.accounts.map(a => a.email)).toEqual(['A@example.test', 'B@example.test'])
     expect(view.current).toBe('default')
     expect(view.message).toContain('already added')
@@ -88,16 +108,16 @@ describe('Codex account rotation', () => {
     const running = await accounts.enterTurn()
     limits.set(base, [100, 10])
     limits.set(b, [20, 100])
-    const target = (await accounts.view(true)).accounts[2].id
+    const target = (await accounts.getState(true)).accounts[2].id
     const admission = accounts.enterTurn()
     const second = accounts.enterTurn()
     expect(accounts.generation).toBe(0)
     running()
     const releases = await Promise.all([admission, second])
-    expect((await accounts.view()).current).toBe(target)
+    expect((await accounts.getState()).current).toBe(target)
     expect(accounts.generation).toBe(1)
     releases.forEach(release => release())
-    expect((await new CodexAccounts(createRuntimeContext({ env: () => ({ CODEX_HOME: base }) })).view()).current).toBe(target)
+    expect((await new CodexAccounts(createRuntimeContext({ env: () => ({ CODEX_HOME: base }) })).getState()).current).toBe(target)
   })
 
   it('never rotates on a transient rate limit and never retries an exhausted turn', async () => {
@@ -107,7 +127,7 @@ describe('Codex account rotation', () => {
     const notify = (code: string) => push(lease.client, 'turn/completed', { turn: { error: { codexErrorInfo: code } } })
     notify('rateLimitExceeded')
     ;(await accounts.enterTurn())()
-    expect((await accounts.view()).current).toBe('default')
+    expect((await accounts.getState()).current).toBe('default')
     const release = await accounts.enterTurn()
     notify('usageLimitExceeded')
     notify('usageLimitExceeded')
@@ -119,17 +139,17 @@ describe('Codex account rotation', () => {
 
   it('drains a background thread after the parent finishes', async () => {
     await login('B')
-    const target = (await accounts.view()).accounts[1].id
+    const target = (await accounts.getState()).accounts[1].id
     const lease = accounts.acquire()
     push(lease.client, 'turn/started', { threadId: 'child' })
     const switching = accounts.select(target)
     const next = accounts.enterTurn()
     await new Promise(resolve => setTimeout(resolve, 0))
-    expect((await accounts.view()).current).toBe('default')
+    expect((await accounts.getState()).current).toBe('default')
     push(lease.client, 'turn/completed', { threadId: 'child' })
     await switching
     ;(await next)()
-    expect((await accounts.view()).current).toBe(target)
+    expect((await accounts.getState()).current).toBe(target)
     lease.release()
   })
 
@@ -139,31 +159,31 @@ describe('Codex account rotation', () => {
     accounts.subscribeSelection(changes)
     limits.set(base + ':personal', [100, 20])
     limits.set(base + ':team', [1, 5])
-    await accounts.view(true)
+    await accounts.getState(true)
     ;(await accounts.enterTurn())()
-    const team = await accounts.view()
+    const team = await accounts.getState()
     expect(team.current).toBe('default')
     expect(team.accounts[0].workspaceId).toBe('team')
     expect(team.accounts[0].quota?.primary?.usedPercent).toBe(1)
     expect(changes).toHaveBeenCalledTimes(2)
     await login('B')
     limits.set(base + ':team', [1, 100])
-    await accounts.view(true)
+    await accounts.getState(true)
     ;(await accounts.enterTurn())()
-    expect((await accounts.view()).current).not.toBe('default')
+    expect((await accounts.getState()).current).not.toBe('default')
     expect(changes).toHaveBeenCalledTimes(3)
   })
 
   it.each(['free', 'unknown', 'plus'])('rotates from team with a %s personal space', async plan => {
     selected.set(base, 'personal')
     plans.set(base + ':personal', plan)
-    await accounts.view(true)
+    await accounts.getState(true)
     await accounts.select('default', 'team')
     await login('B')
     limits.set(base + ':team', [100, 0])
-    await accounts.view(true)
+    await accounts.getState(true)
     ;(await accounts.enterTurn())()
-    const view = await accounts.view()
+    const view = await accounts.getState()
     expect(view.accounts[0].workspaceId).toBe(plan === 'plus' ? 'personal' : 'team')
     expect(view.current).toBe(plan === 'plus' ? 'default' : view.accounts[1].id)
   })
@@ -171,26 +191,26 @@ describe('Codex account rotation', () => {
   it('recovers cold metadata and keeps both choices through a partial refresh and switch back', async () => {
     selected.set(base, 'personal')
     partialLists = 1
-    expect((await accounts.view()).accounts[0].workspaces).toHaveLength(2)
+    expect((await accounts.getState()).accounts[0].workspaces).toHaveLength(2)
     await accounts.select('default', 'team')
     partialLists = 2
-    expect((await accounts.view(true)).accounts[0].workspaces).toHaveLength(2)
+    expect((await accounts.getState(true)).accounts[0].workspaces).toHaveLength(2)
     await accounts.select('default', 'personal')
-    expect((await accounts.view()).accounts[0].workspaceId).toBe('personal')
+    expect((await accounts.getState()).accounts[0].workspaceId).toBe('personal')
   })
 
   it('manually selects a workspace and waits for running turns', async () => {
     selected.set(base, 'personal')
-    await accounts.view()
+    await accounts.getState()
     const release = await accounts.enterTurn()
     const switchToTeam = accounts.select('default', 'team')
     expect(selected.get(base)).toBe('personal')
     release()
     await switchToTeam
-    expect((await accounts.view()).accounts[0].workspaceId).toBe('team')
-    expect((await accounts.view()).accounts[0].workspaces?.map(w => w.accountId)).toEqual(['personal', 'team'])
+    expect((await accounts.getState()).accounts[0].workspaceId).toBe('team')
+    expect((await accounts.getState()).accounts[0].workspaces?.map(w => w.accountId)).toEqual(['personal', 'team'])
     await accounts.select('default', 'personal')
-    expect((await accounts.view()).accounts[0].workspaceId).toBe('personal')
+    expect((await accounts.getState()).accounts[0].workspaceId).toBe('personal')
     await expect(accounts.select('default', 'missing')).rejects.toThrow('Unknown Codex workspace')
   })
 
@@ -198,10 +218,10 @@ describe('Codex account rotation', () => {
     const b = await login('B')
     limits.set(base, [0, 100])
     limits.set(b, [100, 0])
-    await accounts.view(true)
+    await accounts.getState(true)
     await expect(accounts.enterTurn()).rejects.toThrow('Next reset')
     accounts.setAutomatic(false)
     ;(await accounts.enterTurn())()
-    expect((await accounts.view()).current).toBe('default')
+    expect((await accounts.getState()).current).toBe('default')
   })
 })

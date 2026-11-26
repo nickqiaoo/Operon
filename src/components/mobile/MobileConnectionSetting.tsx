@@ -30,7 +30,7 @@ export function MobileConnectionSetting({ nodeId }: { nodeId: string }) {
       if (next === "direct" && !status?.address) {
         if (!(await info()).address) throw new Error(intl.formatMessage({
           id: "mobile.more.connection.addressMissing",
-          defaultMessage: "This phone has not received a Tailscale address from the selected computer.",
+          defaultMessage: "To connect directly, turn on Direct connections in Settings → Remote on your computer and open Tailscale on both devices.",
         }))
       }
       setRouteMode(nodeId, next)
@@ -77,26 +77,26 @@ export function MobileConnectionSetting({ nodeId }: { nodeId: string }) {
           <p><FormattedMessage id="mobile.more.connection.checking" defaultMessage="Checking connection…" /></p>
         ) : status?.route === "direct" ? (
           <p className="text-status-ok">
-            <FormattedMessage id="mobile.more.connection.viaDirect" defaultMessage="Direct over Tailscale" />
+            <FormattedMessage id="mobile.more.connection.viaDirect" defaultMessage="Your phone connects directly to your computer over Tailscale." />
           </p>
         ) : accountless || mode === "direct" ? (
           <p className="text-status-warn">
-            <FormattedMessage id="mobile.more.connection.unreachable" defaultMessage="Not reachable over Tailscale" />
+            <FormattedMessage id="mobile.more.connection.unreachable" defaultMessage="Can’t reach your computer directly. Check that Tailscale is running on both devices." />
           </p>
-        ) : mode !== "broker" && !status?.address ? (
+        ) : mode === "auto" ? (
           <p>
             <FormattedMessage
-              id="mobile.more.connection.noAddress"
-              defaultMessage="Through Broker. On your computer, open Settings → Remote and enable Direct connections (Tailscale). Turn on Tailscale on your phone."
+              id="mobile.more.connection.autoRelay"
+              defaultMessage="Your phone tries to connect directly to your computer. If it can’t, Operon relays the connection."
             />
           </p>
         ) : (
           <p>
-            <FormattedMessage id="mobile.more.connection.viaBroker" defaultMessage="Through Broker" />
+            <FormattedMessage id="mobile.more.connection.viaBroker" defaultMessage="Operon relays the connection between your phone and your computer." />
           </p>
         )}
         {status?.address && <p className="truncate font-mono text-[11px] text-muted-foreground/70">{status.address}</p>}
-        {!isFetching && status?.error && <p className="text-status-warn">{status.error}</p>}
+        {!isFetching && mode === "direct" && status?.error && <p className="text-status-warn">{status.error}</p>}
       </div>
     </div>
   )

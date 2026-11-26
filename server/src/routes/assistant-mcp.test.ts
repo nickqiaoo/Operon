@@ -54,31 +54,31 @@ describe('the assistant MCP route', () => {
   it("lists the main agent's tools on its URL, and runs them", async () => {
     const client = await connect(`${assistantKeyQuery()}&role=main`)
     const names = (await client.listTools()).tools.map((t) => t.name)
-    expect(names).toContain('start_task')
-    expect(names).not.toContain('finish_task')
-    const result = await client.callTool({ name: 'start_task', arguments: { title: 'Weather', prompt: 'Suzhou' } })
+    expect(names).toContain('helper_start')
+    expect(names).not.toContain('helper_finish')
+    const result = await client.callTool({ name: 'helper_start', arguments: { title: 'Weather', prompt: 'Suzhou' } })
     expect(text(result)).toBe('Started task w42.')
     await client.close()
   })
 
   it("hands a worker's result in under the worker its URL names", async () => {
     const client = await connect(`${assistantKeyQuery()}&role=worker&id=w5`)
-    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(['finish_task', 'report_progress'])
-    await client.callTool({ name: 'finish_task', arguments: { title: 't', summary: 's', status: 'done' } })
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(['helper_finish', 'helper_report_progress'])
+    await client.callTool({ name: 'helper_finish', arguments: { title: 't', summary: 's', status: 'done' } })
     expect(finish).toHaveBeenLastCalledWith('w5')
     await client.close()
   })
 
-  it('lists only heartbeat_done on a heartbeat URL', async () => {
+  it('lists only heartbeat_finish on a heartbeat URL', async () => {
     const client = await connect(`${assistantKeyQuery()}&role=heartbeat&id=h5`)
-    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(['heartbeat_done'])
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(['heartbeat_finish'])
     await client.close()
   })
 
   it('names the OpenCode session that made the call, not the URL another session registered', async () => {
     bindOpencodeCaller('oc-77', assistantConversationId({ role: 'worker', id: 'w77' }))
     const client = await connect(`${assistantKeyQuery()}&role=worker&id=w5`)
-    await client.callTool({ name: 'finish_task', arguments: { title: 't', summary: 's', status: 'done', [OPENCODE_CALLER_ARG]: 'oc-77' } })
+    await client.callTool({ name: 'helper_finish', arguments: { title: 't', summary: 's', status: 'done', [OPENCODE_CALLER_ARG]: 'oc-77' } })
     expect(finish).toHaveBeenLastCalledWith('w77')
     await client.close()
   })
@@ -86,9 +86,9 @@ describe('the assistant MCP route', () => {
   it('refuses a call outside the caller role, even when the client was shown that tool', async () => {
     bindOpencodeCaller('oc-main-viewer', assistantConversationId({ role: 'worker', id: 'w8' }))
     const client = await connect(`${assistantKeyQuery()}&role=main`)
-    const result = await client.callTool({ name: 'start_task', arguments: { title: 't', prompt: 'p', [OPENCODE_CALLER_ARG]: 'oc-main-viewer' } })
+    const result = await client.callTool({ name: 'helper_start', arguments: { title: 't', prompt: 'p', [OPENCODE_CALLER_ARG]: 'oc-main-viewer' } })
     expect(result.isError).toBe(true)
-    expect(text(result)).toBe('start_task is not available here.')
+    expect(text(result)).toBe('helper_start is not available here.')
     await client.close()
   })
 

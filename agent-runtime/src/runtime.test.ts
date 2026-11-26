@@ -45,6 +45,8 @@ describe('createRuntime', () => {
 
   it('narrows options and natives to the provider picked by id', () => {
     const runtime = createRuntime({ providers: [claudeCode(), codex()] })
+    expect(runtime.codex).toBe(runtime.codex)
+    expect(runtime).not.toHaveProperty('opencode')
     // Type-level only: each call below is checked by `tsc`, never awaited.
     const typed = () => {
       void runtime.createSession('claude-code', { cwd: '/tmp', mode: 'acceptEdits', effort: 'max' })
@@ -55,8 +57,11 @@ describe('createRuntime', () => {
       void runtime.createSession('claude-code', { cwd: '/tmp', codex: { sandbox: 'read-only' } })
       // @ts-expect-error — not a registered provider
       void runtime.createSession('gemini', { cwd: '/tmp' })
-      void runtime.native('claude-code').peekAccountUsage()
-      void runtime.native('codex').accountUsage(0)
+      void runtime.claudeCode.peekAccountUsage()
+      void runtime.codex.accountUsage(0)
+      void runtime.codex.accounts.getState()
+      // @ts-expect-error — OpenCode was not registered
+      void runtime.opencode
     }
     expect(typeof typed).toBe('function')
   })

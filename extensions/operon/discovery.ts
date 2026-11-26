@@ -7,13 +7,15 @@
  *   2. Falling back to scanning localhost LISTEN ports via `lsof`
  *   3. Caching the result until a connection failure triggers re-discovery
  */
-import { execSync } from "node:child_process";
+import { promisify } from "node:util";
+import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ServerUrlResolver } from "./types.js";
 import { operonAuthHeaders } from "./auth.js";
 
+const execFileAsync = promisify(execFile);
 const PROBE_PATH = "/api/plugin/providers";
 const PROBE_TIMEOUT_MS = 800;
 const DISCOVERY_FILE_PATH = join(homedir(), ".operon", "plugin-server.json");
@@ -85,7 +87,7 @@ async function discover(): Promise<string | null> {
   const publishedUrl = await getPublishedUrl();
   if (publishedUrl) return publishedUrl;
 
-  const ports = getListeningPorts();
+  const ports = await getListeningPorts();
   if (ports.length === 0) return null;
 
   // Probe ports in parallel batches for speed
@@ -156,9 +158,9 @@ function isAbortError(error: unknown): boolean {
 /**
  * Get all TCP ports currently in LISTEN state on localhost.
  */
-function getListeningPorts(): number[] {
+async function getListeningPorts(): Promise<number[]> {
   try {
-    const output = execSync("lsof -iTCP -sTCP:LISTEN -P -n 2>/dev/null", {
+    const { stdout: output } = await execFileAsync("lsof", ["-iTCP", "-sTCP:LISTEN", "-P", "-n"], {
       encoding: "utf-8",
       timeout: 3000,
     });

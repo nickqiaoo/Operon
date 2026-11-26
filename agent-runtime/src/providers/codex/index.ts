@@ -119,7 +119,7 @@ export class CodexRuntimeProvider implements RuntimeProviderFactory<SessionOptio
 
 /** Codex extras that need no session. */
 export interface CodexNative {
-  accounts(): Pick<CodexAccounts, 'subscribeSelection' | 'view' | 'startLogin' | 'cancelLogin' | 'select' | 'setAutomatic' | 'remove'>
+  readonly accounts: Pick<CodexAccounts, 'subscribeSelection' | 'getState' | 'startLogin' | 'cancelLogin' | 'select' | 'setAutomatic' | 'redeemReset' | 'remove'>
   /**
    * Every rate-limit bucket on the signed-in account; null when Codex cannot
    * answer. `maxAgeMs` bounds how stale a cached read may be (0 = read now).
@@ -143,7 +143,7 @@ export const codex = () =>
     info: CodexRuntimeProvider.providerInfo,
     create: (ctx) => new CodexRuntimeProvider(ctx),
     native: (ctx) => ({
-      accounts: () => codexAccounts(ctx),
+      get accounts() { return codexAccounts(ctx) },
       accountUsage: (maxAgeMs) => getCodexAccountUsage(ctx, maxAgeMs),
     }),
   })

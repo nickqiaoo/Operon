@@ -93,13 +93,13 @@ describe('assistant session servers', () => {
 
     await openRuntimeSession({ providerId: 'custom', modelId: '', kind: 'main', caller: { role: 'main' }, cwd: '/assistant', instructions: '' })
     const main = createStandaloneSession.mock.calls[0]?.[1] as { operon?: { tools: Array<{ schema: { name: string } }>; disabledTools?: readonly string[] } }
-    expect(main.operon?.tools.map((tool) => tool.schema.name)).toEqual(expect.arrayContaining(['start_task', 'coding_start', 'board_dispatch']))
-    expect(main.operon?.tools.map((tool) => tool.schema.name)).not.toContain('finish_task')
+    expect(main.operon?.tools.map((tool) => tool.schema.name)).toEqual(expect.arrayContaining(['helper_start', 'coding_start', 'board_dispatch']))
+    expect(main.operon?.tools.map((tool) => tool.schema.name)).not.toContain('helper_finish')
     expect(main.operon?.disabledTools).toEqual(['Bash', 'Agent', 'Workflow'])
 
     await openRuntimeSession({ providerId: 'custom', modelId: '', kind: 'worker', caller: worker, cwd: '/workspace', instructions: '' })
     const helper = createStandaloneSession.mock.calls[1]?.[1] as { operon?: { tools: Array<{ schema: { name: string } }>; disabledTools?: readonly string[] } }
-    expect(helper.operon?.tools.map((tool) => tool.schema.name)).toEqual(expect.arrayContaining(['finish_task', 'report_progress']))
+    expect(helper.operon?.tools.map((tool) => tool.schema.name)).toEqual(expect.arrayContaining(['helper_finish', 'helper_report_progress']))
     expect(helper.operon?.disabledTools).toBeUndefined()
   })
 })
@@ -119,7 +119,7 @@ describe("the main agent on Operon's own runtime", () => {
     const startTask = vi.fn(async () => 'a1')
     setAssistantToolHost({ startTask } as never)
     handle.setResponses([
-      fauxAssistantMessage(fauxToolCall('start_task', { title: 'Release', prompt: 'Ship it' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage(fauxToolCall('helper_start', { title: 'Release', prompt: 'Ship it' }), { stopReason: 'toolUse' }),
       fauxAssistantMessage(fauxToolCall('Bash', { command: 'git push', description: 'Push' }), { stopReason: 'toolUse' }),
       fauxAssistantMessage('done', { stopReason: 'stop' }),
     ])
@@ -143,7 +143,7 @@ describe("the main agent on Operon's own runtime", () => {
       setAssistantToolHost(undefined)
     }
     expect(startTask).toHaveBeenCalledWith({ title: 'Release', prompt: 'Ship it' })
-    expect(results.start_task).toContain('Started task a1.')
+    expect(results.helper_start).toContain('Started task a1.')
     expect(results.Bash).toContain('unknown tool: Bash')
     expect(asked).toEqual([])
   })

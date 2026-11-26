@@ -32,7 +32,7 @@ vi.mock('./state.js', () => ({
   getChatStorage: () => ({ getChatMeta: stateMock.getChatMeta }),
   getProjectStorage: () => null,
   getRuntime: () => ({
-    native: () => ({ accountUsage: runtimeMock.getClaudeAccountUsage, peekAccountUsage: () => null }),
+    claudeCode: { accountUsage: runtimeMock.getClaudeAccountUsage, peekAccountUsage: () => null },
   }),
 }));
 

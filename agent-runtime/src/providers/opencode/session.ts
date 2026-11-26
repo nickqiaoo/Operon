@@ -108,29 +108,6 @@ function buildSystemPrompt(instructions?: string): string {
   return instructions?.trim() ?? ''
 }
 
-async function registerMcpServers(
-  client: OpencodeClient,
-  mcpServers: Record<string, OpencodeMcpServerEntry> | undefined,
-  cwd: string | undefined,
-  logger: OpencodeLogger,
-): Promise<void> {
-  if (!mcpServers) {
-    logger.info('[MCP] No MCP servers to register')
-    return
-  }
-  logger.info(`[MCP] Registering MCP servers: ${Object.keys(mcpServers).join(', ')}`)
-
-  const location = { directory: cwd }
-  const existing = await client.mcp.list({ location })
-  for (const [name, entry] of Object.entries(mcpServers)) {
-    if (existing.data.some((server) => server.name === name && server.status.status === 'connected')) continue
-    const config = 'command' in entry
-      ? { type: 'local' as const, command: [entry.command, ...(entry.args ?? [])], environment: entry.env }
-      : { type: 'remote' as const, url: entry.url, headers: entry.headers }
-    await client.mcp.add({ server: name, config, location })
-  }
-}
-
 /** OpenCode's options block on `createSession`. */
 export interface OpencodeSessionOptions {
   opencode?: {
@@ -141,6 +118,8 @@ export interface OpencodeSessionOptions {
      * back with `resolveOpencodeCaller`.
      */
     callerTag?: string
+    /** Wait for this host-provided MCP before admitting a turn. */
+    requiredMcpServer?: string
   }
 }
 
@@ -165,7 +144,7 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
   private sessionId: string | undefined
   private readonly hostConversationId: string | undefined
   private abortController: AbortController | null = null
-  private mcpRegistered = false
+  private readonly requiredMcpServer?: string
   private mcpReadyPromise: Promise<void> = Promise.resolve()
   private readonly pendingApprovalIds = new Set<string>()
   private readonly questionApprovalIds = new Set<string>()
@@ -193,6 +172,7 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
     this.currentThinkingLevel = params.effort
     this.sessionId = params.resume
     this.hostConversationId = params.opencode?.callerTag
+    this.requiredMcpServer = params.opencode?.requiredMcpServer
     this.boundaryPending = params.fork != null && !params.resume
     const mcpServers = params.mcpServers as Record<string, OpencodeMcpServerEntry> | undefined
     console.log('[opencode-session] MCP servers:', mcpServers ? Object.keys(mcpServers).join(', ') : '(none)')
@@ -242,10 +222,7 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
 
     const sessionId = await this.getOrCreateSession()
     const client = await this.clientManager.getClient()
-    if (!this.mcpRegistered) {
-      await registerMcpServers(client, this.settings.mcpServers, this.settings.cwd, this.logger)
-      this.mcpRegistered = true
-    }
+    await this.ensureMcpServers(client)
     this.logger.info(`Starting stream for session ${sessionId} with model ${this.currentModelId} in mode ${this.currentModeId}`)
 
     const parts = converted.parts
@@ -821,6 +798,7 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
           const mcp = (await this.clientManager.getClient()).mcp
           await mcp.connect({ server: name, location: { directory: this.cwd } })
           await this.waitForMcpStatus(mcp, name, 'connected')
+          this.clientManager.disabledMcpServers.delete(this.mcpKey(name))
         }),
       toggle: (name, enabled) =>
         this.runMcpMutation(name, async () => {
@@ -828,9 +806,11 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
           if (enabled) {
             await mcp.connect({ server: name, location: { directory: this.cwd } })
             await this.waitForMcpStatus(mcp, name, 'connected')
+            this.clientManager.disabledMcpServers.delete(this.mcpKey(name))
           } else {
             await mcp.disconnect({ server: name, location: { directory: this.cwd } })
             await this.waitForMcpStatus(mcp, name, 'disabled')
+            this.clientManager.disabledMcpServers.add(this.mcpKey(name))
           }
         }),
     },
@@ -844,6 +824,31 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
       output: async () => null,
       clearFinished: () => this.subagents.clearFinished(),
     },
+  }
+
+  private async ensureMcpServers(client: OpencodeClient): Promise<void> {
+    const entries = Object.entries(this.settings.mcpServers ?? {})
+    if (!entries.length) return
+    // OpenCode can evict a directory's MCP registrations while retaining the session.
+    const location = { directory: this.cwd }
+    const { data } = await client.mcp.list({ location })
+    for (const [name, entry] of entries) {
+      const status = data.find(server => server.name === name)?.status
+      if (!status) {
+        const disabled = this.clientManager.disabledMcpServers.has(this.mcpKey(name))
+        const config = 'command' in entry
+          ? { type: 'local' as const, command: [entry.command, ...(entry.args ?? [])], environment: entry.env }
+          : { type: 'remote' as const, url: entry.url, headers: entry.headers }
+        await client.mcp.add({ server: name, location, config: { ...config, ...(disabled ? { disabled } : {}) } })
+      }
+      if (name === this.requiredMcpServer && status?.status !== 'connected') {
+        await this.waitForMcpStatus(client.mcp, name, 'connected')
+      }
+    }
+  }
+
+  private mcpKey(name: string): string {
+    return JSON.stringify([this.cwd, name])
   }
 
   private async listMcpServers(): Promise<McpServerInfo[]> {
@@ -891,6 +896,7 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
       const result = await mcp.list({ location: { directory: this.cwd } })
       const status = result.data.find((server) => server.name === name)?.status
       if (status?.status === expected) return
+      if (expected === 'connected' && status?.status === 'disabled') throw new Error(`MCP server "${name}" is disabled`)
       if (status?.status === 'failed') {
         throw new Error(status.error)
       }

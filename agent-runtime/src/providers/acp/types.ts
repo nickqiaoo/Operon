@@ -66,7 +66,7 @@ export interface AcpProviderConfig {
    * that is what every other provider gets. Applied to both the probe and the
    * real session so they cannot diverge.
    */
-  readonly patchEnv?: (env: Record<string, string>) => Record<string, string>
+  readonly patchEnv?: (env: Record<string, string>) => Record<string, string> | Promise<Record<string, string>>
   /** UI modes surfaced in the descriptor; each `id` must be a valid ACP `modeId`. */
   readonly modes: Mode[]
   readonly defaultModeId: string

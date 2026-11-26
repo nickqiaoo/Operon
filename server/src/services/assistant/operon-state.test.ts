@@ -149,7 +149,7 @@ describe('long lists, a page at a time', () => {
       'Running now, most recent first (2):',
       '- chat 1 · codex / gpt-5.5 · "Fix redirect" (workspace 10 "main" in project "operon") · updated 2m ago',
       '- chat 116 · codex / gpt-5.5 · "Many 16" (workspace 12 "many" in project "operon") · updated 26m ago',
-      '1 more is waiting for the user: waiting_list says on what.',
+      '1 more is waiting for the user: conversation_list_waiting says on what.',
     ].join('\n'))
     expect(createOperonState(storage(), live({ busy: () => [], awaiting: () => [] })).runningList()).toBe('Nothing is running right now.')
   })

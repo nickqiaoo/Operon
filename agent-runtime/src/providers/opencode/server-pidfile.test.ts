@@ -70,7 +70,7 @@ describe('pidListeningOn', () => {
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     const address = server.address()
     const port = typeof address === 'object' && address ? address.port : 0
-    expect(pidListeningOn(port)).toBe(process.pid)
+    expect(await pidListeningOn(port)).toBe(process.pid)
   })
 })
 
@@ -80,7 +80,7 @@ describe('reapOrphanedServers', () => {
     await settle()
     recordServer(server.pid, await deadPid(), dir)
 
-    expect(reapOrphanedServers(silentLogger, dir)).toEqual([server.pid])
+    expect(await reapOrphanedServers(silentLogger, dir)).toEqual([server.pid])
     await settle(500)
     expect(alive(server.pid!)).toBe(false)
     expect(records()).toEqual([])
@@ -94,7 +94,7 @@ describe('reapOrphanedServers', () => {
     await settle()
     recordServer(server.pid, owner.pid, dir)
 
-    expect(reapOrphanedServers(silentLogger, dir)).toEqual([])
+    expect(await reapOrphanedServers(silentLogger, dir)).toEqual([])
     await settle()
     expect(alive(server.pid!)).toBe(true)
     expect(records()).toHaveLength(1)
@@ -105,7 +105,7 @@ describe('reapOrphanedServers', () => {
     await settle()
     recordServer(server.pid, process.pid, dir)
 
-    expect(reapOrphanedServers(silentLogger, dir)).toEqual([])
+    expect(await reapOrphanedServers(silentLogger, dir)).toEqual([])
     expect(alive(server.pid!)).toBe(true)
   })
 
@@ -115,7 +115,7 @@ describe('reapOrphanedServers', () => {
     await settle()
     recordServer(unrelated.pid, await deadPid(), dir)
 
-    expect(reapOrphanedServers(silentLogger, dir)).toEqual([])
+    expect(await reapOrphanedServers(silentLogger, dir)).toEqual([])
     await settle()
     expect(alive(unrelated.pid!), 'an unrelated process must survive').toBe(true)
     // Dropped, so it cannot be acted on later.
@@ -124,19 +124,19 @@ describe('reapOrphanedServers', () => {
 
   it('drops records whose server is already gone', async () => {
     recordServer(await deadPid(), await deadPid(), dir)
-    expect(reapOrphanedServers(silentLogger, dir)).toEqual([])
+    expect(await reapOrphanedServers(silentLogger, dir)).toEqual([])
     expect(records()).toEqual([])
   })
 
-  it('drops unreadable records and ignores unrelated files', () => {
+  it('drops unreadable records and ignores unrelated files', async () => {
     writeFileSync(path.join(dir, 'opencode-server-123.json'), 'not json')
     writeFileSync(path.join(dir, 'other.sock'), '')
-    expect(reapOrphanedServers(silentLogger, dir)).toEqual([])
+    expect(await reapOrphanedServers(silentLogger, dir)).toEqual([])
     expect(readdirSync(dir)).toEqual(['other.sock'])
   })
 
-  it('does nothing when the directory does not exist', () => {
-    expect(reapOrphanedServers(silentLogger, path.join(dir, 'missing'))).toEqual([])
+  it('does nothing when the directory does not exist', async () => {
+    expect(await reapOrphanedServers(silentLogger, path.join(dir, 'missing'))).toEqual([])
   })
 })
 

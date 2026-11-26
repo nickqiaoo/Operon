@@ -2,6 +2,7 @@ import { TaskAssigneeAvatar } from './TaskExecutionIndicator'
 import { useMemo, useState, useRef } from 'react'
 import {
   ArrowLeft,
+  Ellipsis,
   Bot,
   ExternalLink,
   Tag,
@@ -28,6 +29,9 @@ import { GithubIcon } from '@/components/icons/GithubIcon'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { openExternalUrl } from '@/lib/open-external'
+import { MobileSheet } from '@/components/mobile/MobileSheet'
+import { useIsMobileShell } from '@/hooks/useIsMobile'
+import { useBackHandler } from '@/hooks/useAndroidBackButton'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -140,11 +144,11 @@ export function TaskDetailPlaceholder({
 }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="h-11 flex items-center gap-2 px-4 border-b border-border/40 shrink-0 bg-background">
+      <div className="h-11 flex items-center gap-2 pr-3 md:px-4 border-b border-border/40 shrink-0 bg-background">
         <Button
           variant="ghost"
           size="sm"
-          className="gap-1.5 text-muted-foreground hover:text-foreground rounded-lg h-7 px-2.5"
+          className="gap-1.5 text-muted-foreground hover:text-foreground rounded-lg h-11 md:h-7 px-2.5"
           onClick={onClose}
         >
           <ArrowLeft className="h-4 w-4" />
@@ -180,6 +184,9 @@ export function TaskDetailView({
   onOpenChannel,
 }: TaskDetailViewProps) {
   const intl = useIntl()
+  const mobile = useIsMobileShell()
+  const [actionsOpen, setActionsOpen] = useState(false)
+  useBackHandler(mobile && actionsOpen, () => setActionsOpen(false))
   const sourceChannel = useChannelStore((s) =>
     detail.sourceChannelId != null ? s.channels.find((c) => c.id === detail.sourceChannelId) ?? null : null,
   )
@@ -272,7 +279,7 @@ export function TaskDetailView({
   const sendComment = async () => {
     const body = commentDraft.trim()
     const attachments = commentImages.attachments
-    if ((!body && attachments.length === 0) || commentImages.uploading) return
+    if (sending || (!body && attachments.length === 0) || commentImages.uploading) return
     setSending(true)
     try {
       await comment(detail.id, body, attachments)
@@ -293,18 +300,256 @@ export function TaskDetailView({
     : intl.formatMessage({ id: 'task.unassigned', defaultMessage: 'Unassigned' })
 
 
+  const actionsLabel = intl.formatMessage({ id: 'task.detail.actions', defaultMessage: 'Task actions' })
+  const properties = (
+    <div className="space-y-5 p-4">
+      <PropertyRow label={intl.formatMessage({ id: 'task.detail.statusLabel', defaultMessage: 'Status' })}>
+        <Select
+          value={detail.status}
+          onValueChange={(v) => updateDetail({ status: v as TaskStatus })}
+        >
+          <SelectTrigger size="sm" className={FIELD_TRIGGER}>
+            <span className="flex items-center gap-2">
+              <StatusIcon status={detail.status} />
+              <span className="text-sm">{intl.formatMessage(STATUS_MESSAGES[detail.status])}</span>
+            </span>
+          </SelectTrigger>
+          <SelectContent position="popper" align="start" sideOffset={6}>
+            {statusOptions.map((s) => (
+              <SelectItem key={s} value={s}>
+                <span className="flex items-center gap-2">
+                  <StatusIcon status={s} />
+                  {intl.formatMessage(STATUS_MESSAGES[s])}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </PropertyRow>
+
+      <PropertyRow label={intl.formatMessage({ id: 'task.detail.priorityLabel', defaultMessage: 'Priority' })}>
+        <Select
+          value={String(detail.priority)}
+          onValueChange={(v) => updateDetail({ priority: Number(v) as TaskPriority })}
+        >
+          <SelectTrigger size="sm" className={FIELD_TRIGGER}>
+            <span className="flex items-center gap-2">
+              <PriorityIcon priority={detail.priority} />
+              <span className="text-sm">{intl.formatMessage(priorityMessage(detail.priority))}</span>
+            </span>
+          </SelectTrigger>
+          <SelectContent position="popper" align="start" sideOffset={6}>
+            {TASK_PRIORITIES.map((p) => (
+              <SelectItem key={p} value={String(p)}>
+                <span className="flex items-center gap-2">
+                  <PriorityIcon priority={p} />
+                  {intl.formatMessage(priorityMessage(p))}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </PropertyRow>
+
+      <PropertyRow label={intl.formatMessage({ id: 'task.detail.assigneeLabel', defaultMessage: 'Assignee' })}>
+        <Select
+          disabled={detail.specStage != null}
+          value={detail.assignedAgentId ? String(detail.assignedAgentId) : 'unassigned'}
+          onValueChange={(v) => {
+            // The last item is a way to the agents, not one of them.
+            if (v === MANAGE_AGENTS) return setManageAgents(true)
+            updateDetail({
+              assignedAgentId: v === 'unassigned' ? null : Number(v),
+            })
+          }}
+        >
+          <SelectTrigger size="sm" className={cn(FIELD_TRIGGER, 'max-w-full')}>
+            <span className="flex min-w-0 items-center gap-2 overflow-hidden">
+              {/* The status line under the picker already says it is working. */}
+              <TaskAssigneeAvatar task={detail} agents={agents} showRunning={false} />
+              <span className="min-w-0 truncate text-sm" title={assigneeName}>
+                {assigneeName}
+              </span>
+            </span>
+          </SelectTrigger>
+          <SelectContent position="popper" align="start" sideOffset={6}>
+            <SelectItem value="unassigned"><FormattedMessage id="task.unassigned" defaultMessage="Unassigned" /></SelectItem>
+            {agents.map((a) => (
+              <SelectItem key={a.id} value={String(a.id)}>
+                {a.name}
+              </SelectItem>
+            ))}
+            <SelectSeparator />
+            <SelectItem value={MANAGE_AGENTS} className="text-muted-foreground">
+              <Settings2 className="h-3.5 w-3.5" />
+              <FormattedMessage id="task.detail.manageAgents" defaultMessage="Manage agents…" />
+            </SelectItem>
+          </SelectContent>
+        </Select>
+        {manageAgents && <AgentManageDialog open onClose={() => setManageAgents(false)} />}
+        {/* The agent's session in the task worktree (not a channel session of
+            the same agent). Absent until dispatched. */}
+        {detail.specStage == null && detail.assignedAgentId && detail.executionStatus && (
+          <div className="flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
+            <span
+              className={cn(
+                'h-1.5 w-1.5 shrink-0 rounded-full',
+                detail.executionStatus === 'active' && 'bg-status-info animate-pulse',
+                detail.executionStatus === 'idle' && 'bg-accent-green',
+                detail.executionStatus === 'offline' && 'bg-muted-foreground/40',
+              )}
+            />
+            {intl.formatMessage(EXECUTION_STATUS_MESSAGES[detail.executionStatus])}
+          </div>
+        )}
+      </PropertyRow>
+
+      {/* Where it runs — a spec and its tickets always get worktrees of their own. */}
+      {hasWorkspaceRow && (
+        <PropertyRow label={intl.formatMessage({ id: 'task.workspace.label', defaultMessage: 'Workspace' })}>
+          {/* Chosen before it runs: once dispatched it is a fact about the task, not a choice. */}
+          {detail.bindingId != null || isArchived ? (
+            <TaskWorkspaceLabel
+              mode={detail.workspaceMode}
+              workspaceName={workspaceName}
+              className={detail.workspaceId && onOpenWorkspace ? FIELD_BUTTON : FIELD}
+              onOpen={detail.workspaceId && onOpenWorkspace ? () => onOpenWorkspace(detail.workspaceId!) : undefined}
+            />
+          ) : (
+            <TaskWorkspaceSelect
+              className={FIELD_TRIGGER}
+              value={detail.workspaceMode}
+              onChange={(workspaceMode) => updateDetail({ workspaceMode })}
+            />
+          )}
+        </PropertyRow>
+      )}
+
+      <RelationRows detail={detail} />
+
+      <PropertyRow label={intl.formatMessage({ id: 'task.detail.labelsLabel', defaultMessage: 'Labels' })}>
+        <LabelPicker detail={detail} />
+      </PropertyRow>
+
+      <PropertyRow label={intl.formatMessage({ id: 'task.surfaces.label', defaultMessage: 'Linear' })}>
+        <SurfacesBlock detail={detail} />
+      </PropertyRow>
+
+      {detail.surfaces.some((s) => s.kind === 'github_pr') && (
+        <PropertyRow label={intl.formatMessage({ id: 'task.surfaces.githubLabel', defaultMessage: 'GitHub' })}>
+          <div className="space-y-0.5">
+            {detail.surfaces
+              .filter((s) => s.kind === 'github_pr')
+              .map((s) => (
+                <SurfaceRow key={s.id} surface={s} />
+              ))}
+          </div>
+        </PropertyRow>
+      )}
+
+      {detail.branchName && (
+        <PropertyRow label={intl.formatMessage({ id: 'task.detail.branchLabel', defaultMessage: 'Branch' })}>
+          <div className={cn(FIELD, 'font-mono text-xs')} title={detail.branchName}>
+            <GitBranch className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 truncate">{detail.branchName}</span>
+          </div>
+        </PropertyRow>
+      )}
+
+      {/* Actions: the one that starts work leads as the filled button; the
+          rest sit under it, left-aligned like the rows above. */}
+      <div className="space-y-1 border-t border-border/40 pt-4">
+      {/* Dispatch — start (or restart) the assigned agent in the task worktree.
+          Shown whenever the task is assigned and has no live execution session,
+          regardless of status — so a task that reached in_progress without ever
+          being dispatched (e.g. an agent flipped it via update_project_task) isn't stuck
+          with no way to launch the executor. A spec parent is never dispatched
+          itself: its tickets are the work. */}
+      {detail.assignedAgentId &&
+        detail.specStage == null &&
+        detail.executionStatus !== 'active' &&
+        detail.executionStatus !== 'idle' && (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-8 w-full gap-1.5"
+            disabled={dispatching || openBlockers.length > 0}
+            onClick={async () => {
+              if (detail.assignedAgentId == null) return
+              setDispatching(true)
+              try {
+                await dispatch(detail.id, detail.assignedAgentId)
+              } catch (error) {
+                toastTaskError(error, 'Dispatch failed')
+              } finally {
+                setDispatching(false)
+              }
+            }}
+          >
+            {dispatching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+            {dispatching
+              ? intl.formatMessage({ id: 'task.detail.dispatching', defaultMessage: 'Dispatching…' })
+              : detail.bindingId != null
+                ? intl.formatMessage({ id: 'task.detail.redispatch', defaultMessage: 'Re-dispatch' })
+                : intl.formatMessage({ id: 'task.detail.dispatch', defaultMessage: 'Dispatch' })}
+          </Button>
+        )}
+
+      {openBlockers.length > 0 && detail.executionStatus !== 'active' && detail.executionStatus !== 'idle' && (
+        <p className="px-2 pb-1 text-xs text-muted-foreground">
+          <FormattedMessage
+            id="task.detail.waitingOnBlockers"
+            defaultMessage="Starts once {tasks} {count, plural, one {is} other {are}} done."
+            values={{ tasks: openBlockers.map((b) => `#${b.number}`).join(', '), count: openBlockers.length }}
+          />
+        </p>
+      )}
+
+      {!hasWorkspaceRow && detail.workspaceId && onOpenWorkspace && (
+        <button type="button" className={ACTION_BUTTON} onClick={() => onOpenWorkspace(detail.workspaceId!)}>
+          <ExternalLink className="h-3.5 w-3.5" />
+          <FormattedMessage id="task.detail.openWorkspace" defaultMessage="Open Workspace" />
+        </button>
+      )}
+
+      {detail.specStage != null && !isArchived && (
+        <button type="button" className={ACTION_BUTTON} onClick={() => setSpecHidden(detail.id, !specHidden)}>
+          {specHidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+          {specHidden ? 'Show in sidebar' : 'Hide from sidebar'}
+        </button>
+      )}
+
+      {/* Archive — retire the task from the board (or restore it). */}
+      <button
+        type="button"
+        className={ACTION_BUTTON}
+        onClick={() => {
+          void setArchived(detail.id, !isArchived).catch((error) =>
+            toastTaskError(error, isArchived ? 'Unarchive failed' : 'Archive failed'),
+          )
+        }}
+      >
+        {isArchived ? <ArchiveRestore className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
+        {isArchived ? (
+          <FormattedMessage id="task.detail.unarchive" defaultMessage="Unarchive" />
+        ) : (
+          <FormattedMessage id="task.detail.archive" defaultMessage="Archive" />
+        )}
+      </button>
+      </div>
+    </div>
+  )
+
   return (
-    // Phones stack the panels into one vertical scroll; md+ keeps the two-column
-    // layout where each column scrolls independently.
     <GithubLinkProvider value={githubLinks}>
-    <div ref={pageScrollRef} className="transcript-scrollbar flex flex-col md:flex-row h-full overflow-y-auto md:overflow-hidden">
+    <div ref={pageScrollRef} className={cn('transcript-scrollbar flex h-full flex-col overflow-y-auto', !mobile && 'md:flex-row md:overflow-hidden')}>
       {/* Left: content */}
-      <div className="flex flex-col min-w-0 md:flex-1 md:min-h-0">
-        <div className="h-11 flex items-center gap-2 px-4 border-b border-border/40 shrink-0 sticky top-0 z-10 bg-background md:static">
+      <div className={mobile ? "contents" : "flex flex-col min-w-0 md:flex-1 md:min-h-0"}>
+        <div className="h-11 flex items-center gap-2 pr-3 md:px-4 border-b border-border/40 shrink-0 sticky top-0 z-10 bg-background">
           <Button
             variant="ghost"
             size="sm"
-            className="gap-1.5 text-muted-foreground hover:text-foreground rounded-lg h-7 px-2.5"
+            className="gap-1.5 text-muted-foreground hover:text-foreground rounded-lg h-11 md:h-7 px-2.5"
             onClick={onClose}
           >
             <ArrowLeft className="h-4 w-4" />
@@ -341,9 +586,15 @@ export function TaskDetailView({
               <FormattedMessage id="task.detail.archivedBadge" defaultMessage="Archived" />
             </span>
           )}
+          {mobile && (
+            <Button variant="ghost" size="icon" className="ml-auto size-11" aria-label={actionsLabel}
+              aria-haspopup="dialog" aria-expanded={actionsOpen} onClick={() => setActionsOpen(true)}>
+              <Ellipsis className="size-5 text-muted-foreground" />
+            </Button>
+          )}
         </div>
 
-        <div ref={contentScrollRef} className="transcript-scrollbar min-w-0 md:flex-1 md:overflow-y-auto md:min-h-0 px-3 py-4 md:px-6 md:py-5">
+        <div ref={contentScrollRef} className={cn('transcript-scrollbar min-w-0 px-3 py-4', !mobile && 'md:min-h-0 md:flex-1 md:overflow-y-auto md:px-6 md:py-5')}>
           {/* Reading width, centered: the column keeps a text-friendly measure and splits leftover space evenly on wide windows. */}
           <div className="mx-auto w-full max-w-3xl space-y-6">
           {/* Title */}
@@ -490,8 +741,7 @@ export function TaskDetailView({
             </div>
           </div>
 
-          {/* Comment composer */}
-          <div className="flex flex-col gap-2">
+          {!mobile && <div className="flex flex-col gap-2">
             <textarea
               value={commentDraft}
               onChange={(e) => setCommentDraft(e.target.value)}
@@ -519,250 +769,43 @@ export function TaskDetailView({
                 <FormattedMessage id="task.detail.comment" defaultMessage="Comment" />
               </Button>
             </div>
-          </div>
+          </div>}
           </div>
         </div>
       </div>
 
-      {/* Right: properties — sidebar at md+, full-width section below on phones */}
-      <div ref={propertiesScrollRef} className="transcript-scrollbar w-full md:w-60 shrink-0 border-border/40 border-t md:border-t-0 md:border-l md:overflow-y-auto">
-        <div className="p-4 space-y-5">
-          <PropertyRow label={intl.formatMessage({ id: 'task.detail.statusLabel', defaultMessage: 'Status' })}>
-            <Select
-              value={detail.status}
-              onValueChange={(v) => updateDetail({ status: v as TaskStatus })}
-            >
-              <SelectTrigger size="sm" className={FIELD_TRIGGER}>
-                <span className="flex items-center gap-2">
-                  <StatusIcon status={detail.status} />
-                  <span className="text-sm">{intl.formatMessage(STATUS_MESSAGES[detail.status])}</span>
-                </span>
-              </SelectTrigger>
-              <SelectContent position="popper" align="start" sideOffset={6}>
-                {statusOptions.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    <span className="flex items-center gap-2">
-                      <StatusIcon status={s} />
-                      {intl.formatMessage(STATUS_MESSAGES[s])}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </PropertyRow>
-
-          <PropertyRow label={intl.formatMessage({ id: 'task.detail.priorityLabel', defaultMessage: 'Priority' })}>
-            <Select
-              value={String(detail.priority)}
-              onValueChange={(v) => updateDetail({ priority: Number(v) as TaskPriority })}
-            >
-              <SelectTrigger size="sm" className={FIELD_TRIGGER}>
-                <span className="flex items-center gap-2">
-                  <PriorityIcon priority={detail.priority} />
-                  <span className="text-sm">{intl.formatMessage(priorityMessage(detail.priority))}</span>
-                </span>
-              </SelectTrigger>
-              <SelectContent position="popper" align="start" sideOffset={6}>
-                {TASK_PRIORITIES.map((p) => (
-                  <SelectItem key={p} value={String(p)}>
-                    <span className="flex items-center gap-2">
-                      <PriorityIcon priority={p} />
-                      {intl.formatMessage(priorityMessage(p))}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </PropertyRow>
-
-          <PropertyRow label={intl.formatMessage({ id: 'task.detail.assigneeLabel', defaultMessage: 'Assignee' })}>
-            <Select
-              disabled={detail.specStage != null}
-              value={detail.assignedAgentId ? String(detail.assignedAgentId) : 'unassigned'}
-              onValueChange={(v) => {
-                // The last item is a way to the agents, not one of them.
-                if (v === MANAGE_AGENTS) return setManageAgents(true)
-                updateDetail({
-                  assignedAgentId: v === 'unassigned' ? null : Number(v),
-                })
-              }}
-            >
-              <SelectTrigger size="sm" className={cn(FIELD_TRIGGER, 'max-w-full')}>
-                <span className="flex min-w-0 items-center gap-2 overflow-hidden">
-                  {/* The status line under the picker already says it is working. */}
-                  <TaskAssigneeAvatar task={detail} agents={agents} showRunning={false} />
-                  <span className="min-w-0 truncate text-sm" title={assigneeName}>
-                    {assigneeName}
-                  </span>
-                </span>
-              </SelectTrigger>
-              <SelectContent position="popper" align="start" sideOffset={6}>
-                <SelectItem value="unassigned"><FormattedMessage id="task.unassigned" defaultMessage="Unassigned" /></SelectItem>
-                {agents.map((a) => (
-                  <SelectItem key={a.id} value={String(a.id)}>
-                    {a.name}
-                  </SelectItem>
-                ))}
-                <SelectSeparator />
-                <SelectItem value={MANAGE_AGENTS} className="text-muted-foreground">
-                  <Settings2 className="h-3.5 w-3.5" />
-                  <FormattedMessage id="task.detail.manageAgents" defaultMessage="Manage agents…" />
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            {manageAgents && <AgentManageDialog open onClose={() => setManageAgents(false)} />}
-            {/* The agent's session in the task worktree (not a channel session of
-                the same agent). Absent until dispatched. */}
-            {detail.specStage == null && detail.assignedAgentId && detail.executionStatus && (
-              <div className="flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
-                <span
-                  className={cn(
-                    'h-1.5 w-1.5 shrink-0 rounded-full',
-                    detail.executionStatus === 'active' && 'bg-status-info animate-pulse',
-                    detail.executionStatus === 'idle' && 'bg-accent-green',
-                    detail.executionStatus === 'offline' && 'bg-muted-foreground/40',
-                  )}
-                />
-                {intl.formatMessage(EXECUTION_STATUS_MESSAGES[detail.executionStatus])}
-              </div>
-            )}
-          </PropertyRow>
-
-          {/* Where it runs — a spec and its tickets always get worktrees of their own. */}
-          {hasWorkspaceRow && (
-            <PropertyRow label={intl.formatMessage({ id: 'task.workspace.label', defaultMessage: 'Workspace' })}>
-              {/* Chosen before it runs: once dispatched it is a fact about the task, not a choice. */}
-              {detail.bindingId != null || isArchived ? (
-                <TaskWorkspaceLabel
-                  mode={detail.workspaceMode}
-                  workspaceName={workspaceName}
-                  className={detail.workspaceId && onOpenWorkspace ? FIELD_BUTTON : FIELD}
-                  onOpen={detail.workspaceId && onOpenWorkspace ? () => onOpenWorkspace(detail.workspaceId!) : undefined}
-                />
-              ) : (
-                <TaskWorkspaceSelect
-                  className={FIELD_TRIGGER}
-                  value={detail.workspaceMode}
-                  onChange={(workspaceMode) => updateDetail({ workspaceMode })}
-                />
-              )}
-            </PropertyRow>
-          )}
-
-          <RelationRows detail={detail} />
-
-          <PropertyRow label={intl.formatMessage({ id: 'task.detail.labelsLabel', defaultMessage: 'Labels' })}>
-            <LabelPicker detail={detail} />
-          </PropertyRow>
-
-          <PropertyRow label={intl.formatMessage({ id: 'task.surfaces.label', defaultMessage: 'Linear' })}>
-            <SurfacesBlock detail={detail} />
-          </PropertyRow>
-
-          {detail.surfaces.some((s) => s.kind === 'github_pr') && (
-            <PropertyRow label={intl.formatMessage({ id: 'task.surfaces.githubLabel', defaultMessage: 'GitHub' })}>
-              <div className="space-y-0.5">
-                {detail.surfaces
-                  .filter((s) => s.kind === 'github_pr')
-                  .map((s) => (
-                    <SurfaceRow key={s.id} surface={s} />
-                  ))}
-              </div>
-            </PropertyRow>
-          )}
-
-          {detail.branchName && (
-            <PropertyRow label={intl.formatMessage({ id: 'task.detail.branchLabel', defaultMessage: 'Branch' })}>
-              <div className={cn(FIELD, 'font-mono text-xs')} title={detail.branchName}>
-                <GitBranch className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate">{detail.branchName}</span>
-              </div>
-            </PropertyRow>
-          )}
-
-          {/* Actions: the one that starts work leads as the filled button; the
-              rest sit under it, left-aligned like the rows above. */}
-          <div className="space-y-1 border-t border-border/40 pt-4">
-          {/* Dispatch — start (or restart) the assigned agent in the task worktree.
-              Shown whenever the task is assigned and has no live execution session,
-              regardless of status — so a task that reached in_progress without ever
-              being dispatched (e.g. an agent flipped it via update_project_task) isn't stuck
-              with no way to launch the executor. A spec parent is never dispatched
-              itself: its tickets are the work. */}
-          {detail.assignedAgentId &&
-            detail.specStage == null &&
-            detail.executionStatus !== 'active' &&
-            detail.executionStatus !== 'idle' && (
-              <Button
-                size="sm"
-                variant="secondary"
-                className="h-8 w-full gap-1.5"
-                disabled={dispatching || openBlockers.length > 0}
-                onClick={async () => {
-                  if (detail.assignedAgentId == null) return
-                  setDispatching(true)
-                  try {
-                    await dispatch(detail.id, detail.assignedAgentId)
-                  } catch (error) {
-                    toastTaskError(error, 'Dispatch failed')
-                  } finally {
-                    setDispatching(false)
-                  }
-                }}
-              >
-                {dispatching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-                {dispatching
-                  ? intl.formatMessage({ id: 'task.detail.dispatching', defaultMessage: 'Dispatching…' })
-                  : detail.bindingId != null
-                    ? intl.formatMessage({ id: 'task.detail.redispatch', defaultMessage: 'Re-dispatch' })
-                    : intl.formatMessage({ id: 'task.detail.dispatch', defaultMessage: 'Dispatch' })}
+      {mobile && (
+        <div className={cn(actionsOpen && "invisible", "pointer-events-none sticky bottom-0 z-10 mt-auto shrink-0 px-3 pt-2 pb-[calc(0.5rem+max(var(--keyboard-height),env(safe-area-inset-bottom)))]")}>
+          <form className="pointer-events-auto rounded-2xl border border-border/50 bg-background px-2 shadow-modal"
+            onSubmit={(event) => { event.preventDefault(); void sendComment() }}>
+            <PendingImageStrip uploads={commentImages} className="pt-2" />
+            <div className="flex items-end gap-1">
+              <textarea rows={1} value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)}
+                {...commentImages.inputProps}
+                aria-label={intl.formatMessage({ id: 'task.detail.comment', defaultMessage: 'Comment' })}
+                placeholder={detail.bindingId != null
+                  ? intl.formatMessage({ id: 'task.detail.mobileCommentWake', defaultMessage: 'Comment and wake agent…' })
+                  : intl.formatMessage({ id: 'task.detail.mobileComment', defaultMessage: 'Leave a comment…' })}
+                className="field-sizing-content max-h-28 min-h-11 min-w-0 flex-1 resize-none bg-transparent px-2 py-2.5 text-base outline-none" />
+              <Button type="submit" variant="ghost" size="icon" className="size-11 text-tint"
+                aria-label={intl.formatMessage({ id: 'task.detail.comment', defaultMessage: 'Comment' })}
+                disabled={sending || commentImages.uploading || (!commentDraft.trim() && !commentImages.attachments.length)}>
+                {sending ? <Loader2 className="animate-spin" /> : <Send />}
               </Button>
-            )}
-
-          {openBlockers.length > 0 && detail.executionStatus !== 'active' && detail.executionStatus !== 'idle' && (
-            <p className="px-2 pb-1 text-xs text-muted-foreground">
-              <FormattedMessage
-                id="task.detail.waitingOnBlockers"
-                defaultMessage="Starts once {tasks} {count, plural, one {is} other {are}} done."
-                values={{ tasks: openBlockers.map((b) => `#${b.number}`).join(', '), count: openBlockers.length }}
-              />
-            </p>
-          )}
-
-          {!hasWorkspaceRow && detail.workspaceId && onOpenWorkspace && (
-            <button type="button" className={ACTION_BUTTON} onClick={() => onOpenWorkspace(detail.workspaceId!)}>
-              <ExternalLink className="h-3.5 w-3.5" />
-              <FormattedMessage id="task.detail.openWorkspace" defaultMessage="Open Workspace" />
-            </button>
-          )}
-
-          {detail.specStage != null && !isArchived && (
-            <button type="button" className={ACTION_BUTTON} onClick={() => setSpecHidden(detail.id, !specHidden)}>
-              {specHidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-              {specHidden ? 'Show in sidebar' : 'Hide from sidebar'}
-            </button>
-          )}
-
-          {/* Archive — retire the task from the board (or restore it). */}
-          <button
-            type="button"
-            className={ACTION_BUTTON}
-            onClick={() => {
-              void setArchived(detail.id, !isArchived).catch((error) =>
-                toastTaskError(error, isArchived ? 'Unarchive failed' : 'Archive failed'),
-              )
-            }}
-          >
-            {isArchived ? <ArchiveRestore className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
-            {isArchived ? (
-              <FormattedMessage id="task.detail.unarchive" defaultMessage="Unarchive" />
-            ) : (
-              <FormattedMessage id="task.detail.archive" defaultMessage="Archive" />
-            )}
-          </button>
-          </div>
+            </div>
+          </form>
         </div>
-      </div>
+      )}
+      {mobile ? (
+        <MobileSheet open={actionsOpen} onClose={() => setActionsOpen(false)} title={actionsLabel}
+          expandable bodyClassName="min-h-0 max-h-none flex-1 px-0 pb-0">
+          {properties}
+        </MobileSheet>
+      ) : (
+        <div ref={propertiesScrollRef} className="transcript-scrollbar w-full md:w-60 shrink-0 border-border/40 border-t md:border-t-0 md:border-l md:overflow-y-auto">
+          {properties}
+        </div>
+      )}
     </div>
     </GithubLinkProvider>
   )

@@ -636,7 +636,13 @@ export interface AccountRateLimitSnapshot {
  * is how the plan's 5-hour and weekly windows stay visible while the reserve is
  * the one being consumed.
  */
+export type CodexResetOutcome = 'reset' | 'nothingToReset' | 'noCredit' | 'alreadyRedeemed'
+
 export interface AccountRateLimitsReadResult {
+  rateLimitResetCredits?: {
+    availableCount: number
+    credits: { id: string; title: string | null; description: string | null; expiresAt: number | null; status: string }[] | null
+  } | null
   rateLimits?: AccountRateLimitSnapshot | null
   rateLimitsByLimitId?: Record<string, AccountRateLimitSnapshot> | null
 }

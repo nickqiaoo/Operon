@@ -165,10 +165,10 @@ export interface ThreadSink {
  * an activity of its own) and looking things up.
  */
 const QUIET_MAIN_TOOLS: ReadonlySet<string> = new Set([
-  'start_task', 'continue_task', 'stop_task', 'list_tasks', 'schedule_list', 'memory_search',
-  'workspace_list', 'workspace_overview', 'running_list', 'waiting_list', 'board_list', 'board_get', 'board_agents', 'github_prs', 'github_pr',
-  'coding_agents', 'coding_start', 'coding_send', 'coding_status', 'coding_stop',
-  'start_spec', 'answer_spec_questions', 'spec_status',
+  'helper_start', 'helper_continue', 'helper_stop', 'helper_list', 'schedule_list', 'memory_search',
+  'workspace_list', 'workspace_inspect', 'conversation_list_running', 'conversation_list_waiting', 'board_list', 'board_get', 'board_list_agents', 'github_pr_list', 'github_pr_get',
+  'coding_list_agents', 'coding_start', 'coding_send', 'coding_get_status', 'coding_stop',
+  'spec_start', 'spec_answer_questions', 'spec_get_status',
 ])
 
 /** Why the main agent is speaking: what the host handed it. */
@@ -355,7 +355,7 @@ export class AssistantProjector {
 // ---------------------------------------------------------------------------
 
 /** What a worker handed in through its finish tool. */
-export type WorkerFinish = { tool: 'finish_task'; args: FinishArgs } | { tool: 'heartbeat_done'; args: HeartbeatArgs }
+export type WorkerFinish = { tool: 'helper_finish'; args: FinishArgs } | { tool: 'heartbeat_finish'; args: HeartbeatArgs }
 
 /** How a worker's run ended, as the runtime saw it. */
 export type RunEnd = 'completed' | 'failed' | 'stopped' | 'timed_out'
@@ -378,7 +378,7 @@ export class ActivityProjector {
     private readonly now: () => number = Date.now,
     /** The worker's directory: paths in step names are shown relative to it. */
     private readonly cwd?: string,
-    /** Tool calls that are not steps. A worker's: the assistant's own tools (finish_task…). */
+    /** Tool calls that are not steps. A worker's: the assistant's own tools (helper_finish…). */
     private readonly skip: (toolName: string) => boolean = isAssistantTool,
   ) {}
 
@@ -423,7 +423,7 @@ export class ActivityProjector {
 
   /** A milestone the worker reported, shown as a step. */
   progress(text: string): void {
-    this.pushStep({ id: this.newId(), label: text, status: 'done', tool: 'report_progress', at: this.now() })
+    this.pushStep({ id: this.newId(), label: text, status: 'done', tool: 'helper_report_progress', at: this.now() })
   }
 
   /** The worker handed in its result. */
@@ -466,7 +466,7 @@ export class ActivityProjector {
 
   /** Close the activity from how the run ended and whatever the worker handed in. */
   settle(end: RunEnd, fallbackTitle?: string): void {
-    const finish = this.finish?.tool === 'finish_task' ? this.finish.args : undefined
+    const finish = this.finish?.tool === 'helper_finish' ? this.finish.args : undefined
     const ok = end === 'completed' && !this.failure
     let status: ActivityStatus
     if (ok) {
@@ -496,7 +496,7 @@ export class ActivityProjector {
   }
 
   private onToolCall(toolCallId: string, toolName: string, input: unknown): void {
-    // A worker's own tools (finish_task, report_progress…) are not steps of the work.
+    // A worker's own tools (helper_finish, helper_report_progress…) are not steps of the work.
     if (this.skip(toolName)) return
     const args = record(typeof input === 'string' ? safeJson(input) : input)
     this.pushStep({

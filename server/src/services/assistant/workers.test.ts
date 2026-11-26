@@ -280,7 +280,7 @@ describe('WorkerPool', () => {
     expect(env.pool.isRunning(id)).toBe(true)
     g.open()
     const outcome = await done
-    expect(outcome).toMatchObject({ end: 'completed', finalText: 'checked', finish: { tool: 'heartbeat_done', args: { findings: [] } } })
+    expect(outcome).toMatchObject({ end: 'completed', finalText: 'checked', finish: { tool: 'heartbeat_finish', args: { findings: [] } } })
     expect(outcome.error).toBeUndefined()
     expect(outcome.activity.status).toBe('done')
   })
@@ -292,7 +292,7 @@ describe('WorkerPool', () => {
     expect(env.pool.heartbeatDone(task.id, { findings: [] })).toBe(false)
     expect(env.pool.finish(beat.id, { title: 'x', summary: 'y', status: 'done' })).toBe(false)
     expect(env.pool.heartbeatDone(beat.id, { findings: [{ text: 'Bank alert', urgent: true }] })).toBe(true)
-    expect((await beat.done).finish).toEqual({ tool: 'heartbeat_done', args: { findings: [{ text: 'Bank alert', urgent: true }] } })
+    expect((await beat.done).finish).toEqual({ tool: 'heartbeat_finish', args: { findings: [{ text: 'Bank alert', urgent: true }] } })
     await task.done
   })
 

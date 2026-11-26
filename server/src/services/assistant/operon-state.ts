@@ -232,7 +232,7 @@ export function createOperonState(storage: OperonStateStorage, live: OperonLiveS
       const head = shown.length
         ? [`Running now, most recent first (${pageRange(offset, shown.length, running.length)}):`]
         : [emptyPage(offset, running.length, 'Nothing is running right now.')]
-      const tail = waiting ? [`${waiting} more ${waiting === 1 ? 'is' : 'are'} waiting for the user: waiting_list says on what.`] : []
+      const tail = waiting ? [`${waiting} more ${waiting === 1 ? 'is' : 'are'} waiting for the user: conversation_list_waiting says on what.`] : []
       return [...head, ...lines, ...tail].join('\n')
     },
 

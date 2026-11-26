@@ -6,10 +6,10 @@ import { ASSISTANT_TOOL_NAMES } from './tools.js'
  * the approval cards.
  */
 
-/** The assistant tool a call is to (`start_task`…), or undefined for any other tool. */
+/** The assistant tool a call is to (`helper_start`…), or undefined for any other tool. */
 export function assistantToolName(toolName: string): string | undefined {
-  // mcp__assistant__start_task (Claude, Codex), assistant_worker_finish_task (OpenCode), and
-  // start_task as it is on Operon's own runtime, which runs them in process.
+  // mcp__assistant__helper_start (Claude, Codex), assistant_worker_helper_finish (OpenCode), and
+  // helper_start as it is on Operon's own runtime, which runs them in process.
   const bare = toolName.replace(/^mcp__assistant(_\w+?)?__/, '').replace(/^assistant(_(worker|heartbeat|wrapup))?_/, '')
   return ASSISTANT_TOOL_NAMES.has(bare) ? bare : undefined
 }
@@ -85,7 +85,7 @@ export function stepLabel(toolName: string, input: unknown, cwd?: string): strin
 /** The main agent's own changes, when it left out the description it is asked for. */
 function ownToolLabel(tool: string, args: Record<string, unknown>): string {
   switch (tool) {
-    case 'set_identity':
+    case 'identity_set':
       return 'Update identity.md'
     case 'schedule_create':
       return typeof args.name === 'string' ? `Schedule: ${args.name}` : 'Add a schedule'

@@ -215,7 +215,7 @@ export function createOperonActions(
       if (existing.status !== 'todo') throw new Error(`Task #${number} is ${existing.status}; only a todo task can be dispatched.`)
       const name = assignee.trim().replace(/^@/, '')
       const agent = storage.getAgentByName(name)
-      if (!agent || agent.hidden) throw new Error(`There is no agent @${name}. board_agents lists them.`)
+      if (!agent || agent.hidden) throw new Error(`There is no agent @${name}. board_list_agents lists them.`)
       if (existing.assignedAgentId != null && existing.assignedAgentId !== agent.id) {
         throw new Error(`Task #${number} is already assigned to another agent. The user can reassign it on the board.`)
       }

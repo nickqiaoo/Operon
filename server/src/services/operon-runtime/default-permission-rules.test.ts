@@ -43,7 +43,7 @@ describe('default permission rules', () => {
   })
 
   it.each(['deny', 'ask'] as const)('yield to a user %s rule', async (decision) => {
-    const pattern = 'mcp__assistant_heartbeat__heartbeat_done'
+    const pattern = 'mcp__assistant_heartbeat__heartbeat_finish'
     const { result } = await authorize(pattern, withDefaultPermissionRules([{ decision, scope: 'user', pattern }]))
     expect(result).toMatchObject({ block: true })
   })

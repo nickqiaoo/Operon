@@ -13,7 +13,7 @@ vi.mock('../cli-path-config.js', async () => {
 })
 
 let shellPath = ''
-vi.mock('shell-env', () => ({ shellEnvSync: () => ({ PATH: shellPath }) }))
+vi.mock('./login-shell-env.js', () => ({ getShellEnv: () => ({ PATH: shellPath }) }))
 
 vi.mock('node:fs', () => ({
   accessSync: (p: string) => {

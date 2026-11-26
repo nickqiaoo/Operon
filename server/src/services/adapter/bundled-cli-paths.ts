@@ -5,7 +5,8 @@ import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import process from 'node:process'
 import { promisify } from 'node:util'
-import { shellEnvSync } from 'shell-env'
+import { getShellEnv } from './login-shell-env.js'
+export { getShellEnv } from './login-shell-env.js'
 import { getCliPathConfig, CLI_ADAPTER_IDS, type CliAdapterId } from '../cli-path-config.js'
 
 type CliPathSource = 'manual' | 'auto' | 'missing'
@@ -55,33 +56,6 @@ const ADAPTER_PATH_CANDIDATES: Partial<Record<CliAdapterId, readonly string[]>> 
 
 const execFileAsync = promisify(execFile)
 
-const SHELL_PATH_CACHE_TTL_MS = 5_000
-
-let cachedShellPathDirs: { dirs: string[]; expiresAt: number } | null = null
-let cachedShellEnv: { env: Record<string, string>; expiresAt: number } | null = null
-
-/**
- * Get the full shell environment (cached).
- * Useful for passing to child processes spawned from packaged Electron apps
- * where process.env is incomplete.
- */
-export function getShellEnv(): Record<string, string> {
-  const now = Date.now()
-  if (cachedShellEnv && cachedShellEnv.expiresAt > now) {
-    return cachedShellEnv.env
-  }
-
-  let env: Record<string, string> = {}
-  try {
-    env = shellEnvSync() as Record<string, string>
-  } catch {
-    // Fall back to empty — process.env will still be used by the caller
-  }
-
-  cachedShellEnv = { env, expiresAt: now + SHELL_PATH_CACHE_TTL_MS }
-  return env
-}
-
 function isExecutable(filePath: string): boolean {
   try {
     accessSync(filePath, constants.X_OK)
@@ -92,11 +66,6 @@ function isExecutable(filePath: string): boolean {
 }
 
 function getShellPathDirs(): string[] {
-  const now = Date.now()
-  if (cachedShellPathDirs && cachedShellPathDirs.expiresAt > now) {
-    return cachedShellPathDirs.dirs
-  }
-
   // Both PATHs, merged — neither is a superset of the other.
   //
   // Under Electron the process PATH is the sparse one macOS hands a GUI app, and
@@ -109,12 +78,8 @@ function getShellPathDirs(): string[] {
   //
   // Process PATH first: it is the deployment's explicit statement of intent.
   const sources = [process.env.PATH ?? '']
-  try {
-    const shellPath = shellEnvSync().PATH
-    if (shellPath) sources.push(shellPath)
-  } catch {
-    // Login shell detection failing just means the process PATH stands alone.
-  }
+  const shellPath = getShellEnv().PATH
+  if (shellPath) sources.push(shellPath)
 
   const seen = new Set<string>()
   const dirs = sources
@@ -122,7 +87,6 @@ function getShellPathDirs(): string[] {
     .map((dir) => dir.trim())
     .filter((dir) => dir.length > 0 && !seen.has(dir) && seen.add(dir))
 
-  cachedShellPathDirs = { dirs, expiresAt: now + SHELL_PATH_CACHE_TTL_MS }
   return dirs
 }
 

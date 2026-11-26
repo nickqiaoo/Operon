@@ -1,4 +1,5 @@
 import './profile.js'
+import { readLogTail } from './log-tail.js'
 import { app, BrowserWindow, ipcMain, dialog, session, shell, Menu, Notification, clipboard, nativeImage, nativeTheme, powerMonitor, safeStorage } from 'electron'
 import { spawn, execFile } from 'child_process'
 import http from 'node:http'
@@ -7,7 +8,7 @@ import os from 'node:os'
 import path from 'path'
 import { delimiter } from 'node:path'
 import { fileURLToPath } from 'url'
-import { shellEnvSync } from 'shell-env'
+import { getShellEnv, refreshLoginShellEnv } from '../server/src/services/adapter/login-shell-env.js'
 import { PostHog } from 'posthog-node'
 import { createNodeAnalytics } from './analytics'
 import { startServer } from '../server/src/start.js'
@@ -65,8 +66,9 @@ if (IS_CHROME_NATIVE_HOST) {
 // On macOS, Electron apps launched from Finder have a minimal PATH that
 // misses user-installed tools (Homebrew, nvm, etc.). Enrich process.env
 // with the login shell's environment before anything else runs.
-try {
-  const shellEnv = shellEnvSync()
+async function enrichShellEnvironment() {
+  await refreshLoginShellEnv()
+  const shellEnv = getShellEnv()
   // Merge PATH: prepend shell dirs that are missing from process.env.PATH
   if (shellEnv.PATH) {
     const currentDirs = new Set((process.env.PATH ?? '').split(delimiter))
@@ -81,8 +83,6 @@ try {
       process.env[key] = value
     }
   }
-} catch {
-  // shellEnvSync can fail if the login shell is misconfigured — not fatal
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -923,6 +923,7 @@ app.whenReady().then(async () => {
   // Before the server takes requests: the permission routes ask through it.
   registerComputerUsePermissions()
   // Start Hono HTTP server
+  await enrichShellEnvironment()
   serverPort = await startHonoServer()
   // `npm run dev` prepares the driver before Vite starts. Start it only in the
   // Vite desktop run; packaged builds keep their existing on-demand lifecycle.
@@ -1013,15 +1014,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('logging:set', (_event, enabled: boolean) => { setLoggingEnabled(enabled) })
   ipcMain.handle('theme:set-source', (_event, source: unknown) => { if (isThemeSource(source)) setThemeSource(source) })
   ipcMain.handle('logging:reveal', () => { shell.showItemInFolder(logFile) })
-  ipcMain.handle('logging:read-tail', () => {
-    try {
-      const content = fs.readFileSync(logFile, 'utf-8')
-      const lines = content.split('\n')
-      return lines.slice(-500).join('\n')
-    } catch {
-      return ''
-    }
-  })
+  ipcMain.handle('logging:read-tail', () => readLogTail(logFile).catch(() => ''))
 
   // Notification support
   ipcMain.handle('notification:show', (_event, payload: { title: string; body: string }) => {

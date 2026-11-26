@@ -622,6 +622,7 @@ class ShellChrome(private val activity: AppCompatActivity) {
      */
     private fun iconFor(symbol: String): Int = when (symbol.removeSuffix(".fill")) {
         "square.and.pencil" -> R.drawable.ic_square_pen
+        "AgentStack" -> R.drawable.ic_agent_stack
         "plus" -> R.drawable.ic_plus
         "arrow.clockwise" -> R.drawable.ic_refresh_cw
         "arrow.up.left.and.arrow.down.right" -> R.drawable.ic_maximize

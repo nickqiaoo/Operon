@@ -30,7 +30,7 @@ describe('AssistantProjector (the thread)', () => {
     const t = thread()
     t.projector.begin({ kind: 'user' })
     t.projector.part(p({ type: 'text-delta', id: 'a', text: 'On it.' }))
-    t.projector.part(p({ type: 'tool-call', toolCallId: 'c1', toolName: 'mcp__assistant__start_task', input: {} }))
+    t.projector.part(p({ type: 'tool-call', toolCallId: 'c1', toolName: 'mcp__assistant__helper_start', input: {} }))
     said(t.projector, 'Back soon.', 'b')
     t.projector.end()
     expect(t.messages().map((m) => m.text)).toEqual(['On it.', 'Back soon.'])
@@ -43,7 +43,7 @@ describe('AssistantProjector (the thread)', () => {
     const t = thread()
     t.projector.begin({ kind: 'user' })
     said(t.projector, 'Looking into it.')
-    t.projector.part(p({ type: 'tool-call', toolCallId: 'c1', toolName: 'mcp__assistant__start_task', input: {} }))
+    t.projector.part(p({ type: 'tool-call', toolCallId: 'c1', toolName: 'mcp__assistant__helper_start', input: {} }))
     t.projector.setCause({ kind: 'worker', activityId: 'w1' })
     said(t.projector, 'Done — 3 files.')
     t.projector.end()
@@ -207,7 +207,7 @@ describe('AssistantProjector (the thread)', () => {
   it('keeps a turn that only looked at the coding work out of Activity', () => {
     const t = thread()
     t.projector.begin({ kind: 'user' })
-    for (const [id, tool] of [['l1', 'workspace_list'], ['l2', 'waiting_list'], ['l3', 'workspace_overview']]) {
+    for (const [id, tool] of [['l1', 'workspace_list'], ['l2', 'conversation_list_waiting'], ['l3', 'workspace_inspect']]) {
       t.projector.part(p({ type: 'tool-call', toolCallId: id, toolName: `mcp__assistant__${tool}`, input: {} }))
       t.projector.part(p({ type: 'tool-result', toolCallId: id, output: '…' }))
     }
@@ -222,7 +222,7 @@ describe('AssistantProjector (the thread)', () => {
     t.projector.part(p({ type: 'tool-call', toolCallId: 'q1', toolName: 'mcp__assistant__memory_search', input: { query: 'calendar' } }))
     t.projector.part(p({ type: 'tool-call', toolCallId: 'c1', toolName: 'Edit', input: { file_path: '/home/a/.operon/assistant/memory.md', old_string: '# People', new_string: '- No Google Calendar\n\n# People', description: 'Note: no Google Calendar' } }))
     t.projector.part(p({ type: 'tool-result', toolCallId: 'c1', output: 'The file has been updated.' }))
-    t.projector.part(p({ type: 'tool-call', toolCallId: 'c2', toolName: 'mcp__assistant__set_identity', input: { user_name: 'Nick' } }))
+    t.projector.part(p({ type: 'tool-call', toolCallId: 'c2', toolName: 'mcp__assistant__identity_set', input: { user_name: 'Nick' } }))
     t.projector.part(p({ type: 'tool-result', toolCallId: 'c2', output: 'Saved identity.md.' }))
     said(t.projector, 'Noted: no Google Calendar.')
     t.projector.end()
@@ -247,7 +247,7 @@ describe('AssistantProjector (the thread)', () => {
     const t = thread()
     t.projector.begin({ kind: 'user' })
     t.projector.part(p({ type: 'tool-call', toolCallId: 'q1', toolName: 'mcp__assistant__memory_search', input: { query: 'x' } }))
-    t.projector.part(p({ type: 'tool-call', toolCallId: 'c1', toolName: 'mcp__assistant__start_task', input: { title: 'x', prompt: 'y' } }))
+    t.projector.part(p({ type: 'tool-call', toolCallId: 'c1', toolName: 'mcp__assistant__helper_start', input: { title: 'x', prompt: 'y' } }))
     said(t.projector, 'On it.')
     t.projector.end()
     expect(t.activities()).toEqual([])
@@ -278,7 +278,7 @@ describe('ActivityProjector (one worker)', () => {
 
   it("leaves the assistant's own tools out of the steps", () => {
     const w = worker()
-    for (const name of ['mcp__assistant_worker__finish_task', 'assistant_worker_report_progress', 'mcp__assistant_heartbeat__heartbeat_done', 'assistant_heartbeat_heartbeat_done']) {
+    for (const name of ['mcp__assistant_worker__helper_finish', 'assistant_worker_helper_report_progress', 'mcp__assistant_heartbeat__heartbeat_finish', 'assistant_heartbeat_heartbeat_finish']) {
       w.projector.part(p({ type: 'tool-call', toolCallId: name, toolName: name, input: {} }))
     }
     w.projector.publish()
@@ -294,16 +294,16 @@ describe('ActivityProjector (one worker)', () => {
     expect(w.last().steps.map((s) => [s.status, s.result])).toEqual([['done', 'alpha'], ['failed', 'blocked']])
   })
 
-  it('settles from finish_task, keeping the full result as the report', () => {
+  it('settles from helper_finish, keeping the full result as the report', () => {
     const w = worker()
     said(w.projector, 'alpha.txt — alpha first line')
-    w.projector.handIn({ tool: 'finish_task', args: { title: 'Listed files', summary: '2 files', status: 'partial' } })
+    w.projector.handIn({ tool: 'helper_finish', args: { title: 'Listed files', summary: '2 files', status: 'partial' } })
     w.projector.turnEnd({})
     w.projector.settle('completed')
     expect(w.last()).toMatchObject({ status: 'partial', title: 'Listed files', summary: '2 files', report: '2 files\n\nalpha.txt — alpha first line' })
   })
 
-  it('falls back to the final text when the worker never calls finish_task', () => {
+  it('falls back to the final text when the worker never calls helper_finish', () => {
     const w = worker()
     said(w.projector, 'Found:\nalpha.txt has one line')
     w.projector.turnEnd({})
@@ -357,7 +357,7 @@ describe('ActivityProjector (one worker)', () => {
   it('shows a reported milestone as a step', () => {
     const w = worker()
     w.projector.progress('Found the booking page')
-    expect(w.last().steps[0]).toMatchObject({ label: 'Found the booking page', tool: 'report_progress', status: 'done' })
+    expect(w.last().steps[0]).toMatchObject({ label: 'Found the booking page', tool: 'helper_report_progress', status: 'done' })
   })
 })
 

@@ -82,20 +82,20 @@ describe('ANTIGRAVITY_CONFIG.extractModels', () => {
 describe('ANTIGRAVITY_CONFIG.patchEnv', () => {
   const patch = (env: Record<string, string>) => ANTIGRAVITY_CONFIG.patchEnv!(env)
 
-  it('never overrides a proxy the user configured themselves', () => {
+  it('never overrides a proxy the user configured themselves', async () => {
     // Whatever they set is deliberate — including a SOCKS one they know works.
     for (const key of ['HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy', 'ALL_PROXY', 'all_proxy']) {
       const env = { [key]: 'socks5://127.0.0.1:1080', PATH: '/usr/bin' }
-      expect(patch(env)).toEqual(env)
+      expect(await patch(env)).toEqual(env)
     }
   })
 
-  it('leaves the environment alone when there is no system SOCKS proxy to dodge', () => {
+  it('leaves the environment alone when there is no system SOCKS proxy to dodge', async () => {
     // On CI (and any machine without a system SOCKS proxy) this is a no-op —
     // the patch exists only to stop Python resolving to a SOCKS proxy it cannot
     // speak without `python-socks`.
     const env = { PATH: '/usr/bin' }
-    const patched = patch(env)
+    const patched = await patch(env)
     // Either untouched, or an http:// proxy was substituted — never socks.
     expect(patched.HTTP_PROXY ?? 'http://').toMatch(/^http:\/\//)
     expect(patched.HTTPS_PROXY ?? 'http://').toMatch(/^http:\/\//)

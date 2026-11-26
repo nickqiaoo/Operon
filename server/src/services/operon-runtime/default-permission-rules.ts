@@ -8,12 +8,12 @@ import type { PermissionRule } from 'operon-agents'
  * session's own tools (assistant/agents.ts operonOwnTools), under their bare names.
  */
 const REPORT_BACK_TOOLS = [
-  'mcp__assistant_heartbeat__heartbeat_done',
-  'mcp__assistant_worker__finish_task',
-  'mcp__assistant_worker__report_progress',
-  'heartbeat_done',
-  'finish_task',
-  'report_progress',
+  'mcp__assistant_heartbeat__heartbeat_finish',
+  'mcp__assistant_worker__helper_finish',
+  'mcp__assistant_worker__helper_report_progress',
+  'heartbeat_finish',
+  'helper_finish',
+  'helper_report_progress',
 ] as const
 
 export const DEFAULT_PERMISSION_RULES: readonly PermissionRule[] = REPORT_BACK_TOOLS.map((pattern) => ({

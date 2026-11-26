@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { OpenCodeEvent, McpServer, ModelInfo, ProviderInfo, SessionPromptInput, SessionCommandInput, CommandInfo } from '@opencode/client'
 import { OpencodeRuntimeProvider } from './index.js'
-import { OpencodeRuntimeSession, listOpencodeDescriptorModels } from './session.js'
+import { OpencodeRuntimeSession, listOpencodeDescriptorModels, type OpencodeSessionOptions } from './session.js'
 import { createRuntimeContext } from '../../context.js'
 import type { RuntimeStreamPart, SessionOptions } from '../../types.js'
 import { OpencodeClientManager } from './client-manager.js'
@@ -22,7 +22,7 @@ const replyEvents = [
   event('session.execution.succeeded', { sessionID: 'session-1' }),
 ]
 
-function fixture(options: Partial<SessionOptions> = {}, events = replyEvents) {
+function fixture(options: Partial<SessionOptions & OpencodeSessionOptions> = {}, events = replyEvents) {
   let servers: McpServer[] = [{ name: 'browser', status: { status: 'connected' } }]
   const native = {
     session: {
@@ -64,6 +64,33 @@ async function collect(session: OpencodeRuntimeSession) {
 }
 
 describe('OpenCode V2 native session', () => {
+  it('restores a missing assistant MCP in the same session before the next prompt', async () => {
+    const { session, native } = fixture({
+      mcpServers: { assistant: { type: 'http', url: 'http://localhost/assistant-mcp' } },
+      opencode: { requiredMcpServer: 'assistant' },
+    })
+    const connected: McpServer = { name: 'assistant', status: { status: 'connected' } }
+    native.mcp.list.mockResolvedValue({ data: [connected] })
+    await collect(session)
+    expect(native.mcp.add).not.toHaveBeenCalled()
+    native.mcp.list.mockResolvedValueOnce({ data: [] })
+    await collect(session)
+    expect(native.mcp.add).toHaveBeenCalledTimes(1)
+    expect(native.mcp.list.mock.invocationCallOrder.at(-1)).toBeLessThan(native.session.prompt.mock.invocationCallOrder[1])
+    expect(native.session.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores a manually disabled dynamic MCP as disabled after eviction', async () => {
+    const { session, native } = fixture({ mcpServers: { browser: { type: 'http', url: 'http://localhost/browser' } } })
+    await collect(session)
+    await session.native.mcp.toggle('browser', false)
+    native.mcp.list.mockResolvedValueOnce({ data: [] })
+    await collect(session)
+    expect(native.mcp.add).toHaveBeenCalledWith(expect.objectContaining({
+      server: 'browser', config: expect.objectContaining({ disabled: true }),
+    }))
+  })
+
   it('discovers native commands alongside skills without duplicating names or compact', async () => {
     const { ctx, native } = fixture()
     native.command.list.mockResolvedValue({ data: [{ name: 'review', description: 'Review command' }, { name: 'docs:search', description: 'Search docs' }, { name: 'compact' }] })

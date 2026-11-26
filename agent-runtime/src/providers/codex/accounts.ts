@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path'
 import type { RuntimeContext } from '../../context.js'
 import { acquireAppServerClient, retireAppServerClient, type AppServerLease } from './sdk/client-registry.js'
 import type { CodexAppServerSettings } from './sdk/types/index.js'
-import type { AccountRateLimitSnapshot } from './sdk/protocol/index.js'
+import type { AccountRateLimitSnapshot, AccountRateLimitsReadResult, CodexResetOutcome } from './sdk/protocol/index.js'
 
 type Identity = { account: { type: string; email?: string; planType?: string } | null; userId?: string; workspaceRouting?: { chatgptAccountId?: string } | null }
 const accountId = z.union([z.literal('default'), z.string().uuid()])
@@ -15,7 +15,7 @@ const configuration = z.object({ ids: z.array(accountId), current: accountId, au
 type Configuration = z.infer<typeof configuration>
 interface Workspace { accountId: string; name: string | null; kind: 'personal' | 'workspace' | null }
 interface Memberships { activeSessionId: string | null; sessions: { sessionId: string; selectedWorkspaceAccountId: string | null; workspaces: Workspace[] }[] }
-interface AccountInfo { workspaceId?: string; workspaces?: Workspace[]; id: string; email: string | null; plan: string | null; signedIn: boolean; quota: AccountRateLimitSnapshot | null }
+interface AccountInfo { resetCredits?: AccountRateLimitsReadResult['rateLimitResetCredits']; workspaceId?: string; workspaces?: Workspace[]; id: string; email: string | null; plan: string | null; signedIn: boolean; quota: AccountRateLimitSnapshot | null }
 interface Login { url: string; code?: string }
 export interface CodexAccountsView {
   accounts: AccountInfo[]
@@ -137,7 +137,7 @@ export class CodexAccounts {
       const limits = identity.account ? await lease.client.readRateLimits(0) : null
       const bucket = limits?.rateLimits
       const quota = limits?.rateLimitsByLimitId?.codex ?? (!bucket?.limitId || bucket.limitId === 'codex' ? bucket : null) ?? null
-      const info = { id, workspaceId: identity.workspaceRouting?.chatgptAccountId, signedIn: !!identity.account, email: identity.account?.email ?? null, plan: quota?.planType ?? identity.account?.planType ?? null, quota }
+      const info = { id, resetCredits: limits?.rateLimitResetCredits, workspaceId: identity.workspaceRouting?.chatgptAccountId, signedIn: !!identity.account, email: identity.account?.email ?? null, plan: quota?.planType ?? identity.account?.planType ?? null, quota }
       if (info.workspaceId && info.plan) this.workspacePlans.set(this.slot(id, info.workspaceId), info.plan)
       this.cache.set(id, { at: Date.now(), info, identity })
       return info
@@ -146,7 +146,7 @@ export class CodexAccounts {
     return read
   }
 
-  async view(force = false): Promise<CodexAccountsView> {
+  async getState(force = false): Promise<CodexAccountsView> {
     const accounts: AccountInfo[] = []
     for (const id of this.config.ids) {
       const info = await this.inspect(id, force)
@@ -211,6 +211,38 @@ export class CodexAccounts {
       await this.switchTo(id)
       this.notice = undefined
       this.message = null
+    })
+  }
+
+  redeemReset({ accountId: id, expectedIdentity: target, idempotencyKey, creditId }: {
+    accountId: string
+    expectedIdentity: { email: string | null; workspaceId: string | null }
+    idempotencyKey: string
+    creditId?: string
+  }) {
+    return this.serial(async () => {
+      if (!this.config.ids.includes(id)) throw new Error('Unknown Codex account')
+      const lease = this.acquire({}, id)
+      try {
+        const identity = await lease.client.request<Identity>('account/read', {})
+        if (!identity.account || (identity.account.email ?? null) !== target.email ||
+            (identity.workspaceRouting?.chatgptAccountId ?? null) !== target.workspaceId) {
+          throw new Error('Account or workspace changed. Refresh and try again.')
+        }
+        const result = await lease.client.request<{ outcome: CodexResetOutcome }>('account/rateLimitResetCredit/consume', {
+          idempotencyKey, creditId,
+        })
+        await this.reads.get(id)?.catch(() => {})
+        this.cache.delete(id)
+        if (result.outcome === 'reset' || result.outcome === 'alreadyRedeemed') {
+          this.errors.delete(this.slot(id, target.workspaceId ?? undefined))
+          if (this.notice?.type === 'unavailable') {
+            this.notice = undefined
+            this.message = null
+          }
+        }
+        return result
+      } finally { lease.release() }
     })
   }
 

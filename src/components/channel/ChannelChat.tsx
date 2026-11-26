@@ -26,10 +26,10 @@ import { useNativeShellOverlay } from '@/hooks/useNativeShellOverlay'
 import { useIsMobileShell } from '@/hooks/useIsMobile'
 import { hasNativeComposer } from '@/lib/native-composer'
 import { NativeChatComposer } from '@/components/mobile/NativeChatComposer'
+import { MemberManageDialog } from './MemberManageDialog'
 
 interface ChannelChatProps {
   channelId: number
-  onManageMembers?: () => void
   /**
    * Phone only: the soft keyboard is up. The composer already lifts itself via
    * `--keyboard-height`; this only tells the transcript to re-pin to the newest
@@ -60,7 +60,7 @@ const THREAD_PANEL_WIDTH_KEY = 'operon.channelThreadWidth'
 const clampThreadWidth = (v: number) =>
   Math.max(THREAD_PANEL_MIN_WIDTH, Math.min(THREAD_PANEL_MAX_WIDTH, v))
 
-export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = false, onClose, onBack, onOpenTask, focusMessageId = null, onFocusConsumed }: ChannelChatProps) {
+export function ChannelChat({ channelId, mobileKeyboardOpen = false, onClose, onBack, onOpenTask, focusMessageId = null, onFocusConsumed }: ChannelChatProps) {
   const intl = useIntl()
   const [atBottom, setAtBottom] = useState(true)
   const [newCount, setNewCount] = useState(0)
@@ -74,6 +74,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
 
   // Phone: the composer floats over the transcript's bottom, which pads its
   // end by the composer's live height and scrolls on under its glass.
+  const [membersOpen, setMembersOpen] = useState(false)
   const isMobile = useIsMobileShell()
   const nativeComposer = isMobile && hasNativeComposer()
   const composerRef = useRef<HTMLDivElement>(null)
@@ -419,6 +420,25 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
     return () => clearTimeout(timer)
   }, [threadRootId])
   const [resizingThread, setResizingThread] = useState(false)
+  const [threadComposerReady, setThreadComposerReady] = useState(false)
+  useLayoutEffect(() => {
+    if (!nativeComposer || !threadOpen) {
+      setThreadComposerReady(false)
+      return
+    }
+    // UIKit draws outside the sliding panel. Give it the settled anchor on its
+    // first visible frame, including when reduced motion skips the transition.
+    const transitions = threadWrapperRef.current?.getAnimations() ?? []
+    if (!transitions.length) {
+      setThreadComposerReady(true)
+      return
+    }
+    let current = true
+    void Promise.allSettled(transitions.map((transition) => transition.finished)).then(() => {
+      if (current) setThreadComposerReady(true)
+    })
+    return () => { current = false }
+  }, [nativeComposer, threadOpen])
 
   const rootMessage = panelRootId
     ? messages.find((m) => m.id === panelRootId) ?? null
@@ -483,7 +503,8 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
           </div>
           <button
             type="button"
-            onClick={onManageMembers}
+            onClick={() => setMembersOpen(true)}
+            disabled={!channel}
             className="group/members flex h-7 items-center gap-2 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
             title={intl.formatMessage({ id: 'channel.manageMembers', defaultMessage: 'Manage members' })}
           >
@@ -621,7 +642,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                 </div>
               )}
               {nativeComposer ? <NativeChatComposer
-                active={!threadOpen}
+                active={!threadOpen && !membersOpen}
                 value={input}
                 onChange={(text, cursor) => {
                   setInput(text)
@@ -718,6 +739,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
           <div className="flex min-h-0 flex-1 flex-col md:absolute md:inset-y-0 md:right-0 md:w-[var(--thread-full-w)]">
             <ThreadPanel
               key={panelRootId}
+              nativeComposerActive={threadOpen && threadComposerReady}
               channelName={channel?.name ?? null}
               rootMessage={rootMessage}
               thread={threads.get(panelRootId)}
@@ -733,6 +755,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
           </div>
         )}
       </div>
+      {membersOpen && channel && <MemberManageDialog channel={channel} onClose={() => setMembersOpen(false)} />}
     </div>
   )
 }

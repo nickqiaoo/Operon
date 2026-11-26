@@ -121,7 +121,7 @@ const PAGE_SIZE = 200
 type RuntimeEvent = Exclude<AssistantEvent, { type: 'activity' }> | { type: 'activity'; activity: Activity }
 const NO_MODEL = 'No model is set up for the assistant yet. Add a provider in Settings → AI Providers, then pick models in Settings → Assistant.'
 const ONBOARDING_KICK = '(The user just opened the assistant for the first time. Start the first meeting.)'
-const MAIN_DENIED = 'You do not do tool work yourself. Hand it to a helper with start_task.'
+const MAIN_DENIED = 'You do not do tool work yourself. Hand it to a helper with helper_start.'
 const QUESTION_SHOWN =
   'Not answered yet: the question is now in front of the user as a form in this thread. End your turn without restating it; their choice arrives as their next message.'
 
@@ -661,7 +661,7 @@ export class AssistantRuntime {
         const available = codingAgentIds()
         const unknown = types.filter((t) => !available.includes(t))
         if (unknown.length) throw new Error(`Not available: ${unknown.join(', ')}. Available agents: ${available.join(', ') || 'none'}`)
-        return JSON.stringify({ agents: await agentModelCatalog(types.length ? types : available, query, 'coding_agents') })
+        return JSON.stringify({ agents: await agentModelCatalog(types.length ? types : available, query, 'coding_list_agents') })
       },
       start: async (input) => {
         const available = codingAgentIds()
@@ -1122,13 +1122,13 @@ export class AssistantRuntime {
       visible: false,
     })
     const outcome = await done
-    const args = outcome.finish?.tool === 'heartbeat_done' ? outcome.finish.args : undefined
-    // Ending without heartbeat_done means the check wasn't done: it must not read as "nothing new",
+    const args = outcome.finish?.tool === 'heartbeat_finish' ? outcome.finish.args : undefined
+    // Ending without heartbeat_finish means the check wasn't done: it must not read as "nothing new",
     // and must not move "the last check" past what it never looked at.
     if (outcome.end !== 'completed' || outcome.error || !args) {
       this.forgetWorkerSession(id)
       const note = outcome.error ?? (outcome.end === 'completed'
-        ? 'Ended without reporting what it checked (no heartbeat_done).'
+        ? 'Ended without reporting what it checked (no heartbeat_finish).'
         : outcome.activity.summary)
       return { outcome: 'failed', note }
     }

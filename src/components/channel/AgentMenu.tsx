@@ -1,11 +1,10 @@
+import { ChannelDialog } from './ChannelDialog'
 import { useState, useEffect } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { Settings2, Square, RotateCcw, ExternalLink, XIcon, Loader2 } from 'lucide-react'
 import { AgentAvatar } from '@/components/icons/AgentAvatar'
 import { BindingRow } from './binding-ui'
 import {
-  Dialog,
-  DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -193,92 +192,87 @@ function AgentDetailDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent
-        className="max-h-[85vh] max-w-xs overflow-hidden p-0 flex flex-col"
-        showCloseButton={false}
-      >
-        {/* Header */}
-        <div className="px-5 pt-5 pb-4 shrink-0">
-          <DialogHeader className="flex flex-row items-start justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <AgentAvatar provider={agent.provider} size="lg" />
-              <div className="min-w-0">
-                <DialogTitle className="truncate">
-                  {agent.name}
-                </DialogTitle>
-                <p className="text-xs text-muted-foreground/60 mt-0.5">{agent.provider} · {agent.model}</p>
-              </div>
+    <ChannelDialog open onClose={onClose} flush className="max-h-[85vh] max-w-xs overflow-hidden p-0 flex flex-col">
+      {/* Header */}
+      <div className="px-5 pt-5 pb-4 shrink-0">
+        <DialogHeader className="flex flex-row items-start justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <AgentAvatar provider={agent.provider} size="lg" />
+            <div className="min-w-0">
+              <DialogTitle className="truncate">
+                {agent.name}
+              </DialogTitle>
+              <p className="text-xs text-muted-foreground/60 mt-0.5">{agent.provider} · {agent.model}</p>
             </div>
-            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground shrink-0 -mt-1 -mr-1" onClick={onClose}>
-              <XIcon className="h-3.5 w-3.5" />
-            </Button>
-          </DialogHeader>
-
-          {agent.instructions && (
-            <p className="text-xs text-muted-foreground/70 mt-3 leading-relaxed whitespace-pre-wrap">{agent.instructions}</p>
-          )}
-        </div>
-
-        {/* Sessions — one row per channel/task this agent actually runs in, each
-            with its own status and its own reset (the channel layer, made visible).
-            Scrolls when long so the card never grows past the viewport. */}
-        <div className="border-t border-border/40 px-3 py-3 flex-1 min-h-0 overflow-y-auto">
-          <div className="px-1 mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/40">
-            <FormattedMessage id="channel.agent.sessions" defaultMessage="Sessions" />
           </div>
-          {loading ? (
-            <div className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              <FormattedMessage id="channel.agent.sessionsLoading" defaultMessage="Loading…" />
-            </div>
-          ) : visible.length === 0 ? (
-            <div className="px-2 py-2 text-xs text-muted-foreground/50">
-              <FormattedMessage id="channel.agent.noSessions" defaultMessage="Not running in any channel yet." />
-            </div>
-          ) : (
-            <div className="space-y-0.5">
-              {visible.map((b) => (
-                <BindingRow
-                  key={b.id}
-                  binding={b}
-                  resetting={resettingBinding === b.id}
-                  onReset={() => void handleBindingReset(b)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+          <Button aria-label="Close" variant="ghost" size="icon" className="size-11 md:size-7 rounded-md text-muted-foreground hover:text-foreground shrink-0 -mt-1 -mr-1" onClick={onClose}>
+            <XIcon className="h-3.5 w-3.5" />
+          </Button>
+        </DialogHeader>
 
-        {/* Actions */}
-        <div className="border-t border-border/40 px-2 py-2 space-y-0.5 shrink-0">
-          {workspaceId != null && onOpenWorkspace && (
-            <button
-              onClick={() => { onOpenWorkspace(workspaceId); onClose() }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-row-hover rounded-lg transition-colors"
-            >
-              <ExternalLink className="w-3.5 h-3.5 text-tint" />
-              <FormattedMessage id="channel.agent.openWorkspace" defaultMessage="Open Workspace" />
-            </button>
-          )}
-          {hasActive && (
-            <button
-              onClick={onStop}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-row-hover rounded-lg transition-colors"
-            >
-              <Square className="w-3.5 h-3.5" />
-              <FormattedMessage id="channel.agent.stop" defaultMessage="Stop" />
-            </button>
-          )}
-          <button
-            onClick={onReset}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-destructive/80 hover:bg-destructive/5 rounded-lg transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <FormattedMessage id="channel.agent.resetAll" defaultMessage="Reset all sessions" />
-          </button>
+        {agent.instructions && (
+          <p className="text-xs text-muted-foreground/70 mt-3 leading-relaxed whitespace-pre-wrap">{agent.instructions}</p>
+        )}
+      </div>
+
+      {/* Sessions — one row per channel/task this agent actually runs in, each
+          with its own status and its own reset (the channel layer, made visible).
+          Scrolls when long so the card never grows past the viewport. */}
+      <div className="border-t border-border/40 px-3 py-3 flex-1 min-h-0 overflow-y-auto">
+        <div className="px-1 mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/40">
+          <FormattedMessage id="channel.agent.sessions" defaultMessage="Sessions" />
         </div>
-      </DialogContent>
-    </Dialog>
+        {loading ? (
+          <div className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <FormattedMessage id="channel.agent.sessionsLoading" defaultMessage="Loading…" />
+          </div>
+        ) : visible.length === 0 ? (
+          <div className="px-2 py-2 text-xs text-muted-foreground/50">
+            <FormattedMessage id="channel.agent.noSessions" defaultMessage="Not running in any channel yet." />
+          </div>
+        ) : (
+          <div className="space-y-0.5">
+            {visible.map((b) => (
+              <BindingRow
+                key={b.id}
+                binding={b}
+                resetting={resettingBinding === b.id}
+                onReset={() => void handleBindingReset(b)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="border-t border-border/40 px-2 py-2 space-y-0.5 shrink-0">
+        {workspaceId != null && onOpenWorkspace && (
+          <button
+            onClick={() => { onOpenWorkspace(workspaceId); onClose() }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-row-hover rounded-lg transition-colors"
+          >
+            <ExternalLink className="w-3.5 h-3.5 text-tint" />
+            <FormattedMessage id="channel.agent.openWorkspace" defaultMessage="Open Workspace" />
+          </button>
+        )}
+        {hasActive && (
+          <button
+            onClick={onStop}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-row-hover rounded-lg transition-colors"
+          >
+            <Square className="w-3.5 h-3.5" />
+            <FormattedMessage id="channel.agent.stop" defaultMessage="Stop" />
+          </button>
+        )}
+        <button
+          onClick={onReset}
+          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-destructive/80 hover:bg-destructive/5 rounded-lg transition-colors"
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+          <FormattedMessage id="channel.agent.resetAll" defaultMessage="Reset all sessions" />
+        </button>
+      </div>
+    </ChannelDialog>
   )
 }

@@ -1,3 +1,4 @@
+import { refreshLoginShellEnv } from './services/adapter/login-shell-env.js'
 import { serve } from '@hono/node-server'
 import { getOperonHome } from '../../shared/operon-home.js'
 import {
@@ -112,6 +113,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     process.env.OPERON_VERSION = options.appVersion
   }
 
+  await refreshLoginShellEnv()
   tightenLegacyFileModes()
   const storage = new SqliteStorage(dbPath, { migrationsDir })
 

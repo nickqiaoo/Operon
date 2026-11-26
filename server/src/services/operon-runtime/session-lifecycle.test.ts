@@ -45,7 +45,7 @@ describe('host session restoration', () => {
 
   it('hands the live tools a session was created with back in on a restore', async () => {
     const f = fixture()
-    const tools = [{ schema: { name: 'start_task', description: '', parameters: {} }, resolve: vi.fn() }]
+    const tools = [{ schema: { name: 'helper_start', description: '', parameters: {} }, resolve: vi.fn() }]
     await resumeRuntimeSession(f.harness, 'existing', async () => ({ config: {}, bindings: { extraTools: tools } }))
     expect(f.resumeSession).toHaveBeenCalledWith('existing', { config: {}, bindings: { extraTools: tools } })
   })

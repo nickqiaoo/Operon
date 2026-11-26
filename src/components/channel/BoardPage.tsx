@@ -1,7 +1,8 @@
 import { TitlebarRow } from "@/components/app-shell/TitlebarRow"
 import { useCallback, useEffect, useState } from 'react'
 import { FormattedMessage } from 'react-intl'
-import { Bot, Plus } from 'lucide-react'
+import { AgentStackIcon } from '@/components/icons/AgentStackIcon'
+import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
@@ -114,7 +115,7 @@ export function BoardPage({ view, onViewChange, onOpenWorkspace, onOpenChat, ini
         <Popover open={agentsOpen} onOpenChange={setAgentsOpen}>
           <PopoverTrigger asChild>
             <Button size="sm" variant="ghost" className="no-drag h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground">
-              <Bot className="h-3.5 w-3.5" />
+              <AgentStackIcon className="size-4" />
               <FormattedMessage id="channel.section.agents" defaultMessage="Agents" />
               {agentCount > 0 && <span className="text-xs tabular-nums text-muted-foreground/60">{agentCount}</span>}
             </Button>

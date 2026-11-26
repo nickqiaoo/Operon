@@ -1,3 +1,6 @@
+import { ChannelDialog } from './ChannelDialog'
+import { toast } from 'sonner'
+import { useIsMobileShell } from '@/hooks/useIsMobile'
 import { useEffect, useMemo, useState } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { Plus, Pencil, Trash2, Bot, XIcon, X, Info, ChevronRight, ChevronDown } from 'lucide-react'
@@ -7,8 +10,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import {
-  Dialog,
-  DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -61,7 +62,7 @@ const FIELD_LABEL = 'block text-xs font-medium text-muted-foreground'
 /** Text fields in this form: a quiet outline on the dialog surface, no fill, no shadow. */
 const FIELD_SURFACE = 'bg-transparent border-border/50 dark:border-border/35 shadow-none hover:border-border focus-visible:border-tint/40 focus-visible:ring-1 focus-visible:ring-tint/10'
 /** The control on the right of a runtime row; every row uses the same width so they line up. */
-const RUNTIME_TRIGGER = 'w-52 shrink-0 bg-transparent border-border/50 dark:border-border/35 shadow-none hover:bg-row-hover'
+const RUNTIME_TRIGGER = 'w-full min-w-0 bg-transparent border-border/50 dark:border-border/35 shadow-none hover:bg-row-hover'
 /** Radix Select can't hold '' as a value; this stands for "the provider's default effort". */
 const EFFORT_DEFAULT = '__default__'
 
@@ -77,7 +78,7 @@ function RuntimeRow({ label, hint, children }: { label: React.ReactNode; hint?: 
         <div className="text-sm text-foreground/85">{label}</div>
         {hint && <div className="mt-0.5 text-xs text-muted-foreground line-clamp-2">{hint}</div>}
       </div>
-      <div className="w-52 shrink-0">{children}</div>
+      <div className="w-1/2 max-w-52 min-w-0">{children}</div>
     </div>
   )
 }
@@ -85,6 +86,7 @@ function RuntimeRow({ label, hint, children }: { label: React.ReactNode; hint?: 
 
 export function AgentManageDialog({ open, onClose, providers: givenProviders }: AgentManageDialogProps) {
   const intl = useIntl()
+  const mobile = useIsMobileShell()
   // Opened from wherever an agent is picked (the board, a dispatch, a task), not just the channel
   // page that used to hand the list in.
   const { data: providerList } = useProviders({ enabled: open && !givenProviders })
@@ -225,6 +227,8 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
       }
       setFormOpen(false)
       setEditing(null)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save agent')
     } finally {
       setSaving(false)
     }
@@ -242,64 +246,55 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
 
   return (
     <>
-      <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
-        <DialogContent
-          className="max-h-[75vh] max-w-md overflow-hidden flex flex-col"
-          showCloseButton={false}
-        >
-          <DialogHeader className="px-1 pt-1 pb-2 flex flex-row items-center justify-between shrink-0">
-            <div>
-              <DialogTitle>
-                <FormattedMessage id="channel.manageAgents" defaultMessage="Manage Agents" />
-              </DialogTitle>
-              <p className="text-xs text-muted-foreground/60 mt-0.5">
-                <FormattedMessage
-                  id="channel.agentCount"
-                  defaultMessage="{count, plural, one {# agent} other {# agents}}"
-                  values={{ count: agents.length }}
-                />
-              </p>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button variant="ghost" size="sm" onClick={openCreate} className="gap-1.5 h-8 px-3 text-xs text-muted-foreground hover:text-foreground">
-                <Plus className="h-3.5 w-3.5" />
-                <FormattedMessage id="common.new" defaultMessage="New" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground" onClick={onClose}>
-                <XIcon className="h-4 w-4" />
-              </Button>
-            </div>
-          </DialogHeader>
+      <ChannelDialog open={open && !(mobile && formOpen)} onClose={onClose} className="max-h-[75vh] max-w-md overflow-hidden flex flex-col">
+        <DialogHeader className="px-1 pt-1 pb-2 flex flex-row items-center justify-between shrink-0">
+          <div>
+            <DialogTitle>
+              <FormattedMessage id="channel.manageAgents" defaultMessage="Manage Agents" />
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground/60 mt-0.5">
+              <FormattedMessage
+                id="channel.agentCount"
+                defaultMessage="{count, plural, one {# agent} other {# agents}}"
+                values={{ count: agents.length }}
+              />
+            </p>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" onClick={openCreate} className="gap-1.5 h-8 px-3 text-xs text-muted-foreground hover:text-foreground">
+              <Plus className="h-3.5 w-3.5" />
+              <FormattedMessage id="common.new" defaultMessage="New" />
+            </Button>
+            <Button aria-label="Close" variant="ghost" size="icon" className="size-11 md:size-7 rounded-md text-muted-foreground hover:text-foreground" onClick={onClose}>
+              <XIcon className="h-4 w-4" />
+            </Button>
+          </div>
+        </DialogHeader>
 
-          <div className="min-h-0 overflow-y-auto -mx-6 px-6 code-scrollbar">
-            {agents.length === 0 ? (
-              <div className="text-center py-10 text-muted-foreground/50">
-                <Bot className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p className="text-sm"><FormattedMessage id="channel.noAgents" defaultMessage="No agents yet" /></p>
-                <p className="text-xs mt-0.5"><FormattedMessage id="channel.manage.emptyHint" defaultMessage="Create your first agent to get started" /></p>
-              </div>
-            ) : (
-              <div className="space-y-1 pb-2">
-                {agents.map((agent) => {
-                  // Offline bindings are reset/never-started residue with no lifecycle
-                  // that ever clears them — hide them so the list shows only sessions
-                  // that are actually live (active or idle).
-                  const liveBindings = (bindingsByAgent[agent.id] ?? []).filter((b) => b.status !== 'offline')
-                  const liveCount = countLive(liveBindings)
-                  const expanded = expandedAgentId === agent.id
-                  return (
-                    <div key={agent.id} className="rounded-lg overflow-hidden">
-                      <div
-                        role="button"
-                        tabIndex={0}
+        <div className="min-h-0 overflow-y-auto -mx-6 px-6 code-scrollbar">
+          {agents.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground/50">
+              <Bot className="w-8 h-8 mx-auto mb-2 opacity-40" />
+              <p className="text-sm"><FormattedMessage id="channel.noAgents" defaultMessage="No agents yet" /></p>
+              <p className="text-xs mt-0.5"><FormattedMessage id="channel.manage.emptyHint" defaultMessage="Create your first agent to get started" /></p>
+            </div>
+          ) : (
+            <div className="space-y-1 pb-2">
+              {agents.map((agent) => {
+                // Offline bindings are reset/never-started residue with no lifecycle
+                // that ever clears them — hide them so the list shows only sessions
+                // that are actually live (active or idle).
+                const liveBindings = (bindingsByAgent[agent.id] ?? []).filter((b) => b.status !== 'offline')
+                const liveCount = countLive(liveBindings)
+                const expanded = expandedAgentId === agent.id
+                return (
+                  <div key={agent.id} className="rounded-lg overflow-hidden">
+                    <div className="group flex items-center gap-1 rounded-lg px-2 hover:bg-row-hover">
+                      <button
+                        type="button"
+                        aria-expanded={expanded}
                         onClick={() => setExpandedAgentId(expanded ? null : agent.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            setExpandedAgentId(expanded ? null : agent.id)
-                          }
-                        }}
-                        className="flex items-center gap-3 hover:bg-row-hover rounded-lg px-3 py-2.5 transition-colors group cursor-pointer"
+                        className="flex min-w-0 flex-1 items-center gap-3 py-2.5 text-left"
                       >
                         <ChevronRight
                           className={cn(
@@ -307,329 +302,335 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
                             expanded && 'rotate-90',
                           )}
                         />
-                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-tint/15 shrink-0">
+                        <span className="flex items-center justify-center w-8 h-8 rounded-full bg-tint/15 shrink-0">
                           <Bot className="w-4 h-4 text-tint" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <div className="text-sm font-medium text-foreground truncate">{agent.name}</div>
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-foreground truncate">{agent.name}</span>
                             <BindingCountBadge count={liveCount} total={liveBindings.length} />
-                          </div>
-                          <div className="text-xs text-muted-foreground/60 truncate">
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground/60">
                             {agent.provider} · {agent.model}
                             {agent.instructions && ` · ${agent.instructions.split('\n')[0]}`}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); openEdit(agent) }}
-                            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-row-hover rounded-md transition-colors"
-                            title={intl.formatMessage({ id: 'common.edit', defaultMessage: 'Edit' })}
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); void handleDelete(agent) }}
-                            className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
-                            title={intl.formatMessage({ id: 'common.delete', defaultMessage: 'Delete' })}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                          </span>
+                        </span>
+                      </button>
+                      <div className="flex items-center gap-0.5 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => openEdit(agent)}
+                          className="inline-flex size-11 items-center justify-center md:size-7 text-muted-foreground hover:text-foreground hover:bg-row-hover rounded-md transition-colors"
+                          title={intl.formatMessage({ id: 'common.edit', defaultMessage: 'Edit' })}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => void handleDelete(agent)}
+                          className="inline-flex size-11 items-center justify-center md:size-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+                          title={intl.formatMessage({ id: 'common.delete', defaultMessage: 'Delete' })}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-
-                      {expanded && (
-                        <div className="pl-10 pr-3 pb-2">
-                          {liveBindings.length === 0 ? (
-                            <p className="text-[11px] text-muted-foreground/50 italic py-2">
-                              <FormattedMessage id="channel.binding.none" defaultMessage="No active sessions." />
-                            </p>
-                          ) : (
-                            <div className="space-y-1">
-                              {liveBindings.map((b) => (
-                                <BindingRow
-                                  key={b.id}
-                                  binding={b}
-                                  resetting={resettingBinding === b.id}
-                                  onReset={() => void handleBindingReset(b)}
-                                />
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
                     </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+
+                    {expanded && (
+                      <div className="pl-10 pr-3 pb-2">
+                        {liveBindings.length === 0 ? (
+                          <p className="text-[11px] text-muted-foreground/50 italic py-2">
+                            <FormattedMessage id="channel.binding.none" defaultMessage="No active sessions." />
+                          </p>
+                        ) : (
+                          <div className="space-y-1">
+                            {liveBindings.map((b) => (
+                              <BindingRow
+                                key={b.id}
+                                binding={b}
+                                resetting={resettingBinding === b.id}
+                                onReset={() => void handleBindingReset(b)}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </ChannelDialog>
 
       {/* Create / Edit form dialog */}
-      <Dialog open={formOpen} onOpenChange={(v) => { if (!v) handleFormClose() }}>
-        <DialogContent
-          className="max-h-[85vh] max-w-lg overflow-hidden flex flex-col"
-          showCloseButton={false}
-        >
-          <DialogHeader className="px-1 pt-1 pb-4 flex flex-row items-center justify-between shrink-0">
-            <DialogTitle>
-              {editing
-                ? <FormattedMessage id="channel.form.editTitle" defaultMessage="Edit Agent" />
-                : <FormattedMessage id="channel.form.newTitle" defaultMessage="New Agent" />}
-            </DialogTitle>
-            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground" onClick={handleFormClose}>
-              <XIcon className="h-4 w-4" />
-            </Button>
-          </DialogHeader>
+      <ChannelDialog open={formOpen} onClose={handleFormClose} className="max-h-[85vh] max-w-lg overflow-hidden flex flex-col">
+        <DialogHeader className="px-1 pt-1 pb-4 flex flex-row items-center justify-between shrink-0">
+          <DialogTitle>
+            {editing
+              ? <FormattedMessage id="channel.form.editTitle" defaultMessage="Edit Agent" />
+              : <FormattedMessage id="channel.form.newTitle" defaultMessage="New Agent" />}
+          </DialogTitle>
+          <Button aria-label="Close" variant="ghost" size="icon" className="size-11 md:size-7 rounded-md text-muted-foreground hover:text-foreground" onClick={handleFormClose}>
+            <XIcon className="h-4 w-4" />
+          </Button>
+        </DialogHeader>
 
-          <div className="min-h-0 overflow-y-auto -mx-6 px-6 code-scrollbar">
-            <div className="space-y-5 pb-2">
-              {/* Name */}
-              <div className="space-y-1.5">
-                <label className={FIELD_LABEL}><FormattedMessage id="channel.form.name" defaultMessage="Name" /></label>
-                <FormInput
-                  value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                  placeholder={intl.formatMessage({ id: 'channel.form.namePlaceholder', defaultMessage: 'e.g. architect' })}
-                />
-              </div>
+        <div className="min-h-0 overflow-y-auto -mx-6 px-6 code-scrollbar">
+          <div className="space-y-5 pb-2">
+            {/* Name */}
+            <div className="space-y-1.5">
+              <label className={FIELD_LABEL}><FormattedMessage id="channel.form.name" defaultMessage="Name" /></label>
+              <FormInput
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder={intl.formatMessage({ id: 'channel.form.namePlaceholder', defaultMessage: 'e.g. architect' })}
+              />
+            </div>
 
-              {/* Instructions */}
-              <div className="space-y-1.5">
-                <label className={FIELD_LABEL}><FormattedMessage id="channel.form.instructions" defaultMessage="Instructions" /></label>
-                <Textarea
-                  value={form.instructions}
-                  onChange={(e) => setForm((f) => ({ ...f, instructions: e.target.value }))}
-                  placeholder={intl.formatMessage({ id: 'channel.form.instructionsPlaceholder', defaultMessage: "Injected into the agent's system prompt at startup. Describe its role, knowledge, tone, do's and don'ts." })}
-                  rows={4}
-                  className={cn(FIELD_SURFACE, 'min-h-24 resize-y')}
-                />
-              </div>
+            {/* Instructions */}
+            <div className="space-y-1.5">
+              <label className={FIELD_LABEL}><FormattedMessage id="channel.form.instructions" defaultMessage="Instructions" /></label>
+              <Textarea
+                value={form.instructions}
+                onChange={(e) => setForm((f) => ({ ...f, instructions: e.target.value }))}
+                placeholder={intl.formatMessage({ id: 'channel.form.instructionsPlaceholder', defaultMessage: "Injected into the agent's system prompt at startup. Describe its role, knowledge, tone, do's and don'ts." })}
+                rows={4}
+                className={cn(FIELD_SURFACE, 'min-h-24 resize-y')}
+              />
+            </div>
 
-              {/* Runtime: what the agent runs on and how freely */}
-              <div className="rounded-lg border border-border/50 dark:border-border/35 divide-y divide-border/40 dark:divide-border/35">
-                <RuntimeRow
-                  label={<FormattedMessage id="channel.form.adapter" defaultMessage="Adapter" />}
-                  hint={editing ? <FormattedMessage id="channel.form.adapterLocked" defaultMessage="Can't be changed after creation" /> : undefined}
-                >
-                  {editing ? (
-                    <span className="block truncate text-right text-sm text-muted-foreground">
-                      {providers.find((p) => p.id === form.provider)?.label ?? form.provider}
-                    </span>
-                  ) : (
-                    <Select value={form.provider} onValueChange={(v) => setForm((f) => ({ ...f, provider: v }))}>
-                      <SelectTrigger size="sm" className={RUNTIME_TRIGGER}>
-                        <SelectValue placeholder={intl.formatMessage({ id: 'channel.form.selectAdapter', defaultMessage: 'Select adapter' })} />
-                      </SelectTrigger>
-                      <SelectContent align="end" position="popper" sideOffset={6}>
-                        {providers.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </RuntimeRow>
-
-                <RuntimeRow label={<FormattedMessage id="channel.form.model" defaultMessage="Model" />}>
-                  {availableModels.length > 0 ? (
-                    <ModelSelector>
-                      <ModelSelectorTrigger asChild>
-                        <button type="button" className={cn(RUNTIME_TRIGGER, 'flex h-8 items-center justify-between gap-2 rounded-lg border px-3 text-sm outline-none transition-colors hover:bg-row-hover focus-visible:border-tint/40')}>
-                          <span className="flex min-w-0 items-center gap-2">
-                            {selectedModel && <ModelSelectorLogo provider={selectedModel.provider} className="size-3.5 shrink-0" />}
-                            <span className={cn('truncate', !selectedModel && 'text-muted-foreground')}>
-                              {selectedModel?.label ?? intl.formatMessage({ id: 'channel.form.selectModel', defaultMessage: 'Select model' })}
-                            </span>
-                          </span>
-                          <ChevronDown className="size-4 shrink-0 opacity-50" />
-                        </button>
-                      </ModelSelectorTrigger>
-                      <ModelSelectorContent>
-                        <ModelSelectorInput placeholder={intl.formatMessage({ id: 'channel.form.searchModels', defaultMessage: 'Search models...' })} />
-                        <ModelSelectorList>
-                          {Object.entries(
-                            availableModels.reduce<Record<string, typeof availableModels>>((groups, item) => {
-                              (groups[item.group] ??= []).push(item)
-                              return groups
-                            }, {})
-                          ).map(([group, items]) => (
-                            <ModelSelectorGroup key={group} heading={group}>
-                              {items.map((item) => (
-                                <ModelSelectorItem key={item.id} value={`${item.label} ${item.id}`} onSelect={() => { setModel(item.id); setForm((f) => ({ ...f, model: item.id })) }}>
-                                  <ModelSelectorLogo provider={item.provider} />
-                                  <ModelSelectorName>{item.label}</ModelSelectorName>
-                                  {model === item.id && <ModelSelectorShortcut><FormattedMessage id="channel.form.current" defaultMessage="current" /></ModelSelectorShortcut>}
-                                </ModelSelectorItem>
-                              ))}
-                            </ModelSelectorGroup>
-                          ))}
-                        </ModelSelectorList>
-                      </ModelSelectorContent>
-                    </ModelSelector>
-                  ) : (
-                    <FormInput
-                      value={form.model}
-                      onChange={(e) => { setForm((f) => ({ ...f, model: e.target.value })); setModel(e.target.value) }}
-                      placeholder={form.provider
-                        ? intl.formatMessage({ id: 'channel.form.modelPlaceholder', defaultMessage: 'e.g. claude-sonnet-4-6' })
-                        : intl.formatMessage({ id: 'channel.form.modelPlaceholderNoAdapter', defaultMessage: 'Select an adapter first' })}
-                      className="h-8"
-                    />
-                  )}
-                </RuntimeRow>
-
-                {thinkingEffortOptions.length > 0 && (
-                  <RuntimeRow
-                    label={<FormattedMessage id="channel.form.effort" defaultMessage="Effort" />}
-                    hint={<FormattedMessage id="channel.form.effortHint" defaultMessage="How much the model reasons before it acts" />}
-                  >
-                    <Select
-                      value={form.thinkingLevel || EFFORT_DEFAULT}
-                      onValueChange={(v) => setForm((f) => ({ ...f, thinkingLevel: v === EFFORT_DEFAULT ? '' : v }))}
-                    >
-                      <SelectTrigger size="sm" className={RUNTIME_TRIGGER}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent align="end" position="popper" sideOffset={6}>
-                        <SelectItem value={EFFORT_DEFAULT}>
-                          <FormattedMessage id="channel.form.effortDefault" defaultMessage="Default" />
-                        </SelectItem>
-                        {thinkingEffortOptions.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </RuntimeRow>
+            {/* Runtime: what the agent runs on and how freely */}
+            <div className="rounded-lg border border-border/50 dark:border-border/35 divide-y divide-border/40 dark:divide-border/35">
+              <RuntimeRow
+                label={<FormattedMessage id="channel.form.adapter" defaultMessage="Adapter" />}
+                hint={editing ? <FormattedMessage id="channel.form.adapterLocked" defaultMessage="Can't be changed after creation" /> : undefined}
+              >
+                {editing ? (
+                  <span className="block truncate text-right text-sm text-muted-foreground">
+                    {providers.find((p) => p.id === form.provider)?.label ?? form.provider}
+                  </span>
+                ) : (
+                  <Select value={form.provider} onValueChange={(v) => setForm((f) => ({ ...f, provider: v }))}>
+                    <SelectTrigger size="sm" className={RUNTIME_TRIGGER}>
+                      <SelectValue placeholder={intl.formatMessage({ id: 'channel.form.selectAdapter', defaultMessage: 'Select adapter' })} />
+                    </SelectTrigger>
+                    <SelectContent align="end" position="popper" sideOffset={6}>
+                      {providers.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
+              </RuntimeRow>
 
+              <RuntimeRow label={<FormattedMessage id="channel.form.model" defaultMessage="Model" />}>
+                {mobile && availableModels.length > 0 ? (
+                  <select aria-label={intl.formatMessage({ id: 'channel.form.model', defaultMessage: 'Model' })}
+                    className="h-11 w-full rounded-lg border border-border/50 bg-background px-2 text-base"
+                    value={model || form.model} onChange={(event) => {
+                      const value = event.target.value
+                      setModel(value)
+                      setForm((f) => ({ ...f, model: value }))
+                    }}>
+                    {!availableModels.some((item) => item.id === (model || form.model)) && <option value={model || form.model}>{model || form.model || intl.formatMessage({ id: 'channel.form.selectModel', defaultMessage: 'Select model' })}</option>}
+                    {availableModels.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                  </select>
+                ) : availableModels.length > 0 ? (
+                  <ModelSelector>
+                    <ModelSelectorTrigger asChild>
+                      <button type="button" className={cn(RUNTIME_TRIGGER, 'flex h-8 items-center justify-between gap-2 rounded-lg border px-3 text-sm outline-none transition-colors hover:bg-row-hover focus-visible:border-tint/40')}>
+                        <span className="flex min-w-0 items-center gap-2">
+                          {selectedModel && <ModelSelectorLogo provider={selectedModel.provider} className="size-3.5 shrink-0" />}
+                          <span className={cn('truncate', !selectedModel && 'text-muted-foreground')}>
+                            {selectedModel?.label ?? intl.formatMessage({ id: 'channel.form.selectModel', defaultMessage: 'Select model' })}
+                          </span>
+                        </span>
+                        <ChevronDown className="size-4 shrink-0 opacity-50" />
+                      </button>
+                    </ModelSelectorTrigger>
+                    <ModelSelectorContent>
+                      <ModelSelectorInput placeholder={intl.formatMessage({ id: 'channel.form.searchModels', defaultMessage: 'Search models...' })} />
+                      <ModelSelectorList>
+                        {Object.entries(
+                          availableModels.reduce<Record<string, typeof availableModels>>((groups, item) => {
+                            (groups[item.group] ??= []).push(item)
+                            return groups
+                          }, {})
+                        ).map(([group, items]) => (
+                          <ModelSelectorGroup key={group} heading={group}>
+                            {items.map((item) => (
+                              <ModelSelectorItem key={item.id} value={`${item.label} ${item.id}`} onSelect={() => { setModel(item.id); setForm((f) => ({ ...f, model: item.id })) }}>
+                                <ModelSelectorLogo provider={item.provider} />
+                                <ModelSelectorName>{item.label}</ModelSelectorName>
+                                {model === item.id && <ModelSelectorShortcut><FormattedMessage id="channel.form.current" defaultMessage="current" /></ModelSelectorShortcut>}
+                              </ModelSelectorItem>
+                            ))}
+                          </ModelSelectorGroup>
+                        ))}
+                      </ModelSelectorList>
+                    </ModelSelectorContent>
+                  </ModelSelector>
+                ) : (
+                  <FormInput
+                    value={form.model}
+                    onChange={(e) => { setForm((f) => ({ ...f, model: e.target.value })); setModel(e.target.value) }}
+                    placeholder={form.provider
+                      ? intl.formatMessage({ id: 'channel.form.modelPlaceholder', defaultMessage: 'e.g. claude-sonnet-4-6' })
+                      : intl.formatMessage({ id: 'channel.form.modelPlaceholderNoAdapter', defaultMessage: 'Select an adapter first' })}
+                    className="h-8"
+                  />
+                )}
+              </RuntimeRow>
+
+              {thinkingEffortOptions.length > 0 && (
                 <RuntimeRow
-                  label={<FormattedMessage id="channel.form.permissionMode" defaultMessage="Permission Mode" />}
-                  hint={selectedPermission?.description
-                    ?? <FormattedMessage id="channel.form.permissionHint" defaultMessage="Controls how this provider handles edits, commands, and network access." />}
+                  label={<FormattedMessage id="channel.form.effort" defaultMessage="Effort" />}
+                  hint={<FormattedMessage id="channel.form.effortHint" defaultMessage="How much the model reasons before it acts" />}
                 >
                   <Select
-                    value={permissionValue}
-                    onValueChange={(v) => setForm((f) => ({ ...f, permissionMode: v }))}
-                    disabled={permissionOptions.length === 0}
+                    value={form.thinkingLevel || EFFORT_DEFAULT}
+                    onValueChange={(v) => setForm((f) => ({ ...f, thinkingLevel: v === EFFORT_DEFAULT ? '' : v }))}
                   >
                     <SelectTrigger size="sm" className={RUNTIME_TRIGGER}>
-                      <SelectValue>
-                        {selectedPermission?.label
-                          ?? intl.formatMessage({ id: 'channel.form.selectPermissionMode', defaultMessage: 'Select mode' })}
-                      </SelectValue>
+                      <SelectValue />
                     </SelectTrigger>
-                    <SelectContent align="end" position="popper" sideOffset={6} className="max-w-80">
-                      {permissionOptions.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          <span className="flex flex-col items-start gap-0.5 whitespace-normal">
-                            <span className="text-sm">{opt.label}</span>
-                            {opt.description && (
-                              <span className="text-xs text-muted-foreground">{opt.description}</span>
-                            )}
-                          </span>
-                        </SelectItem>
+                    <SelectContent align="end" position="popper" sideOffset={6}>
+                      <SelectItem value={EFFORT_DEFAULT}>
+                        <FormattedMessage id="channel.form.effortDefault" defaultMessage="Default" />
+                      </SelectItem>
+                      {thinkingEffortOptions.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </RuntimeRow>
-              </div>
+              )}
 
-              {/* Environment Variables */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className={FIELD_LABEL}><FormattedMessage id="channel.form.envVars" defaultMessage="Environment Variables" /></label>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setForm((f) => ({ ...f, env: [...f.env, { key: '', value: '', enabled: true }] }))}
-                    className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    <FormattedMessage id="channel.form.addVariable" defaultMessage="Add variable" />
-                  </Button>
+              <RuntimeRow
+                label={<FormattedMessage id="channel.form.permissionMode" defaultMessage="Permission Mode" />}
+                hint={selectedPermission?.description
+                  ?? <FormattedMessage id="channel.form.permissionHint" defaultMessage="Controls how this provider handles edits, commands, and network access." />}
+              >
+                <Select
+                  value={permissionValue}
+                  onValueChange={(v) => setForm((f) => ({ ...f, permissionMode: v }))}
+                  disabled={permissionOptions.length === 0}
+                >
+                  <SelectTrigger size="sm" className={RUNTIME_TRIGGER}>
+                    <SelectValue>
+                      {selectedPermission?.label
+                        ?? intl.formatMessage({ id: 'channel.form.selectPermissionMode', defaultMessage: 'Select mode' })}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent align="end" position="popper" sideOffset={6} className="max-w-80">
+                    {permissionOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        <span className="flex flex-col items-start gap-0.5 whitespace-normal">
+                          <span className="text-sm">{opt.label}</span>
+                          {opt.description && (
+                            <span className="text-xs text-muted-foreground">{opt.description}</span>
+                          )}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </RuntimeRow>
+            </div>
+
+            {/* Environment Variables */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className={FIELD_LABEL}><FormattedMessage id="channel.form.envVars" defaultMessage="Environment Variables" /></label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setForm((f) => ({ ...f, env: [...f.env, { key: '', value: '', enabled: true }] }))}
+                  className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <FormattedMessage id="channel.form.addVariable" defaultMessage="Add variable" />
+                </Button>
+              </div>
+              {form.env.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-border/50 dark:border-border/35 px-3 py-2.5 text-xs text-muted-foreground">
+                  <FormattedMessage id="channel.form.noEnvVars" defaultMessage="No variables. Add one to override the runtime env for this agent." />
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {form.env.map((entry, idx) => {
+                    const inputCn = cn('h-8 flex-1 font-mono text-xs', !entry.enabled && 'opacity-60')
+                    return (
+                      <div key={envKeys.keys[idx]} className="flex items-center gap-2">
+                        <FormInput
+                          value={entry.key}
+                          onChange={(e) => setForm((f) => ({
+                            ...f,
+                            env: f.env.map((x, i) => i === idx ? { ...x, key: e.target.value } : x),
+                          }))}
+                          placeholder={intl.formatMessage({ id: 'channel.form.envKeyPlaceholder', defaultMessage: 'KEY' })}
+                          spellCheck={false}
+                          className={inputCn}
+                        />
+                        <FormInput
+                          value={entry.value}
+                          onChange={(e) => setForm((f) => ({
+                            ...f,
+                            env: f.env.map((x, i) => i === idx ? { ...x, value: e.target.value } : x),
+                          }))}
+                          placeholder={intl.formatMessage({ id: 'channel.form.envValuePlaceholder', defaultMessage: 'value' })}
+                          spellCheck={false}
+                          className={inputCn}
+                        />
+                        <Switch
+                          checked={entry.enabled}
+                          onCheckedChange={(v) => setForm((f) => ({
+                            ...f,
+                            env: f.env.map((x, i) => i === idx ? { ...x, enabled: v } : x),
+                          }))}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            envKeys.remove(idx)
+                            setForm((f) => ({ ...f, env: f.env.filter((_, i) => i !== idx) }))
+                          }}
+                          className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors shrink-0"
+                          title={intl.formatMessage({ id: 'common.remove', defaultMessage: 'Remove' })}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )
+                  })}
                 </div>
-                {form.env.length === 0 ? (
-                  <p className="rounded-lg border border-dashed border-border/50 dark:border-border/35 px-3 py-2.5 text-xs text-muted-foreground">
-                    <FormattedMessage id="channel.form.noEnvVars" defaultMessage="No variables. Add one to override the runtime env for this agent." />
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {form.env.map((entry, idx) => {
-                      const inputCn = cn('h-8 flex-1 font-mono text-xs', !entry.enabled && 'opacity-60')
-                      return (
-                        <div key={envKeys.keys[idx]} className="flex items-center gap-2">
-                          <FormInput
-                            value={entry.key}
-                            onChange={(e) => setForm((f) => ({
-                              ...f,
-                              env: f.env.map((x, i) => i === idx ? { ...x, key: e.target.value } : x),
-                            }))}
-                            placeholder={intl.formatMessage({ id: 'channel.form.envKeyPlaceholder', defaultMessage: 'KEY' })}
-                            spellCheck={false}
-                            className={inputCn}
-                          />
-                          <FormInput
-                            value={entry.value}
-                            onChange={(e) => setForm((f) => ({
-                              ...f,
-                              env: f.env.map((x, i) => i === idx ? { ...x, value: e.target.value } : x),
-                            }))}
-                            placeholder={intl.formatMessage({ id: 'channel.form.envValuePlaceholder', defaultMessage: 'value' })}
-                            spellCheck={false}
-                            className={inputCn}
-                          />
-                          <Switch
-                            checked={entry.enabled}
-                            onCheckedChange={(v) => setForm((f) => ({
-                              ...f,
-                              env: f.env.map((x, i) => i === idx ? { ...x, enabled: v } : x),
-                            }))}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              envKeys.remove(idx)
-                              setForm((f) => ({ ...f, env: f.env.filter((_, i) => i !== idx) }))
-                            }}
-                            className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors shrink-0"
-                            title={intl.formatMessage({ id: 'common.remove', defaultMessage: 'Remove' })}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-                <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                  <Info className="h-3.5 w-3.5 mt-px shrink-0" />
-                  <span><FormattedMessage id="channel.form.envHint" defaultMessage="Env is read on session start. Toggle changes only apply after you Reset this agent." /></span>
-                </div>
+              )}
+              <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                <Info className="h-3.5 w-3.5 mt-px shrink-0" />
+                <span><FormattedMessage id="channel.form.envHint" defaultMessage="Env is read on session start. Toggle changes only apply after you Reset this agent." /></span>
               </div>
             </div>
           </div>
+        </div>
 
-          <DialogFooter>
-            <Button size="sm" variant="ghost" onClick={handleFormClose} className="h-8"><FormattedMessage id="common.cancel" defaultMessage="Cancel" /></Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => void handleSave()}
-              disabled={isSubmitDisabled}
-              className="h-8"
-            >
-              {saving
-                ? <FormattedMessage id="channel.form.saving" defaultMessage="Saving..." />
-                : editing
-                  ? <FormattedMessage id="channel.form.saveChanges" defaultMessage="Save Changes" />
-                  : <FormattedMessage id="common.create" defaultMessage="Create" />}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <DialogFooter>
+          <Button size="sm" variant="ghost" onClick={handleFormClose} className="h-8"><FormattedMessage id="common.cancel" defaultMessage="Cancel" /></Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => void handleSave()}
+            disabled={isSubmitDisabled}
+            className="h-8"
+          >
+            {saving
+              ? <FormattedMessage id="channel.form.saving" defaultMessage="Saving..." />
+              : editing
+                ? <FormattedMessage id="channel.form.saveChanges" defaultMessage="Save Changes" />
+                : <FormattedMessage id="common.create" defaultMessage="Create" />}
+          </Button>
+        </DialogFooter>
+      </ChannelDialog>
     </>
   )
 }
