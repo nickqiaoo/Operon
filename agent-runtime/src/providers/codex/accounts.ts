@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { RuntimeContext } from '../../context.js'
+import { UserFacingRuntimeError } from '../../types.js'
 import { acquireAppServerClient, retireAppServerClient, type AppServerLease } from './sdk/client-registry.js'
 import type { CodexAppServerSettings } from './sdk/types/index.js'
 import type { AccountRateLimitSnapshot, AccountRateLimitsReadResult, CodexResetOutcome } from './sdk/protocol/index.js'
@@ -298,8 +299,11 @@ export class CodexAccounts {
       return [Math.max(...spent.map(w => w!.resetsAt!)) * 1000]
     }).filter(t => t > Date.now())
     this.notice = { type: 'unavailable', resetAt: resets.length ? Math.min(...resets) : null }
-    this.message = 'No Codex account is currently available.' + (resets.length ? ' Next reset: ' + new Date(Math.min(...resets)).toISOString() : '')
-    throw new Error(this.message)
+    const reset = this.notice.resetAt
+    this.message = 'The current Codex account has reached its usage limit. No other account is available. '
+      + (reset ? 'Next reset: ' + new Date(reset).toISOString() + '. ' : '')
+      + 'Wait for the limit to reset or add an account with available quota in Settings.'
+    throw new UserFacingRuntimeError(this.message)
   }
 
   private rememberExhaustion(info: AccountInfo) {

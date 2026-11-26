@@ -12,6 +12,7 @@
 
 - Workflows stop with an error when an agent's requested worktree cannot be created.
 - Local coding agents can pick up CLI paths configured in the login shell.
+- When no Codex account has quota, Operon shows the next reset time if known and explains how to continue.
 
 ## [1.6.1] - 2026-11-25
 

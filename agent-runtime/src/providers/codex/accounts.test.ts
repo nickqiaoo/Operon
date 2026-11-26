@@ -219,7 +219,10 @@ describe('Codex account rotation', () => {
     limits.set(base, [0, 100])
     limits.set(b, [100, 0])
     await accounts.getState(true)
-    await expect(accounts.enterTurn()).rejects.toThrow('Next reset')
+    await expect(accounts.enterTurn()).rejects.toMatchObject({
+      userFacing: true,
+      message: expect.stringMatching(/reached its usage limit\. No other account is available\. Next reset: .*add an account/),
+    })
     accounts.setAutomatic(false)
     ;(await accounts.enterTurn())()
     expect((await accounts.getState()).current).toBe('default')
