@@ -29,7 +29,7 @@ describe('ExternalAgent MCP', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair()
-    const server = buildExternalAgentMcpServer(['codex'], 42, storage)
+    const server = buildExternalAgentMcpServer(['codex', 'operon'], 42, storage)
     client = new Client({ name: 'external-test', version: '1' })
     await server.connect(serverTransport)
     await client.connect(clientTransport)
@@ -46,6 +46,20 @@ describe('ExternalAgent MCP', () => {
     handlers.create.mockResolvedValue({ agent_id: 'ext-10', chat_id: 10 })
     await client.callTool({ name: 'external_agent_run', arguments: { ...input, model: 'fresh-model', selection_confirmed: true } })
     expect(handlers.create).toHaveBeenCalledWith({ parent: { chatId: 42 }, providerId: 'codex', model: 'fresh-model', prompt: 'Review', description: 'Review' })
+  })
+
+  it('lists Operon and runs the selected model under its runtime provider ID', async () => {
+    const all = await client.callTool({ name: 'external_agent_list_models', arguments: {} })
+    expect(JSON.parse((all.content as Array<{ text: string }>)[0].text).agents).toMatchObject([
+      { agentType: 'codex' }, { agentType: 'operon' },
+    ])
+    const catalog = await client.callTool({ name: 'external_agent_list_models', arguments: { agentTypes: ['operon'] } })
+    expect(JSON.parse((catalog.content as Array<{ text: string }>)[0].text).agents[0].agentType).toBe('operon')
+    handlers.create.mockResolvedValue({ agent_id: 'ext-11', chat_id: 11 })
+    await client.callTool({ name: 'external_agent_run', arguments: {
+      agent_type: 'operon', model: 'fresh-model', selection_confirmed: true, prompt: 'Review', description: 'Review',
+    } })
+    expect(handlers.create).toHaveBeenCalledWith(expect.objectContaining({ providerId: 'custom', model: 'fresh-model' }))
   })
 
   it('passes a chosen workspace on, and rejects one that is not an id', async () => {

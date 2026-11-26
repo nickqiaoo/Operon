@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('../ai/state.js', () => ({
   getChatStorage: () => ({ findChatBySessionId: mocks.chat, getChatMeta: mocks.chatMeta, createChat: mocks.createChat }),
+  getProjectStorage: () => null,
   getSessionManager: () => ({ findBySessionId: mocks.record }),
 }))
 vi.mock('../mcp-config.js', () => ({ resolveMcpServersForSession: mocks.mcp }))
@@ -109,9 +110,10 @@ describe('teammate chat rows', () => {
 
   it('finds the lead through the session manager on its first turn', async () => {
     mocks.record.mockImplementation((id: string) => id === 'lead-session' ? { chatId: 6 } : undefined)
-    mocks.chatMeta.mockImplementation((id: number) => id === 6 ? { workspaceId: 3 } : undefined)
+    const environments = { sshEnvironment: { id: 'build', name: 'Build' }, additionalSshEnvironments: [{ id: 'local', name: 'Local', cwd: '/workspace' }] }
+    mocks.chatMeta.mockImplementation((id: number) => id === 6 ? { workspaceId: 3, metadata: environments } : undefined)
     await createTeammateChat(session, member, undefined, async () => 'fallback/model')
-    expect(mocks.createChat).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: 3, metadata: { peer: expect.objectContaining({ leadChatId: 6 }) } }))
+    expect(mocks.createChat).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: 3, metadata: { ...environments, peer: expect.objectContaining({ leadChatId: 6 }) } }))
   })
 
   it('falls back to the type key and the default model', async () => {

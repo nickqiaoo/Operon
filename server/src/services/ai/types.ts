@@ -12,6 +12,8 @@ export interface AiChatRequest {
   providerId?: string
   workspaceId?: number
   /** Selected for the first message of an Operon chat. Later turns use the stored binding. */
+  localEnvironmentCwd?: string
+  additionalSshEnvironmentIds?: string[]
   sshEnvironmentId?: string
   /** When true, the latest user message is set as an active thread goal (codex). */
   asGoal?: boolean

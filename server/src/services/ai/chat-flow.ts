@@ -1,3 +1,4 @@
+import { guardEnvironmentChange } from '../chat-environments.js'
 import { randomUUID } from 'crypto'
 import { existsSync } from 'fs'
 import {
@@ -5,14 +6,14 @@ import {
   createUIMessageStreamResponse,
   type UIMessage,
 } from 'ai'
-import { getSessionManager, getChatHistoryService, getChatStorage, getAgentFinishCallback, getNotificationStorage } from './state.js'
+import { getSessionManager, getProjectStorage, getChatHistoryService, getChatStorage, getAgentFinishCallback, getNotificationStorage } from './state.js'
 import { notify } from '../notification-service.js'
 import { observePendingInputPart, clearPendingApprovals } from './chat-pending-input.js'
 // Registers the inbox as a subscriber to pending input.
 import './approval-inbox.js'
 import { OPERON_OWN_MCP_SERVERS, resolveMcpServersForSession } from '../mcp-config.js'
 import { ensurePluginsLoaded } from '../operon-runtime/plugins.js'
-import { getSshEnvironment } from '../ssh-environments.js'
+import { additionalSshRefs, sshProfile } from '../ssh-environments.js'
 import { SPEC_CHAT_HINT } from '../spec/prompts.js'
 import type { ChatMetadata } from '../../types/chat.js'
 import type {
@@ -91,7 +92,7 @@ async function startChat(
   const normalizedMessages = normalizeUiMessagesFileAttachments(rawMessages)
   const existingChat = payload.chatId ? chatHistoryService?.getChatMeta(payload.chatId) : undefined
   const storedSshId = existingChat?.metadata?.sshEnvironment?.id
-  const providerId = storedSshId && payload.providerId === undefined ? 'custom' : resolveProviderId(payload)
+  const providerId = (storedSshId || existingChat?.metadata?.additionalSshEnvironments?.length) && payload.providerId === undefined ? 'custom' : resolveProviderId(payload)
   if (payload.chatId && payload.sshEnvironmentId !== undefined && payload.sshEnvironmentId !== storedSshId) {
     throw new Error('The execution environment is fixed after the first message.')
   }
@@ -99,7 +100,9 @@ async function startChat(
   if (sshId !== undefined && (typeof sshId !== 'string' || providerId !== 'custom')) {
     throw new Error('SSH environments are available for Operon chats.')
   }
-  const sshEnvironment = sshId === undefined ? undefined : getSshEnvironment(sshId)
+  const additional = existingChat?.metadata?.additionalSshEnvironments ?? (payload.chatId ? [] : additionalSshRefs(payload.additionalSshEnvironmentIds, sshId, payload.localEnvironmentCwd))
+  if (additional.length && providerId !== 'custom') throw new Error('SSH environments are available for Operon chats.')
+  const sshEnvironment = sshId === undefined ? undefined : sshProfile(existingChat?.metadata?.sshEnvironment ?? { id: sshId, name: '' })
   if (sshEnvironment && existingChat) payload = { ...payload, workspaceId: existingChat.workspaceId }
   const latestPayloadMessage = normalizedMessages[normalizedMessages.length - 1]
   const latestUserMessage = findLatestUserMessage(normalizedMessages)
@@ -144,7 +147,7 @@ async function startChat(
       )
     }
   } else if (!chatRecord && normalizedMessages.length > 0) {
-    chatRecord = prepareChatRecord(payload, rawMessages, sshEnvironment && { id: sshEnvironment.id, name: sshEnvironment.name })
+    chatRecord = prepareChatRecord(payload, rawMessages, sshEnvironment && { id: sshEnvironment.id, name: sshEnvironment.name }, additional)
     if (providerId === 'custom') {
       messagesForModel = buildCompactAwareView(
         dbHistory && latestUserMessage ? [...dbHistory, latestUserMessage] : latestUserMessage ? [latestUserMessage] : []
@@ -160,8 +163,10 @@ async function startChat(
   const assistantMessageId = continuation?.assistantMessage.id ?? randomUUID()
 
   const chatId = chatRecord.chatId
-  if (sshEnvironment && chatId > 0) options?.onChatRecord?.(chatId)
+  if ((sshEnvironment || additional.length) && chatId > 0) options?.onChatRecord?.(chatId)
   const workflowAgent = existingChat?.metadata?.workflowAgent
+  const hostWorkspace = additional.find(ref => ref.id === 'local')?.cwd
+    ?? (payload.workspaceId ? getProjectStorage()?.getWorkspace(payload.workspaceId)?.worktreePath : undefined)
   const cwd = sshEnvironment?.cwd ?? workflowAgentCwd(workflowAgent) ?? resolveWorkspaceCwd(payload.workspaceId)
   // Backfill the spec source chat with the server-assigned chatId. The route
   // sets agentId/projectId but leaves sourceChatId unset because a new chat's
@@ -171,7 +176,6 @@ async function startChat(
   // so it's never rebuilt (setting sourceChatId on a later turn would change the
   // session params key and destroy the cached stateful-provider session).
   if (
-    !sshEnvironment &&
     payload.agentContext &&
     payload.agentContext.channelId == null &&
     payload.agentContext.sourceChatId == null &&
@@ -182,11 +186,11 @@ async function startChat(
   // operonrepl (Computer Use / Browser Use) is scoped by the conversation itself,
   // not by the optional agent-communication context. Plain chats, cron jobs and
   // canvases still have a chatId and must receive their own persistent kernel.
-  const mcpContext = chatId > 0 ? { ...payload.agentContext, chatId, cwd } : payload.agentContext
+  const mcpContext = chatId > 0 ? { ...payload.agentContext, chatId, cwd: sshEnvironment ? hostWorkspace : cwd } : payload.agentContext
   // Plugin MCP servers are merged in from the plugin store, which must be loaded first.
-  if (!sshEnvironment) await ensurePluginsLoaded().catch((error) => console.error('[plugins] load failed:', error))
-  // SSH chats and workflow sub-agents use the provider's own tools.
-  const mcpServers = sshEnvironment || workflowAgent ? undefined : resolveMcpServersForSession(providerId, mcpContext)
+  await ensurePluginsLoaded().catch((error) => console.error('[plugins] load failed:', error))
+  // Workflow sub-agents retain their existing tool set.
+  const mcpServers = workflowAgent ? undefined : resolveMcpServersForSession(providerId, mcpContext)
   // OperonSpec hint for a direct workspace chat (sourceChatId set): opt-in
   // guidance delivered as session
   // instructions layered once onto the provider's system prompt. It used to ride every user message
@@ -194,7 +198,7 @@ async function startChat(
   // stateful provider, so a long chat carried one copy per turn. sourceChatId
   // is resolved above, before the session exists, so the hint is baked in on
   // message #1 and never changes the session's params afterwards.
-  const instructions = !sshEnvironment && payload.agentContext?.sourceChatId != null
+  const instructions = payload.agentContext?.sourceChatId != null
     ? [payload.instructions?.trim(), SPEC_CHAT_HINT].filter(Boolean).join('\n\n')
     : payload.instructions
   // Codex's approveForMe reviewer judges each MCP call and can't tell the host
@@ -213,7 +217,7 @@ async function startChat(
     resume: chatRecord.sessionId,
     mcpServers,
     instructions,
-    ...(sshEnvironment ? { operon: { sshEnvironment } } : {}),
+    ...(sshEnvironment || additional.length ? { operon: { sshEnvironment, additionalSshEnvironments: additional, hostWorkspace } } : {}),
     ...(approvedMcpServers.length > 0 ? { codex: { approvedMcpServers } } : {}),
     ...(chatId > 0 ? { opencode: { callerTag: String(chatId) } } : {}),
     ...resolveForkSource(chatId),
@@ -245,7 +249,7 @@ async function startChat(
   let resultMessage: UIMessage | undefined
   let turnError: string | undefined
   const sessionIdRef: { value?: string } = { value: chatRecord.sessionId }
-  if (sshEnvironment && session.runtime.id) persistSessionId(chatId, sessionIdRef, session.runtime.id)
+  if ((sshEnvironment || additional.length) && session.runtime.id) persistSessionId(chatId, sessionIdRef, session.runtime.id)
 
   // Keyed by the reply's id: the first save adds it (or updates the assistant
   // message a continuation picked up), later ones update it in place.
@@ -687,6 +691,7 @@ export async function runChatTurn(payload: AiChatRequest, options: ChatTurnOptio
   // Admission and setup reservation happen together, before any asynchronous
   // provider work.
   if (payload.chatId) {
+    guardEnvironmentChange(payload.chatId)
     const running = admission === 'idle-only' && getSessionManager().get(payload.chatId)?.activeRequest != null
     if (running || !beginChatTurn(payload.chatId, requestId, { admission, stream: registered })) throw new ChatBusyError()
   }

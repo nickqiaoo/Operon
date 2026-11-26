@@ -33,6 +33,7 @@ import {
 } from '../services/workflow/engine-hooks.js'
 import { startRun } from '../services/workflow/run.js'
 import { readRunScript } from '../services/workflow/store.js'
+import { sshProfile } from '../services/ssh-environments.js'
 import { getChatStorage } from '../services/ai/state.js'
 import { getProviders } from '../services/ai/providers.js'
 import { agentModelCatalog } from '../services/agents/model-catalog.js'
@@ -80,7 +81,7 @@ function defaultCustomModel(chatId: number | null): string | undefined {
 }
 
 /** Keep the complete authoring guide in `/operon-workflow`; this is the discovery-safe contract. */
-export function workflowToolDescription(availableAgents: readonly string[]): string {
+export function workflowToolDescription(availableAgents: readonly string[], remoteWorkspace = false): string {
   const agentTypes = availableAgents.join(', ')
   return [
     'Run a deterministic JavaScript workflow that orchestrates multiple sub-agents.',
@@ -99,7 +100,9 @@ export function workflowToolDescription(availableAgents: readonly string[]): str
     `agent options: agentType (REQUIRED), model (REQUIRED), label, phase, schema, isolation:'worktree'.`,
     `Every agent() MUST name an agentType, from: ${agentTypes}. There is no default — an agent() without one fails.`,
     `It MUST also name a model: an id from ${LIST_MODELS_TOOL_NAME}, or 'default' to accept that agent's own.`,
-    'Each agent() can run on a DIFFERENT installed coding agent — its own model, account and strengths.',
+    remoteWorkspace
+      ? 'Operon inherits the chat environments. External providers run in the local workspace. Attach Local to use one when no local workspace is selected.'
+      : 'Each agent() can run on a DIFFERENT installed coding agent — its own model, account and strengths.',
     `${IN_APP_AGENT} is the app's own in-built agent: use it ONLY when the user explicitly asks for it.`,
     `YOU MUST ASK THE USER which agent and which model each step runs on — call ${LIST_MODELS_TOOL_NAME}, show the choices, let them decide, never pick silently. Then call with agents_chosen_by_user: true; the tool refuses to start without it.`,
     'There may be TWO workflow tools here: this one (OperonWorkflow) and your own built-in one. They differ. Ask the user which one to use.',
@@ -117,7 +120,7 @@ function buildWorkflowMcpServer(ctx: WorkflowRunContext): Server {
   const tools: Tool[] = [
     {
       name: WORKFLOW_MCP_TOOL_NAME,
-      description: workflowToolDescription(ctx.availableAgents),
+      description: workflowToolDescription(ctx.availableAgents, !!ctx.sshEnvironment),
       inputSchema: {
         type: 'object',
         properties: {
@@ -322,7 +325,7 @@ export function workflowMcpRoutes() {
   const router = new Hono()
 
   const handle = async (c: Context) => {
-    const cwd = c.req.query('cwd') ?? process.cwd()
+    const hostCwd = c.req.query('cwd') || undefined
     const caller = await resolveMcpCallerChat(c, 'sessionId')
     if (!caller.ok) return caller.response
     const chatId = caller.chatId
@@ -348,8 +351,15 @@ export function workflowMcpRoutes() {
       .map((p) => p.id)
       .filter((id) => id !== IN_APP_PROVIDER_ID && id !== IN_APP_AGENT)
     availableAgents.push(IN_APP_AGENT)
+    const metadata = chatId ? getChatStorage()?.getChatMeta(chatId)?.metadata : undefined
+    const sshEnvironment = metadata?.sshEnvironment
+    const cwd = sshEnvironment ? sshProfile(sshEnvironment).cwd : hostCwd ?? process.cwd()
     const sessionModelId = defaultCustomModel(chatId)
-    return serveMcpOverHono(c, buildWorkflowMcpServer({ availableAgents, cwd, chatId, sessionModelId }), caller.body)
+    return serveMcpOverHono(c, buildWorkflowMcpServer({
+      availableAgents: sshEnvironment && !hostCwd ? [IN_APP_AGENT] : availableAgents,
+      cwd, hostCwd, chatId, sessionModelId, sshEnvironment,
+      additionalSshEnvironments: metadata?.additionalSshEnvironments,
+    }), caller.body)
   }
 
   router.post('/', handle)

@@ -26,6 +26,7 @@ export type EditorTab = {
   content?: string
   provider?: string
   providerId?: string
+  additionalSshEnvironments?: SshEnvironmentRef[]
   sshEnvironment?: SshEnvironmentRef
   isSubAgent?: boolean
   /**

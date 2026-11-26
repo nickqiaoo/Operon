@@ -154,7 +154,8 @@ export async function publishHtmlRender(input: { html: unknown; title: unknown; 
 
   const inlined = await inlineLocalImages(html, await imageRoots(input.cwd))
   if (inlined.missing.length > 0) {
-    throw new HtmlRenderError(`These image paths are not readable image files in the workspace or the temp directory: ${inlined.missing.join(', ')}`)
+    const hint = input.cwd ? '' : ' Choose a local workspace to include project images, or supply the image data directly.'
+    throw new HtmlRenderError(`These image paths are not readable image files in the workspace or the temp directory: ${inlined.missing.join(', ')}.${hint}`)
   }
   const name = title.trim().slice(0, HTML_RENDER_MAX_TITLE_LENGTH)
   const stored = putAttachment(Buffer.from(inlined.html), {

@@ -14,6 +14,7 @@ import type { AgentSeat } from './dispatch.js'
 interface LiveAgent {
   chatId: number
   providerId: string
+  remoteWorkspace?: boolean
   /** Stops this agent's turn and runs the same prompt again on `to`. */
   replace: (to: AgentSeat) => void
 }
@@ -58,6 +59,9 @@ export async function steerLiveAgent(runId: string, index: number, text: string)
 export function replaceLiveAgent(runId: string, index: number, to: AgentSeat): SteerResult {
   const agent = live.get(key(runId, index))
   if (!agent) return { success: false, error: 'This agent is not running' }
+  if (agent.remoteWorkspace && to.providerId !== 'custom') {
+    return { success: false, error: 'Only Operon agents can continue in this SSH workspace.' }
+  }
   if (to.providerId === agent.providerId && !to.modelId) {
     return { success: false, error: `This agent is already running on ${to.providerId}` }
   }

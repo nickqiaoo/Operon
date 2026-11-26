@@ -20,7 +20,8 @@ import { onChatTurnStatus } from './chat-turn-lifecycle.js'
 import { operonAgent } from '../operon-runtime/index.js'
 import { resolvePassiveApproval } from '../operon-runtime/passive-observer.js'
 import { withAgentPrompts } from './agent-prompts.js'
-import type { ChatStorageAdapter, ProjectStorageAdapter, NotificationStorageAdapter } from '../../storage/interface.js'
+import type { WorkspaceChatContextStorage } from '../workspace-assistant.js'
+import type { ChatStorageAdapter, NotificationStorageAdapter } from '../../storage/interface.js'
 
 // Global guard: prevent unhandled spawn ENOENT / EPIPE errors from crashing the process.
 process.on('uncaughtException', (err: Error & { code?: string; syscall?: string }) => {
@@ -71,7 +72,7 @@ let runtime: AppRuntime | null = null
 let sessionManager: SessionManager | null = null
 let chatStorage: ChatStorageAdapter | null = null
 let chatHistoryService: ChatHistoryService | null = null
-let projectStorage: Pick<ProjectStorageAdapter, 'getWorkspace'> | null = null
+let projectStorage: WorkspaceChatContextStorage | null = null
 let notificationStorage: NotificationStorageAdapter | null = null
 const _agentFinishListeners: Array<(chatId: number) => void> = []
 
@@ -124,7 +125,7 @@ export function getChatHistoryService(): ChatHistoryService | null {
   return chatHistoryService
 }
 
-export function getProjectStorage(): Pick<ProjectStorageAdapter, 'getWorkspace'> | null {
+export function getProjectStorage(): WorkspaceChatContextStorage | null {
   return projectStorage
 }
 
@@ -152,11 +153,6 @@ export function registerAgentFinishCallback(cb: (chatId: number) => void): void 
 
 // ---- Init & Shutdown ----
 
-const hasWorkspaceLookup = (
-  storage: Partial<ProjectStorageAdapter>
-): storage is Pick<ProjectStorageAdapter, 'getWorkspace'> =>
-  typeof storage.getWorkspace === 'function'
-
 const hasNotifications = (
   storage: Partial<NotificationStorageAdapter>
 ): storage is NotificationStorageAdapter =>
@@ -165,13 +161,11 @@ const hasNotifications = (
 let stopNotificationPruning: (() => void) | undefined
 
 export function initAiService(
-  storage: ChatStorageAdapter & Partial<ProjectStorageAdapter> & Partial<NotificationStorageAdapter>,
+  storage: ChatStorageAdapter & WorkspaceChatContextStorage & Partial<NotificationStorageAdapter>,
 ): void {
   chatStorage = storage
   chatHistoryService = new ChatHistoryService(storage)
-  if (hasWorkspaceLookup(storage)) {
-    projectStorage = storage
-  }
+  projectStorage = storage
   if (hasNotifications(storage)) {
     notificationStorage = storage
     stopNotificationPruning?.()

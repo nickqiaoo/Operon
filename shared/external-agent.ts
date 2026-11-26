@@ -1,7 +1,11 @@
 import type { RemoteAgentLocation, RemoteAgentParent } from './delegations.js'
 
 export type ExternalAgentTurnStatus = 'queued' | 'running' | 'completed' | 'cancelled' | 'failed' | 'interrupted'
-export const SUPPORTED_EXTERNAL_AGENT_IDS = ['codex', 'claude-code', 'opencode', 'kimi', 'cursor', 'grok', 'copilot', 'antigravity', 'qoder'] as const
+export const SUPPORTED_EXTERNAL_AGENT_IDS = ['codex', 'claude-code', 'opencode', 'kimi', 'cursor', 'grok', 'copilot', 'antigravity', 'qoder', 'custom'] as const
+
+/** Agent names on the model-facing tool surface and the provider IDs used by sessions. */
+export const agentTypeForProvider = (id: string) => id === 'custom' ? 'operon' : id
+export const providerForAgentType = (name: string) => name === 'operon' ? 'custom' : name
 
 export interface ExternalAgentBinding {
   agentId: string

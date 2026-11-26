@@ -87,6 +87,15 @@ describe('a sub-agent runs as a chat', () => {
     expect(destroyed).toContain(1)
   })
 
+  it('persists both the remote worktree and the attached local workspace for an Operon child', async () => {
+    chats.clear()
+    const sshEnvironment = { id: 'build', name: 'Build', cwd: '/remote/worktree' }
+    const additionalSshEnvironments = [{ id: 'local', name: 'Local', cwd: '/local/workspace' }]
+    await runProviderAgent({ providerId: 'custom', cwd: sshEnvironment.cwd, sshEnvironment, additionalSshEnvironments,
+      parentChatId: 7, prompt: 'Review the worktree', agentId: 'worker', signal: new AbortController().signal })
+    expect(chats.get(1)?.metadata).toMatchObject({ sshEnvironment, additionalSshEnvironments, workflowAgent: { cwd: sshEnvironment.cwd } })
+  })
+
   it('fails a turn that finished with an error', async () => {
     scripted.kimi = [{ type: 'finish', finishReason: 'error' }]
     await expect(

@@ -77,7 +77,7 @@ import { MessagesList } from './components/MessagesList';
 import { ChatDbIdContext, ChatProviderIdContext } from './components/chat-db-id-context';
 import { useTurnDiffs } from '@/lib/chat-queries';
 import { ChatComposer } from './components/ChatComposer';
-import { DraftChatBar } from './components/DraftChatBar';
+import { DraftChatBar, EnvironmentPicker } from './components/DraftChatBar';
 import { isDraftChatTab, moveDraftToWorkspace } from '@/lib/new-chat';
 import { draftWorktreeIntent, useDraftChatStore } from '@/stores/draft-chat-store';
 import { createAutoWorkspace } from '@/lib/workspace-actions';
@@ -400,6 +400,8 @@ function ChatPanelContent({
     thinkingEffort,
     thinkingEffortValues: thinkingEffortOptions.map((o) => o.value),
     currentWorkspaceId,
+    draftLocalDir: tab?.additionalSshEnvironments?.find(env => env.id === 'local')?.cwd,
+    draftAdditionalSshEnvironmentIds: tab?.additionalSshEnvironments?.map(env => env.id),
     draftSshEnvironmentId: tab?.sshEnvironment?.id,
     autoRun: tab?.options?.autoRun,
     setTabChatId,
@@ -410,6 +412,7 @@ function ChatPanelContent({
   // One rail tick per prompt, with the reply's opening line for the hover card.
   const navigatorEntries = useMemo(() => buildChatNavigatorEntries(messages), [messages]);
   // Agent and workspace stay open to change until the first send.
+  const [environmentChanging, setEnvironmentChanging] = useState(false);
   const showDraftBar =
     (!isMobile || (tab?.providerId ?? providerId) === 'custom') &&
     isDraftChatTab(tab) &&
@@ -766,7 +769,8 @@ function ChatPanelContent({
   // Per-turn file diffs, rendered as a card at the end of each turn that changed
   // files. Refetched once the turn settles so the new turn's card appears.
   // The workspace on this chat's machine (its tree, when it is another machine's).
-  const reviewCwd = useProjectStore((s) => runsElsewhere ? null : findWorkspaceOn(s, chatNodeId, currentWorkspaceId)?.worktreePath ?? null);
+  const localWorkspaceDir = useProjectStore((s) => findWorkspaceOn(s, chatNodeId, currentWorkspaceId)?.worktreePath ?? null);
+  const reviewCwd = runsElsewhere ? null : localWorkspaceDir;
   // Phone: there is no side file viewer, so a file the chat cites opens in a sheet over it.
   const inheritedOpenFile = useFileOpenHandler();
   const [mobilePreview, setMobilePreview] = useState<MobileFilePreview | null>(null);
@@ -928,7 +932,8 @@ function ChatPanelContent({
         const { chatId: id } = await requestVia<{chatId: number}>(chatTransport, '/ai/scheduled', {
           method: 'POST', body: JSON.stringify({ sendAt, payload: {
             ...chatBodyRef.current, workspaceId: workspaceOverride ?? currentWorkspaceId ?? undefined,
-            chatId: dbChatIdRef.current, sshEnvironmentId: dbChatIdRef.current ? undefined : tab?.sshEnvironment?.id,
+            localEnvironmentCwd: dbChatIdRef.current ? undefined : tab?.additionalSshEnvironments?.find(env => env.id === 'local')?.cwd,
+            chatId: dbChatIdRef.current, additionalSshEnvironmentIds: dbChatIdRef.current ? undefined : tab?.additionalSshEnvironments?.map(env => env.id), sshEnvironmentId: dbChatIdRef.current ? undefined : tab?.sshEnvironment?.id,
             tp: tab?.isSubAgent ? 'subagent' : undefined, messages: [userMessage],
           } }),
         });
@@ -958,7 +963,7 @@ function ChatPanelContent({
       model: model || undefined,
       has_attachments: attachments.files.length > 0 || extraFiles.length > 0,
     });
-  }, [attachments.files, currentWorkspaceId, chatNodeId, dbChatId, model, providerId, selectedModel?.providerId, setInput, submitMessage, handleCompact, runsElsewhere, chatTransport, chatBodyRef, dbChatIdRef, tab?.isSubAgent, tab?.sshEnvironment?.id, setTabChatId, chatId, intl]);
+  }, [attachments.files, currentWorkspaceId, chatNodeId, dbChatId, model, providerId, selectedModel?.providerId, setInput, submitMessage, handleCompact, runsElsewhere, chatTransport, chatBodyRef, dbChatIdRef, tab?.isSubAgent, tab?.additionalSshEnvironments, tab?.sshEnvironment?.id, setTabChatId, chatId, intl]);
 
   // --- Goal (codex) ---
   const sendGoalMessage = useCallback((objective: string) => {
@@ -1630,7 +1635,10 @@ function ChatPanelContent({
           />
         )}
         {showDraftBar ? (
-          <DraftChatBar tabId={chatId} providerId={tab?.providerId ?? providerId} workspaceId={currentWorkspaceId} sshEnvironment={sshEnvironment} isMobile={isMobile} />
+          <DraftChatBar onChanging={setEnvironmentChanging} tabId={chatId} providerId={tab?.providerId ?? providerId} workspaceId={currentWorkspaceId} sshEnvironment={sshEnvironment} isMobile={isMobile} />
+        ) : dbChatId && (loadedProviderId ?? providerId) === 'custom' && !readOnlyReason && !tab?.isSubAgent && !tab?.isSideChat ? (
+          <EnvironmentPicker onChanging={setEnvironmentChanging} tabId={chatId} chatId={dbChatId} selected={sshEnvironment} localDir={localWorkspaceDir}
+            isMobile={isMobile} busy={isGenerating || turnSettling || isCompacting} />
         ) : sshEnvironment ? (
           <div className="mb-1.5 flex min-w-0 items-center gap-1.5 px-3 text-xs text-muted-foreground">
             <Server className="size-3.5 shrink-0" />
@@ -1666,6 +1674,7 @@ function ChatPanelContent({
           isOperonProvider={isOperonProvider}
           dbChatId={tab?.chatId ?? dbChatIdRef.current}
           quotaAt={quotaSendTime(model, isCodex ? polledCodexRateLimits : null, displayedClaudeRateLimits)}
+          changingEnvironment={environmentChanging}
           onSubmit={handleComposerSubmit}
           status={status}
           onStop={handleStop}

@@ -29,7 +29,11 @@ import {
   type DetachedApprovalRequest,
 } from '../agents/detached-approvals.js'
 
+import type { SshEnvironmentRef } from '../../../../shared/ssh-environment.js'
+
 export interface ProviderAgentParams {
+  sshEnvironment?: SshEnvironmentRef
+  additionalSshEnvironments?: SshEnvironmentRef[]
   /** Provider id to run on (e.g. 'custom', 'codex', 'claude-code'). */
   providerId: string
   /** Model override; undefined lets the provider use its default. */
@@ -114,7 +118,10 @@ function createAgentChat(params: ProviderAgentParams, seat: AgentSeat, modeId: s
     params.workspaceId ??
     (params.parentChatId != null && params.parentChatId > 0 ? storage.getChatMeta(params.parentChatId)?.workspaceId : undefined) ??
     undefined
+  if (params.sshEnvironment && seat.providerId !== 'custom') throw new Error('SSH workflows require the Operon provider.')
   const metadata = {
+    ...(params.sshEnvironment && { sshEnvironment: params.sshEnvironment }),
+    ...(seat.providerId === 'custom' && params.additionalSshEnvironments?.length && { additionalSshEnvironments: params.additionalSshEnvironments }),
     modeId,
     workflowAgent: {
       runId: params.live?.runId ?? '',
@@ -182,6 +189,7 @@ async function runOnce(params: ProviderAgentParams, seat: AgentSeat, onChat: (ch
     ? trackLiveAgent(params.live.runId, params.live.index, {
         chatId,
         providerId: seat.providerId,
+        remoteWorkspace: !!params.sshEnvironment,
         replace: (to) => {
           handoff.to = to
           stop()

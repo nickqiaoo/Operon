@@ -1,3 +1,4 @@
+import { toolEnvironment } from './toolEnvironment';
 import { useState } from 'react';
 import { FormattedMessage, useIntl, type IntlShape } from 'react-intl';
 import { BotIcon, CircleDashedIcon } from 'lucide-react';
@@ -67,6 +68,7 @@ export function SubAgentRenderer({
   const chatRef = useChatRef(chatId);
   const parentState = normalizeToolState(toolPart.state);
   const title = getTaskDescription(toolPart, intl);
+  const environment = toolEnvironment(toolPart);
 
   // A background agent's tool call returns the moment it launches, so the call's
   // own state says "done" while the agent is still working. Its real status comes
@@ -129,7 +131,7 @@ export function SubAgentRenderer({
   const line = (
     <TraceLine status={running ? 'running' : isError ? 'error' : undefined}>
       <TraceIcon><BotIcon /></TraceIcon>
-      <TraceTitle>{title}</TraceTitle>
+      <TraceTitle>{title}{environment && ' · ' + environment.environment}</TraceTitle>
       {stepCount > 0 && (
         <TraceDescription>
           <FormattedMessage id="editor.subagent.steps" defaultMessage="{count, plural, one {# step} other {# steps}}" values={{ count: stepCount }} />

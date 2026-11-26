@@ -77,6 +77,7 @@ interface ChatInputAreaProps {
   supportsDynamicSwitch?: boolean;
   /** Allow changing turn settings while a reply is running. */
   canEditTurnSettings?: boolean;
+  changingEnvironment?: boolean;
   canSteer?: boolean;
   steerPending?: boolean;
   onSteer?: (text: string) => Promise<void> | void;
@@ -191,6 +192,7 @@ export function ChatInputArea({
   slashCommands,
   supportsDynamicSwitch,
   canEditTurnSettings = false,
+  changingEnvironment = false,
   canSteer = false,
   steerPending = false,
   onSteer,
@@ -275,7 +277,7 @@ export function ChatInputArea({
 
     if (e.key === 'Enter' && e.altKey && !e.shiftKey && (isMacPlatform() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)) {
       e.preventDefault();
-      if (e.repeat || !availableModels.length || (!input.trim() && !attachments.files.length && !selectedSkills.length && !hasPendingContext)) return;
+      if (changingEnvironment || e.repeat || !availableModels.length || (!input.trim() && !attachments.files.length && !selectedSkills.length && !hasPendingContext)) return;
       if (!canScheduleAt(quotaAt)) {
         setScheduleOpen(true);
         return;
@@ -331,7 +333,7 @@ export function ChatInputArea({
     // another turn. Empty drafts and unavailable/pending injection do nothing.
     e.preventDefault();
     if (canSteer && !steerPending) void handleSteer();
-  }, [quotaAt, availableModels.length, attachments.files.length, hasPendingContext, sendTime, activeSuggestion, setInput, slashCommand, selectItem, handleMentionKeyDown, input, selectedSkills, removeSkill, isGenerating, canSteer, steerPending, handleSteer]);
+  }, [changingEnvironment, quotaAt, availableModels.length, attachments.files.length, hasPendingContext, sendTime, activeSuggestion, setInput, slashCommand, selectItem, handleMentionKeyDown, input, selectedSkills, removeSkill, isGenerating, canSteer, steerPending, handleSteer]);
 
   // On the form, not the textarea: clicking send leaves focus on the button. The / and @ menus
   // and Radix popovers have already claimed Escape (preventDefault) by the time it bubbles here.
@@ -362,6 +364,7 @@ export function ChatInputArea({
   }, [handleTextareaSelect]);
 
   const handleSubmitWithSkills = useCallback((message: PromptInputMessage) => {
+    if (changingEnvironment) return Promise.reject(new Error('Wait for the environment change to finish.'));
     setMobileActionExpanded(false);
     const textarea = textareaContainerRef.current?.querySelector('textarea');
     // Phone: sending ends the typing, so the keyboard goes and the bar folds. (UIKit does its own.)
@@ -379,7 +382,7 @@ export function ChatInputArea({
     };
     if (result instanceof Promise) return result.then(finish);
     finish();
-  }, [floating, textareaContainerRef, selectedSkills, onSubmit, sendTime, clearSkills]);
+  }, [changingEnvironment, floating, textareaContainerRef, selectedSkills, onSubmit, sendTime, clearSkills]);
 
   const handleComposerPointerDownCapture = useCallback((event: ReactPointerEvent<HTMLFormElement>) => {
     if (!compactWhenIdle) return;
@@ -513,7 +516,7 @@ export function ChatInputArea({
   // primary action and Stop steps back to ghost, so only one button is filled.
   const showSteer = !sendTime && canSteer && (steerPending || input.trim().length > 0 || attachments.files.length > 0);
   const submitVariant = showSteer ? 'ghost' : 'brand';
-  const submitDisabled = availableModels.length === 0 || (!hasDraft && !isGenerating);
+  const submitDisabled = changingEnvironment || availableModels.length === 0 || (!hasDraft && !isGenerating);
   const submitTitle = availableModels.length === 0
     ? intl.formatMessage({ id: 'editor.input.noModels', defaultMessage: 'No models available. Please configure a provider first.' })
     : undefined;
@@ -532,7 +535,7 @@ export function ChatInputArea({
         value={input}
         onChange={(text, cursor) => { setInput(text); setCursorPos(cursor); setMentionCursor(cursor); }}
         placeholder="Ask anything…"
-        disabled={availableModels.length === 0}
+        disabled={changingEnvironment || availableModels.length === 0}
         running={isGenerating}
         // Goal mode can turn a send down (attachments, a goal already starting) and keep the draft.
         keepTextOnSend={goalArmed}

@@ -12,6 +12,7 @@ import { CodingPendingInputs } from "./CodingPendingInputs"
 
 /** Names of the agents the assistant can start in a workspace (server: SUPPORTED_EXTERNAL_AGENT_IDS). */
 const AGENT_NAMES: Record<string, string> = {
+  custom: "Operon",
   codex: "Codex",
   "claude-code": "Claude Code",
   opencode: "OpenCode",

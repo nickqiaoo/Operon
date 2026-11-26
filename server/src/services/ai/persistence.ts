@@ -45,6 +45,7 @@ export const prepareChatRecord = (
   payload: AiChatRequest,
   normalizedMessages: UIMessage[],
   sshEnvironment?: SshEnvironmentRef,
+  additional: SshEnvironmentRef[] = [],
 ): ChatRecordState => {
   const chatHistoryService = getChatHistoryService()
   if (!chatHistoryService) {
@@ -92,7 +93,7 @@ export const prepareChatRecord = (
     providerId: payload.providerId,
     thinkingLevel: payload.thinkingLevel,
     messages: [lastUserMessage],
-    ...(sshEnvironment || payload.modeId ? { metadata: { sshEnvironment, modeId: payload.modeId } } : {}),
+    ...(sshEnvironment || additional.length || payload.modeId ? { metadata: { sshEnvironment, ...(additional.length > 0 && { additionalSshEnvironments: additional }), modeId: payload.modeId } } : {}),
   })
   return { chatId: createdId }
 }

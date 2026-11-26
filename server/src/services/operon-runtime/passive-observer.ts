@@ -164,7 +164,7 @@ export function observeSession(session: HarnessSession, options: ObserveOptions 
       if (run) finishRun()
       run = {
         queue: new PartQueue(),
-        mapper: new OperonStreamMapper(),
+        mapper: new OperonStreamMapper(undefined, session),
         chat: resolveChat(session.id),
         approvals: new Map(),
         questions: new Map(),

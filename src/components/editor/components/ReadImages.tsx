@@ -1,3 +1,4 @@
+import { toolEnvironment } from './toolEnvironment';
 import { useCallback, useState, type ReactNode } from 'react';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import { ImageViewer, type ImageViewerNav } from '@/components/ai-elements/image-viewer';
@@ -21,7 +22,7 @@ function basename(path: string): string {
  * jpg, …), or null for anything else.
  */
 export function imageReadPathOf(toolPart: ToolPartLike & { state?: string }): string | null {
-  if (toolNameOf(toolPart) !== 'Read') return null;
+  if (toolEnvironment(toolPart)?.remote || toolNameOf(toolPart) !== 'Read') return null;
   if (normalizeToolState(toolPart.state) !== 'output-available') return null;
   const rawName = (toolPart as { toolName?: string }).toolName ?? '';
   const rawInput = ((toolPart as { args?: unknown }).args ?? (toolPart as { input?: unknown }).input ?? {}) as Record<string, unknown>;

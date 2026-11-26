@@ -2,7 +2,7 @@ import type { ChatStorageAdapter } from '../storage/interface.js'
 import type { AiChatRequest } from './ai/types.js'
 import { ChatBusyError, runChatTurn } from './ai/chat-flow.js'
 import { isChatTurnBusy } from './ai/chat-turn-lifecycle.js'
-import { getSshEnvironment } from './ssh-environments.js'
+import { additionalSshRefs, getSshEnvironment } from './ssh-environments.js'
 
 interface QueuedMessage {
   id: string
@@ -34,10 +34,11 @@ export class ScheduledMessages {
     if (previous) return { chatId: previous.chatId }
     if (payload.chatId !== undefined && !this.storage.getChatMeta(payload.chatId)) throw new Error('Conversation unavailable')
     const ssh = payload.sshEnvironmentId ? getSshEnvironment(payload.sshEnvironmentId) : undefined
+    const additional = additionalSshRefs(payload.additionalSshEnvironmentIds, ssh?.id, payload.localEnvironmentCwd)
     const chatId = payload.chatId ?? this.storage.createChat({
       tp: payload.tp ?? 'chat', title: 'New chat', workspaceId: payload.workspaceId,
       providerId: payload.providerId, model: payload.modelId, updatedAt: Date.now(),
-      metadata: ssh ? { sshEnvironment: { id: ssh.id, name: ssh.name } } : undefined,
+      metadata: ssh || additional.length ? { sshEnvironment: ssh && { id: ssh.id, name: ssh.name }, additionalSshEnvironments: additional } : undefined,
     })
     const preview = message.parts.map(p => p.type === 'text' ? p.text : p.type === 'file' ? p.filename || 'Attachment' : '').join(' ').trim().slice(0, 200)
     this.messages.set(message.id, {

@@ -161,8 +161,7 @@ export function buildMcpServersForCli(
   providerId: string,
   options?: BuildMcpOptions,
   /** Runtime provider id of the caller (`custom`, `claude-code`, …), as opposed to
-   *  the CLI name `providerId` carries. Only external_agent needs it, to leave the
-   *  caller out of its own delegation list. */
+   *  the CLI name `providerId` carries. Included in the external agent registration URL. */
   callerProviderId?: string,
 ): McpServersConfig | undefined {
   const servers = userMcpServersForCli(providerId)
@@ -224,19 +223,12 @@ export function buildMcpServersForCli(
     }
   }
 
-  // external_agent = "hand this off to a DIFFERENT agent", so the caller is not
-  // one of the choices: delegating to yourself is just doing the work.
-  //
+  // A delegation opens an independent child chat, including when both chats use Operon.
   // Caller and stable chat identity ride the URL; the route derives the list live (same reasoning
   // as `workflow` below). Baking the list in made the URL depend on
   // `isAdapterAvailable`, a live probe — one CLI appearing or timing out rewrote the
   // URL, which changed the session-reuse fingerprint and silently rebuilt the
   // session, reconnecting every MCP server with it.
-  //
-  // `callerProviderId` is the runtime provider id, NOT the CLI name this function is
-  // otherwise keyed by. Comparing the CLI name against provider ids is why the
-  // caller was never actually excluded: Operon runs as provider `custom` but CLI
-  // name `operon`, so it kept listing itself as a delegation target.
   //
   // OpenCode is the exception: it keeps one MCP client per server name for a whole
   // directory, so a chat id here would be the first tab's for every tab. Its URL

@@ -68,6 +68,9 @@ export function interactiveHandlers(sink: InteractiveSink): { approval: Approval
       // (it lives in the approval's display, not the tool args) so PlanRenderer shows it.
       const planPart = planReviewToolCallPart(request)
       if (planPart) sink.push(planPart)
+      if (request.environment) {
+        for (const part of sink.mapper.mapApprovalTarget(request)) sink.push(part)
+      }
       sink.push({
         type: 'tool-approval-request',
         approvalId,

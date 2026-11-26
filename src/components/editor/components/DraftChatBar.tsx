@@ -16,8 +16,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Switch } from '@/components/ui/switch';
-import { useChatApi, useChatNodeId } from '@/lib/chat-api-context';
-import type { GitBranchEntry } from '@/lib/api-client';
+import { useChatApi, useChatNodeId, useChatTransport, onNode } from '@/lib/chat-api-context';
+import { requestVia, type GitBranchEntry } from '@/lib/api-client';
 import { gitKeys, useGitBranches } from '@/lib/git-queries';
 import { moveDraftToMachine, moveDraftToWorkspace, rememberChatProvider } from '@/lib/new-chat';
 import { useProviders, type ProviderSummary } from '@/lib/provider-queries';
@@ -29,7 +29,7 @@ import { projectsOn, useProjectStore, type Project, type Workspace } from '@/sto
 import { machineDisplayName, useOtherMachines, useThisMachineLabel } from '@/components/project/RemoteMachineTrees';
 import { sshEnvironmentsQuery } from '@/lib/ssh-environments';
 import { useNavigationStore } from '@/stores/navigation-store';
-import type { SshEnvironmentRef } from '@shared/ssh-environment';
+import type { SshEnvironmentProfile, SshEnvironmentRef } from '@shared/ssh-environment';
 
 const NO_PROVIDERS: ProviderSummary[] = [];
 
@@ -42,6 +42,7 @@ interface DraftChatBarProps {
   workspaceId: number | null;
   sshEnvironment?: SshEnvironmentRef;
   isMobile: boolean;
+  onChanging?: (changing: boolean) => void;
 }
 
 /**
@@ -50,7 +51,7 @@ interface DraftChatBarProps {
  * cuts a new worktree and from which branch. All are fixed by the first send,
  * after which the tab icon and the header breadcrumb say the same, so the bar goes away.
  */
-export const DraftChatBar = memo(function DraftChatBar({ tabId, providerId, workspaceId, sshEnvironment, isMobile }: DraftChatBarProps) {
+export const DraftChatBar = memo(function DraftChatBar({ tabId, providerId, workspaceId, sshEnvironment, isMobile, onChanging }: DraftChatBarProps) {
   // The draft's machine: its projects are the ones it can run in.
   const nodeId = useChatNodeId();
   const projects = useProjectStore((s) => projectsOn(s, nodeId));
@@ -68,7 +69,7 @@ export const DraftChatBar = memo(function DraftChatBar({ tabId, providerId, work
   return (
     <div data-testid="draft-chat-bar" className="mb-1.5 flex min-w-0 items-center gap-0.5 px-1">
       {!isMobile && <AgentPicker tabId={tabId} providerId={providerId} />}
-      {providerId === 'custom' && <EnvironmentPicker tabId={tabId} selected={sshEnvironment} isMobile={isMobile} />}
+      {providerId === 'custom' && <EnvironmentPicker tabId={tabId} selected={sshEnvironment} onChanging={onChanging} localDir={current?.workspace.worktreePath} isMobile={isMobile} />}
       {!isMobile && !sshEnvironment && (
         <>
           <span aria-hidden className="text-muted-foreground/40">·</span>
@@ -80,51 +81,134 @@ export const DraftChatBar = memo(function DraftChatBar({ tabId, providerId, work
   );
 });
 
-function EnvironmentPicker({ tabId, selected, isMobile }: { tabId: string; selected?: SshEnvironmentRef; isMobile: boolean }) {
+type EnvironmentStatus = SshEnvironmentRef & { connected?: boolean };
+
+export function EnvironmentPicker({ tabId, selected, isMobile, chatId, busy = false, localDir, onChanging }: {
+  tabId: string; selected?: SshEnvironmentRef; isMobile: boolean; chatId?: number; busy?: boolean; localDir?: string | null; onChanging?: (changing: boolean) => void;
+}) {
   const [open, setOpen] = useState(false);
-  const creating = useDraftChatStore((s) => s.byTab[tabId]?.creating ?? false);
-  const { data: profiles = [], isLoading, isError, refetch } = useQuery({ ...sshEnvironmentsQuery, enabled: open });
-  const setEnvironment = useEditorStore((s) => s.setDraftSshEnvironment);
-  const pick = (environment?: SshEnvironmentRef) => {
-    useDraftChatStore.getState().clear(tabId);
-    setEnvironment(tabId, environment);
-  };
+  const [customLocalDir, setCustomLocalDir] = useState('');
+  const [pending, setPending] = useState<string>();
+  const [failure, setFailure] = useState<{ id: string; message: string; add: boolean }>();
+  const transport = useChatTransport();
+  const node = useChatNodeId();
+  const cache = useQueryClient();
+  const draft = useEditorStore(s => s.tabs.find(tab => tab.id === tabId)?.additionalSshEnvironments);
+  const creating = useDraftChatStore(s => s.byTab[tabId]?.creating ?? false);
+  const profilesQuery = useQuery({
+    staleTime: 30_000, queryKey: onNode(sshEnvironmentsQuery.queryKey, node),
+    queryFn: () => requestVia<SshEnvironmentProfile[]>(transport, '/ssh-environments'), enabled: open,
+  });
+  const profiles = profilesQuery.data ?? [];
+  const key = onNode(['chat-environments', chatId] as const, node);
+  const path = '/ssh-environments/chats/' + chatId;
+  const live = useQuery({
+    queryKey: key, queryFn: () => requestVia<EnvironmentStatus[]>(transport, path),
+    enabled: chatId !== undefined, refetchOnMount: 'always',
+  });
+  const additional: EnvironmentStatus[] = (chatId ? live.data : draft) ?? [];
+  const disabled = busy || creating || !!pending || (!!chatId && !live.data);
+  const root = profiles.find(profile => profile.id === selected?.id);
+  const rootLabel = selected?.name ?? 'Local';
+  const rootDir = selected ? root?.cwd : localDir;
   const Icon = selected ? Server : Monitor;
 
+  function pickDefault(ref?: SshEnvironmentRef) {
+    if (chatId || disabled || ref?.id === selected?.id) return;
+    const store = useEditorStore.getState();
+    store.setDraftAdditionalEnvironments(tabId, additional.filter(item => item.id !== (ref?.id ?? 'local')));
+    useDraftChatStore.getState().clear(tabId);
+    store.setDraftSshEnvironment(tabId, ref);
+  }
+
+  async function toggle(ref: SshEnvironmentRef, add: boolean) {
+    if (disabled) return;
+    setPending(ref.id);
+    onChanging?.(true);
+    setFailure(undefined);
+    try {
+      if (chatId) {
+        const updated = await requestVia<EnvironmentStatus[]>(transport, path, {
+          method: 'PATCH', body: JSON.stringify({ id: ref.id, add, localDir: ref.cwd }),
+        });
+        cache.setQueryData(key, updated);
+        await cache.invalidateQueries({ queryKey: key });
+      } else {
+        if (add && ref.id !== 'local') {
+          const profile = profiles.find(item => item.id === ref.id);
+          const result = await requestVia<{ success?: boolean }>(transport, '/ssh-environments/test', {
+            method: 'POST', body: JSON.stringify(profile),
+          });
+          if (!result.success) throw new Error('Verify the host key in Settings before connecting.');
+        }
+        useEditorStore.getState().setDraftAdditionalEnvironments(tabId,
+          add ? [...additional, { id: ref.id, name: ref.name, ...(ref.cwd && ref.id === 'local' && { cwd: ref.cwd }) }] : additional.filter(item => item.id !== ref.id));
+      }
+    } catch (error) {
+      setFailure({ id: ref.id, add, message: error instanceof Error ? error.message : 'Connection failed.' });
+    } finally {
+      setPending(undefined);
+      onChanging?.(false);
+    }
+  }
+
+  const local = additional.find(ref => ref.id === 'local');
+  const localPath = local?.cwd || localDir || customLocalDir.trim();
+  const choices = [...(selected ? [{ id: 'local', name: 'Local', cwd: localPath }] : []), ...profiles.filter(profile => profile.id !== selected?.id),
+    ...additional.filter(ref => ref.id !== 'local' && !profiles.some(profile => profile.id === ref.id))];
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu open={open} onOpenChange={next => { setOpen(next); if (next && chatId) void live.refetch(); }}>
       <DropdownMenuTrigger aria-label="Execution environment" className={triggerClassName} disabled={creating}>
         <Icon className="size-3.5 shrink-0" />
-        <span className="max-w-36 truncate">{selected?.name ?? 'Local'}</span>
+        <span className="max-w-36 truncate">{rootLabel}{additional.length > 0 && ' +' + additional.length}</span>
         <ChevronDown className="size-3 shrink-0 opacity-60" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="start" className="max-h-[min(60vh,28rem)] w-64 overflow-y-auto" onCloseAutoFocus={(event) => event.preventDefault()}>
-        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Execution environment</DropdownMenuLabel>
-        <DropdownMenuItem className="gap-2" onSelect={() => { if (selected) pick(); }}>
-          <Monitor className="size-4 shrink-0" />
-          <span className="flex-1">Local</span>
-          {!selected && <Check className="size-3.5 shrink-0" />}
-        </DropdownMenuItem>
-        {profiles.map(({ id, name, cwd }) => (
-          <DropdownMenuItem key={id} className="gap-2" onSelect={() => pick({ id, name })}>
-            <Server className="size-4 shrink-0" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate">{name}</span>
-              <span className="block truncate text-xs text-muted-foreground">{cwd}</span>
-            </span>
-            {selected?.id === id && <Check className="size-3.5 shrink-0" />}
-          </DropdownMenuItem>
-        ))}
-        {isLoading && <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Loading SSH environments…</DropdownMenuLabel>}
-        {isError && (
-          <DropdownMenuItem onSelect={(event) => { event.preventDefault(); void refetch(); }}>Could not load environments. Retry</DropdownMenuItem>
+      <DropdownMenuContent side="top" align="start" className="max-h-[min(60vh,28rem)] w-72 overflow-y-auto" onCloseAutoFocus={event => event.preventDefault()}>
+        <DropdownMenuLabel className="text-xs text-muted-foreground">Default environment</DropdownMenuLabel>
+        {chatId ? <DropdownMenuLabel>{rootLabel}</DropdownMenuLabel> : (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger disabled={disabled}>{rootLabel}</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem onSelect={() => pickDefault()}>Local</DropdownMenuItem>
+              {profiles.map(({ id, name }) => <DropdownMenuItem key={id} onSelect={() => pickDefault({ id, name })}>{name}</DropdownMenuItem>)}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
         )}
+        {rootDir && <DropdownMenuLabel className="break-all text-xs font-normal text-muted-foreground">{rootDir}</DropdownMenuLabel>}
         <DropdownMenuSeparator />
-        {isMobile ? (
-          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Manage environments in Settings → Operon</DropdownMenuLabel>
-        ) : (
-          <DropdownMenuItem onSelect={() => useNavigationStore.getState().openPage({ kind: 'settings', tab: 'custom' })}>Manage SSH environments</DropdownMenuItem>
-        )}
+        <DropdownMenuLabel className="text-xs text-muted-foreground">Additional environments</DropdownMenuLabel>
+        {selected && !localDir && !local && <input aria-label="Local directory" placeholder="Absolute local directory"
+          className="mx-2 w-[calc(100%-1rem)] rounded-md bg-muted px-2 py-1 text-xs" value={customLocalDir}
+          disabled={disabled} onKeyDown={event => event.stopPropagation()} onChange={event => setCustomLocalDir(event.target.value)} />}
+        {choices.map(ref => {
+          const included = additional.find(item => item.id === ref.id);
+          const error = failure?.id === ref.id ? failure.message : undefined;
+          const cwd = ref.id === 'local' ? localPath : profiles.find(item => item.id === ref.id)?.cwd;
+          return <div key={ref.id}>
+            <DropdownMenuItem role="menuitemcheckbox" aria-checked={!!included} disabled={disabled || (ref.id === 'local' && !localPath)}
+              onSelect={event => { event.preventDefault(); void toggle(ref, !included); }}>
+              {ref.id === 'local' ? <Monitor className="size-4 shrink-0" /> : <Server className="size-4 shrink-0" />}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{ref.name}</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {pending === ref.id ? (included?.connected !== false && included ? 'Removing…' : 'Connecting…') : included?.connected === false ? 'Disconnected' : cwd}
+                </span>
+              </span>
+              {included && <Check className="size-3.5" />}
+            </DropdownMenuItem>
+            {error && <p role="alert" className="px-2 text-xs text-destructive">{error}</p>}
+            {(error || included?.connected === false) && <DropdownMenuItem disabled={disabled}
+              onSelect={event => { event.preventDefault(); void toggle(ref, failure?.id === ref.id ? failure.add : true); }}>Retry</DropdownMenuItem>}
+          </div>;
+        })}
+        {busy && <DropdownMenuLabel className="text-xs font-normal">You can change environments after this response.</DropdownMenuLabel>}
+        {profilesQuery.isLoading && <DropdownMenuLabel>Loading SSH environments…</DropdownMenuLabel>}
+        {(profilesQuery.isError || live.isError) && <DropdownMenuItem onSelect={event => {
+          event.preventDefault(); void profilesQuery.refetch(); if (chatId) void live.refetch();
+        }}>Could not load environments. Retry</DropdownMenuItem>}
+        <DropdownMenuSeparator />
+        {isMobile ? <DropdownMenuLabel className="text-xs font-normal">Manage environments in Settings → Operon</DropdownMenuLabel>
+          : <DropdownMenuItem onSelect={() => useNavigationStore.getState().openPage({ kind: 'settings', tab: 'custom' })}>Manage SSH environments</DropdownMenuItem>}
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -17,6 +17,8 @@ import { TraceCollapsibleTrigger, TraceDescription } from '@/components/ui/trace
 import { ToolIcon } from './ToolIcon';
 import { MonitorToolLine } from '../MonitorNotices';
 import { isMonitorTool } from '../background-notice';
+import { FileOpenProvider } from '@/lib/file-open-context';
+import { toolEnvironment } from '../toolEnvironment';
 import { ReadImageLarge, imageReadPathOf } from '../ReadImages';
 import { getToolDisplayName, getToolDescription, formatToolDisplayName, unwrapToolEnvelope, type ToolPartLike } from '../toolName';
 import { normalizeToolState } from '../toolState';
@@ -44,6 +46,7 @@ export function CompactToolCall({
   toolPart,
   onPermissionDecide,
 }: CompactToolCallProps) {
+  const environment = toolEnvironment(toolPart);
   const serverState = normalizeToolState(toolPart.state);
   const rawInput = (toolPart.args || toolPart.input || {}) as Record<string, unknown>;
   const output = toolPart.result ?? toolPart.output;
@@ -107,7 +110,7 @@ export function CompactToolCall({
 
   const lineProps = {
     icon: isMonitor ? <RadarIcon className="shrink-0" /> : <ToolIcon toolName={toolName} />,
-    name: formatToolDisplayName(toolName),
+    name: environment ? formatToolDisplayName(toolName) + ' · ' + environment.environment : formatToolDisplayName(toolName),
     description: commandDescription,
     status: toolTraceStatus(state),
     trailing: state === 'output-denied' ? (
@@ -125,7 +128,7 @@ export function CompactToolCall({
     ? <MonitorToolLine toolCallId={toolPart.toolCallId} {...lineProps} />
     : <ToolLine {...lineProps} />;
 
-  return (
+  const card = (
     <div className="flex min-w-0 flex-col gap-2">
       <Tool data-tool-state={state}>
         <TraceCollapsibleTrigger>{line}</TraceCollapsibleTrigger>
@@ -156,7 +159,7 @@ export function CompactToolCall({
         >
           <ConfirmationTitle className="block w-full truncate text-xs @max-[18rem]:sr-only" title="Permission required">
             <ConfirmationRequest>
-              Approval
+              {environment ? 'Approval · ' + environment.environment : 'Approval'}
             </ConfirmationRequest>
             <ConfirmationAccepted>
               <CheckIcon className="size-4 text-status-ok" />
@@ -202,4 +205,5 @@ export function CompactToolCall({
       )}
     </div>
   );
+  return environment?.remote ? <FileOpenProvider value={null}>{card}</FileOpenProvider> : card;
 }

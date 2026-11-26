@@ -63,6 +63,8 @@ export function useChatRuntime({
   thinkingEffortValues,
   currentWorkspaceId,
   draftSshEnvironmentId,
+  draftAdditionalSshEnvironmentIds,
+  draftLocalDir,
   autoRun,
   setTabChatId,
 }: {
@@ -89,6 +91,8 @@ export function useChatRuntime({
   /** Effort levels valid for the selected model (capability-filtered). */
   thinkingEffortValues?: string[]
   currentWorkspaceId: number | null
+  draftLocalDir?: string
+  draftAdditionalSshEnvironmentIds?: string[]
   draftSshEnvironmentId?: string
   autoRun?: boolean
   setTabChatId: (tabId: string, chatId: number) => void
@@ -172,6 +176,10 @@ export function useChatRuntime({
     workspaceId: currentWorkspaceId ?? undefined,
     ...(autoRun ? { skipSnapshot: true } : {}),
   }
+  const localDirRef = useRef(draftLocalDir)
+  localDirRef.current = draftLocalDir
+  const additionalIdsRef = useRef(draftAdditionalSshEnvironmentIds)
+  additionalIdsRef.current = draftAdditionalSshEnvironmentIds
   const draftSshEnvironmentIdRef = useRef(draftSshEnvironmentId)
   draftSshEnvironmentIdRef.current = draftSshEnvironmentId
 
@@ -252,6 +260,8 @@ export function useChatRuntime({
           ...(body ?? {}),
           chatId: dbChatIdRef.current,
           sshEnvironmentId,
+          localEnvironmentCwd: dbChatIdRef.current === undefined ? localDirRef.current : undefined,
+          additionalSshEnvironmentIds: dbChatIdRef.current === undefined ? additionalIdsRef.current : undefined,
           frontendChatId: chatId,
           messages: outboundMessages,
           tp: currentTab?.isSubAgent ? 'subagent' : undefined,

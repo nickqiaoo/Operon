@@ -1,7 +1,6 @@
+import { providerForAgentType as toProviderId } from '@shared/external-agent'
 import { getProviderModels } from '../ai/providers.js'
 import { warmAllProviders } from '../ai/provider-models-cache.js'
-
-const toProviderId = (id: string) => id === 'operon' ? 'custom' : id
 
 /**
  * How many models are listed outright.

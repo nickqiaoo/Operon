@@ -76,6 +76,7 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
         // reopens in it rather than the provider's default.
         modeId: meta?.metadata?.modeId,
         sshEnvironment: meta?.metadata?.sshEnvironment,
+        additionalSshEnvironments: meta?.metadata?.additionalSshEnvironments,
         // When the last message landed. The client times prompt-cache expiry
         // from this so a conversation reopened from history knows it went cold
         // while it was closed.
@@ -87,7 +88,7 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
     const result = service.getChat(chatId)
     const { sessionId: _sessionId, ...payload } = result
     const metadata = storage.getChatMeta(chatId)?.metadata
-    return c.json({ ...payload, modeId: metadata?.modeId, sshEnvironment: metadata?.sshEnvironment })
+    return c.json({ ...payload, modeId: metadata?.modeId, sshEnvironment: metadata?.sshEnvironment, additionalSshEnvironments: metadata?.additionalSshEnvironments })
   })
 
   // POST /api/chat-history - create a chat, optionally with its first messages

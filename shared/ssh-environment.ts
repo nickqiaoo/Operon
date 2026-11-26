@@ -1,6 +1,8 @@
 export interface SshEnvironmentRef {
   id: string
   name: string
+  /** Directory of an attached local workspace or a scoped remote worktree. */
+  cwd?: string
 }
 
 export type SshAuthMethod = 'key' | 'password'

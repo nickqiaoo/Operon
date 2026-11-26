@@ -28,8 +28,9 @@ necessary context: the child does not see the parent conversation.
 
 ## Work in a separate workspace
 
-A child works in this conversation's workspace unless `external_agent_run` gets a
-`workspace_id`, which must be in the same project. When the work needs its own
+A child uses the parent chat's project workspace on the agent loop host. It has its own
+environment and does not inherit the parent’s SSH connections. To select a different
+workspace, pass a `workspace_id` from the same project to `external_agent_run`. When the work needs its own
 branch and the user wants or agreed to one, create it first with
 `workspace_create({ name, base_branch? })`, then pass the
 returned `workspace_id`. Creating a workspace never starts an agent by itself.

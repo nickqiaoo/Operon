@@ -1,5 +1,5 @@
 import type { Agent } from '../types/channel.js'
-import type { ChannelStorageAdapter } from '../storage/interface.js'
+import type { AgentBindingStorageAdapter, ChannelStorageAdapter, ProjectStorageAdapter } from '../storage/interface.js'
 
 /** The name of the hidden agent a direct workspace chat speaks as on the task board. */
 export const WORKSPACE_ASSISTANT_NAME = 'Workspace Assistant'
@@ -24,4 +24,21 @@ export function getOrCreateWorkspaceAssistant(
     instructions: '',
     hidden: true,
   })
+}
+
+export type WorkspaceChatContextStorage = Pick<ChannelStorageAdapter, 'getAgentByName' | 'createAgent'> &
+  Pick<ProjectStorageAdapter, 'getWorkspace'> & Pick<AgentBindingStorageAdapter, 'getBindingByActiveChatId'>
+
+/** Resolve the actor for a user chat on both its first turn and a cold restore. */
+export function workspaceChatAgentContext(storage: WorkspaceChatContextStorage, chat: {
+  chatId?: number; workspaceId?: number; providerId?: string; modelId?: string
+}) {
+  const binding = chat.chatId != null ? storage.getBindingByActiveChatId(chat.chatId) : null
+  if (binding?.scopeKind === 'task' && binding.projectId != null) {
+    return { agentId: binding.agentId, projectId: binding.projectId }
+  }
+  const workspace = chat.workspaceId ? storage.getWorkspace(chat.workspaceId) : undefined
+  if (!workspace) return undefined
+  const assistant = getOrCreateWorkspaceAssistant(storage, { provider: chat.providerId, model: chat.modelId })
+  return { agentId: assistant.id, projectId: workspace.projectId }
 }

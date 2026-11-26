@@ -3,8 +3,10 @@ import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { LocalEnvironment } from 'operon-agents'
+import { statSync } from 'node:fs'
 import { SshEnvironment, type SessionBindings } from 'operon-agents/advanced'
-import type { SshEnvironmentProfile } from '../../../shared/ssh-environment.js'
+import type { SshEnvironmentProfile, SshEnvironmentRef } from '../../../shared/ssh-environment.js'
 import type { StorageAdapter } from '../storage/interface.js'
 
 const KEY = 'operon:ssh_environments'
@@ -169,6 +171,81 @@ export function sshSessionBindings(profile: SshEnvironmentProfile): SessionBindi
     release: () => {
       // Begin transport shutdown without waiting for a close event that may have already fired.
       void connection?.close().catch((error: unknown) => console.warn('[SSH] Connection cleanup failed:', error))
+    },
+  }
+}
+
+export function additionalSshRefs(ids: string[] | undefined, rootId?: string, localDir?: string): SshEnvironmentRef[] {
+  if (ids === undefined) return []
+  if (!Array.isArray(ids) || ids.includes(rootId ?? '') || new Set(ids).size !== ids.length) {
+    throw new Error('Select each SSH environment only once.')
+  }
+  return ids.map(id => {
+    if (id === 'local') return localRef(rootId, localDir)
+    const { name } = getSshEnvironment(id)
+    return { id, name }
+  })
+}
+
+export function localRef(rootId?: string, cwd?: string): SshEnvironmentRef {
+  if (!rootId) throw new Error('Local is already the default environment.')
+  if (!cwd || !path.isAbsolute(cwd) || !statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
+    throw new Error('Choose an existing absolute directory on the Operon host.')
+  }
+  return { id: 'local', name: 'Local', cwd }
+}
+
+export function sshProfile(ref: SshEnvironmentRef) {
+  const profile = getSshEnvironment(ref.id)
+  return ref.cwd ? { ...profile, cwd: ref.cwd } : profile
+}
+
+// The framework limits target names to 32 characters. A saved display name can change.
+export function sshTarget(id: string): string {
+  if (id === 'local') return 'local'
+  return 'ssh-' + createHash('sha256').update(id).digest('hex').slice(0, 24)
+}
+
+// A removed SSH target and a closing session can both release the same connection.
+const sshOwners = new WeakMap<object, Set<SshEnvironment>>()
+
+export function releaseSshTarget(environment: object) {
+  const owner = sshOwners.get(environment)
+  if (!owner) return
+  const ssh = environment as SshEnvironment
+  owner.delete(ssh)
+  sshOwners.delete(ssh)
+  void ssh.close().catch((error: unknown) => console.warn('[SSH] Connection cleanup failed:', error))
+}
+
+export function additionalSshBinding(ref: SshEnvironmentRef, owner: Set<SshEnvironment>) {
+  return {
+    description: ref.name,
+    environment: async () => {
+      if (ref.id === 'local') {
+        if (!ref.cwd || !statSync(ref.cwd, { throwIfNoEntry: false })?.isDirectory()) throw new Error('Local workspace unavailable.')
+        return new LocalEnvironment(ref.cwd)
+      }
+      const { environment } = await connectSshEnvironment(getSshEnvironment(ref.id))
+      owner.add(environment)
+      sshOwners.set(environment, owner)
+      return environment
+    },
+  }
+}
+
+export function sessionEnvironmentBindings(root: SshEnvironmentProfile | undefined, additional: readonly SshEnvironmentRef[] = []): SessionBindings | undefined {
+  const primary = root ? sshSessionBindings(root) : undefined
+  if (!additional.length) return primary
+  const opened = new Set<SshEnvironment>()
+  return {
+    ...primary,
+    additionalEnvironments: Object.fromEntries(additional.map(ref => [
+      sshTarget(ref.id), additionalSshBinding(ref, opened),
+    ])),
+    release: async () => {
+      await primary?.release?.()
+      opened.forEach(releaseSshTarget)
     },
   }
 }

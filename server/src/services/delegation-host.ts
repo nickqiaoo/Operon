@@ -1,4 +1,4 @@
-import { SUPPORTED_EXTERNAL_AGENT_IDS } from '@shared/external-agent'
+import { agentTypeForProvider, SUPPORTED_EXTERNAL_AGENT_IDS } from '@shared/external-agent'
 import type { DelegationWorkspace, IncomingDelegation } from '@shared/delegations'
 import type { ProjectStorageAdapter, StorageAdapter } from '../storage/interface.js'
 import { agentModelCatalog, type AgentModelCatalogEntry } from './agents/model-catalog.js'
@@ -85,9 +85,10 @@ export class DelegationHost {
     const available = providerIds?.length ? providerIds : delegationProviderIds()
     const workspaces = this.storage.listProjects().flatMap((project) => this.storage.listWorkspaces(project.id)
       .map(({ id, name }) => ({ id, name, project: project.name })))
+    const agentTypes = available.map(agentTypeForProvider)
     const agents: AgentModelCatalogEntry[] = models === '0'
-      ? available.map((agentType) => ({ agentType }))
-      : await agentModelCatalog(available, query, 'external_agent_list_models', models === 'full')
+      ? agentTypes.map((agentType) => ({ agentType }))
+      : await agentModelCatalog(agentTypes, query, 'external_agent_list_models', models === 'full')
     return { agents, workspaces }
   }
 }

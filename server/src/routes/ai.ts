@@ -10,14 +10,10 @@ import { waitForChatTurnIdle } from '../services/ai/chat-turn-lifecycle.js'
 import { publishExternalAgentSettings } from '../services/external-agent.js'
 import { rememberChatTurnSettings } from '../services/ai/persistence.js'
 import { replaceLiveAgent, steerLiveAgent } from '../services/workflow/live-agents.js'
-import { getOrCreateWorkspaceAssistant } from '../services/workspace-assistant.js'
+import { workspaceChatAgentContext, type WorkspaceChatContextStorage } from '../services/workspace-assistant.js'
 import { nameWorkspaceFromMessage, type WorkspaceNamingStorage } from '../services/workspace-naming.js'
-import type { AgentBindingStorageAdapter, ChannelStorageAdapter, ProjectStorageAdapter } from '../storage/interface.js'
 
-type AiRouteStorage = Pick<ChannelStorageAdapter, 'getAgentByName' | 'createAgent'> &
-  Pick<ProjectStorageAdapter, 'getWorkspace'> &
-  Pick<AgentBindingStorageAdapter, 'getBindingByActiveChatId'> &
-  WorkspaceNamingStorage
+type AiRouteStorage = WorkspaceChatContextStorage & WorkspaceNamingStorage
 
 /** The text the user typed across the request's messages, oldest first. */
 function userTextOf(messages: unknown[]): string {
@@ -54,32 +50,11 @@ function userTextOf(messages: unknown[]): string {
  * stateful provider session mid-chat).
  */
 export function enrichChatAgentContext(payload: AiChatRequest, storage: AiRouteStorage): void {
-  if (
-    payload.agentContext || payload.sshEnvironmentId !== undefined ||
-    (payload.chatId && getChatStorage()?.getChatMeta(payload.chatId)?.metadata?.sshEnvironment)
-  ) return
+  if (payload.agentContext) return
   if (payload.tp && payload.tp !== 'chat') return
-  // A person typing into a task's session (taking over a stuck ticket) speaks for
-  // the task's assignee, exactly as the orchestrator does when it wakes that
-  // session — otherwise the turn runs as the Workspace Assistant and the task
-  // board refuses its status change ("Only the assignee can change…").
-  const binding = payload.chatId != null ? storage.getBindingByActiveChatId(payload.chatId) : null
-  if (binding?.scopeKind === 'task' && binding.projectId != null) {
-    payload.agentContext = { agentId: binding.agentId, projectId: binding.projectId }
-    return
-  }
-  const { workspaceId } = payload
-  if (!workspaceId) return
-  const workspace = storage.getWorkspace(workspaceId)
-  if (!workspace) return
-  const assistant = getOrCreateWorkspaceAssistant(storage, {
-    provider: payload.providerId,
-    model: payload.modelId,
-  })
-  payload.agentContext = {
-    agentId: assistant.id,
-    projectId: workspace.projectId,
-  }
+  const saved = payload.chatId ? getChatStorage()?.getChatMeta(payload.chatId) : undefined
+  const workspaceId = saved?.metadata?.sshEnvironment ? saved.workspaceId : payload.workspaceId
+  payload.agentContext = workspaceChatAgentContext(storage, { ...payload, workspaceId })
 }
 
 export function aiRoutes(storage: AiRouteStorage, scheduled?: import('../services/scheduled-messages.js').ScheduledMessages) {

@@ -304,7 +304,7 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
     }
 
     const queue = new PartQueue()
-    const mapper = new OperonStreamMapper(this.takeInjection)
+    const mapper = new OperonStreamMapper(this.takeInjection, this.harness)
 
     // This turn is ours: the passive observer (peer-woken turns) must stay out of it.
     markDriven(this.harness.id)

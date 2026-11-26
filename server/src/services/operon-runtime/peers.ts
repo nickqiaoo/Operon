@@ -9,10 +9,11 @@ import {
   type PeersSettings,
   type TeammateIdentity,
 } from 'operon-agents-peers'
-import { getChatStorage, getSessionManager } from '../ai/state.js'
+import { getChatStorage, getProjectStorage, getSessionManager } from '../ai/state.js'
 import { workspaceSessionConfig, type WorkspaceSessionSetup } from './session-lifecycle.js'
-import { resolveMcpServersForSession } from '../mcp-config.js'
+import { resolveMcpServersForSession, userMcpServersForCli } from '../mcp-config.js'
 import { ensurePluginsLoaded } from './plugins.js'
+import { workspaceChatAgentContext } from '../workspace-assistant.js'
 import { SPEC_CHAT_HINT } from '../spec/prompts.js'
 
 /**
@@ -83,9 +84,12 @@ export async function peersSettings(): Promise<PeersSettings> {
  * seat and standing orders) survive. The conversation-scoped MCP servers are rebuilt from the chat
  * record because they carry this process's ports and identities.
  */
-export async function restoredSessionConfig(session: Pick<SessionIdentity, 'id' | 'workDir'>): Promise<SessionConfig> {
+export async function restoredSessionConfig(
+  session: Pick<SessionIdentity, 'id' | 'workDir'>,
+  host?: { cwd?: string; setup: WorkspaceSessionSetup },
+): Promise<SessionConfig> {
   if (!deps) throw new Error('peers host not configured')
-  const setup = await deps.workspaceSetup(session.workDir)
+  const setup = host?.setup ?? await deps.workspaceSetup(session.workDir)
   const record = getSessionManager().findBySessionId(session.id)
   const storage = getChatStorage()
   const chat = storage?.findChatBySessionId(session.id)
@@ -96,8 +100,18 @@ export async function restoredSessionConfig(session: Pick<SessionIdentity, 'id' 
     ? undefined
     : record?.params.instructions ?? (chat?.tp === 'chat' && chat.workspaceId != null ? SPEC_CHAT_HINT : undefined)
   await ensurePluginsLoaded()
-  const servers = chat?.metadata?.workflowAgent ? {} : record?.params.mcpServers
-    ?? (chat ? resolveMcpServersForSession('custom', { chatId: chat.id, cwd: session.workDir }) : undefined)
+  let servers = record?.params.mcpServers
+  if (chat?.metadata?.workflowAgent) servers = {}
+  else if (host && chat?.metadata?.peer) servers = userMcpServersForCli('operon')
+  else if (!servers && chat) {
+    const workspace = chat.tp === 'chat' ? getProjectStorage() : undefined
+    const actor = workspace && workspaceChatAgentContext(workspace, {
+      chatId: chat.id, workspaceId: chat.workspaceId, providerId: chat.providerId, modelId: chat.model,
+    })
+    servers = resolveMcpServersForSession('custom', {
+      ...(actor && { ...actor, sourceChatId: chat.id }), chatId: chat.id, cwd: host ? host.cwd : session.workDir,
+    })
+  }
   return workspaceSessionConfig(
     { ...setup, servers: (servers ?? setup.servers) as WorkspaceSessionSetup['servers'] },
     instructions,
@@ -140,6 +154,8 @@ export async function createTeammateChat(
     sessionId: session.id,
     updatedAt: Date.now(),
     metadata: {
+      ...(leadChat?.metadata?.sshEnvironment && { sshEnvironment: leadChat.metadata.sshEnvironment }),
+      ...(leadChat?.metadata?.additionalSshEnvironments && { additionalSshEnvironments: leadChat.metadata.additionalSshEnvironments }),
       peer: {
         name: member.name,
         team: member.team,

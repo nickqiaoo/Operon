@@ -10,10 +10,13 @@
  * The framework repo is never modified: these are the documented host hooks.
  */
 
+import type { SshEnvironmentRef } from '../../../../shared/ssh-environment.js'
+import { connectSshEnvironment, sshProfile } from '../ssh-environments.js'
 import os from 'node:os'
 import { LocalEnvironment } from 'operon-agents'
 import { createWorktree, newAgentId, validateValue, type WorkflowHostHooks, type WorkflowProgressEvent as FwProgressEvent } from 'operon-agents/advanced'
 import { runProviderAgent } from './dispatch.js'
+import { getChatStorage } from '../ai/state.js'
 import { parseJsonReply } from './json-reply.js'
 import type { RunEventWriter } from './writer.js'
 
@@ -35,8 +38,11 @@ export function toProviderId(agentType: string): string {
 }
 
 export interface WorkflowRunContext {
+  sshEnvironment?: SshEnvironmentRef
+  additionalSshEnvironments?: SshEnvironmentRef[]
   availableAgents: string[]
   cwd: string
+  hostCwd?: string
   /** The launching chat id — routes approvals and the result back. */
   chatId?: number | null
   /** Model a `custom` sub-agent runs on when the script names none. */
@@ -160,6 +166,9 @@ export function buildHooks(
     onStart,
   }) => {
     const providerId = requireAgentType(agentType, ctx.availableAgents)
+    const sshTarget = providerId === IN_APP_PROVIDER_ID ? ctx.sshEnvironment : undefined
+    const cwd = ctx.sshEnvironment && !sshTarget ? ctx.hostCwd : ctx.cwd
+    if (!cwd) throw new Error('Attach a Local workspace to run this workflow step on the Operon host.')
     const modelId = resolveModel(model, providerId, ctx)
     const agentId = newAgentId(providerId)
     // The framework joins orchestration records to a child's own event stream by
@@ -174,51 +183,55 @@ export function buildHooks(
     // Optional git-worktree isolation for file-mutating parallel agents — the
     // framework's own createWorktree. Degrades WITH A LOG when the cwd is not a
     // git repo (never silently); changes are NOT auto-merged back.
-    let runCwd = ctx.cwd
+    let runCwd = cwd
     let cleanupWorktree: (() => Promise<void>) | undefined
-    if (isolation === 'worktree') {
-      const worktree = await createWorktree(new LocalEnvironment(ctx.cwd), { label: agentId })
-      if (worktree) {
-        runCwd = worktree.cwd
-        cleanupWorktree = worktree.cleanup
-        writer.emit({ kind: 'log', message: `🌳 ${agentId}: isolated worktree at ${worktree.cwd}` })
-      } else {
-        writer.emit({
-          kind: 'log',
-          message: `isolation:'worktree' unavailable (cwd is not a git repo) — running in the shared workspace`,
-        })
-      }
-    }
-
-    // Every chat this row ran as, across structured-output retries and handoffs.
     const chatIds: number[] = []
-    const runOne = (p: string): Promise<string> =>
-      runProviderAgent({
-        providerId,
-        modelId,
-        cwd: runCwd,
-        prompt: p,
-        agentId,
-        title: label,
-        // A blocked sub-agent shows up on this run's card (where the user is
-        // watching), in its own chat, and in the launching conversation's inbox.
-        parentChatId: ctx.chatId,
-        onApproval: (request) => writer.emit({ kind: 'approval', approval: request }),
-        onApprovalSettled: (approvalId) => writer.emit({ kind: 'approval-resolved', approvalId }),
-        // The sub-agent's conversation is a chat of its own; the row names it.
-        onChats: (ids) => {
-          for (const id of ids) if (!chatIds.includes(id)) chatIds.push(id)
-          writer.emit({ kind: 'agent', index, patch: { chatIds: [...chatIds] } })
-        },
-        live: { runId: writer.runId, index },
-        onReplaced: (from, to) => {
-          writer.emit({ kind: 'agent', index, patch: { agentType: to.providerId, modelId: to.modelId } })
-          writer.emit({ kind: 'log', message: `${agentId}: handed from ${from.providerId} to ${to.providerId}` })
-        },
-        signal,
-      })
-
+    const ssh = isolation === 'worktree' && sshTarget
+      ? (await connectSshEnvironment(sshProfile(sshTarget))).environment : undefined
     try {
+      if (isolation === 'worktree') {
+        const worktree = await createWorktree(ssh ?? new LocalEnvironment(cwd), { label: agentId })
+        if (worktree) {
+          runCwd = worktree.cwd
+          cleanupWorktree = worktree.cleanup
+          writer.emit({ kind: 'log', message: `🌳 ${agentId}: isolated worktree at ${worktree.cwd}` })
+        } else {
+          writer.emit({
+            kind: 'log',
+            message: `isolation:'worktree' unavailable (cwd is not a git repo) — running in the shared workspace`,
+          })
+        }
+      }
+
+      // Every chat this row ran as, across structured-output retries and handoffs.
+      const runOne = (p: string): Promise<string> =>
+        runProviderAgent({
+          providerId,
+          modelId,
+          cwd: runCwd,
+          ...(sshTarget && { sshEnvironment: runCwd === cwd ? sshTarget : { ...sshTarget, cwd: runCwd } }),
+          ...(providerId === IN_APP_PROVIDER_ID && { additionalSshEnvironments: ctx.additionalSshEnvironments }),
+          prompt: p,
+          agentId,
+          title: label,
+          // A blocked sub-agent shows up on this run's card (where the user is
+          // watching), in its own chat, and in the launching conversation's inbox.
+          parentChatId: ctx.chatId,
+          onApproval: (request) => writer.emit({ kind: 'approval', approval: request }),
+          onApprovalSettled: (approvalId) => writer.emit({ kind: 'approval-resolved', approvalId }),
+          // The sub-agent's conversation is a chat of its own; the row names it.
+          onChats: (ids) => {
+            for (const id of ids) if (!chatIds.includes(id)) chatIds.push(id)
+            writer.emit({ kind: 'agent', index, patch: { chatIds: [...chatIds] } })
+          },
+          live: { runId: writer.runId, index },
+          onReplaced: (from, to) => {
+            writer.emit({ kind: 'agent', index, patch: { agentType: to.providerId, modelId: to.modelId } })
+            writer.emit({ kind: 'log', message: `${agentId}: handed from ${from.providerId} to ${to.providerId}` })
+          },
+          signal,
+        })
+
       if (!schema) {
         const text = await runOne(prompt)
         return { value: requireOutput(text, providerId, modelId), outputTokens: 0, ...identity }
@@ -240,7 +253,23 @@ export function buildHooks(
       throw new Error(`sub-agent produced no schema-valid output after 3 attempts: ${lastError}`)
     } finally {
       writer.emit({ kind: 'agent', index, patch: { endedAt: Date.now() } })
-      if (cleanupWorktree) await cleanupWorktree()
+      try {
+        await cleanupWorktree?.()
+        if (ssh && sshTarget && cleanupWorktree) {
+          // A dirty worktree stays available to its chat. A clean one was removed.
+          const missing = await ssh.files.getInfo(runCwd).then(() => false, error =>
+            error instanceof Error && 'code' in error && error.code === 'ENOENT')
+          if (missing) {
+            const storage = getChatStorage()
+            for (const chatId of chatIds) {
+              const metadata = storage?.getChatMeta(chatId)?.metadata
+              if (metadata?.sshEnvironment?.cwd === runCwd) storage?.updateChatMetadata(chatId, { ...metadata, sshEnvironment: sshTarget })
+            }
+          }
+        }
+      } finally {
+        if (ssh) void ssh.close().catch(console.warn)
+      }
     }
   }
 

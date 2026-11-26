@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { AgentEvent, QuestionRequest, Usage } from 'operon-agents'
+import { LocalEnvironment, type HarnessSession, type ApprovalRequest, type AgentEvent, type QuestionRequest, type Usage } from 'operon-agents'
 import type { RuntimeStreamPart } from '@operon/agent-runtime'
 import { automatedNoticeText } from './transcript-text.js'
 
@@ -121,7 +121,24 @@ export class OperonStreamMapper {
   /** Arguments of calls still running. The engine's approval and question requests carry none. */
   private readonly runningToolInputs = new Map<string, unknown>()
 
-  constructor(private readonly takeInjection?: (steerId: string) => { id: string; text: string } | undefined) {}
+  constructor(private readonly takeInjection?: (steerId: string) => { id: string; text: string } | undefined,
+    private readonly session?: HarnessSession,
+  ) {}
+
+  mapApprovalTarget(request: ApprovalRequest): RuntimeStreamPart[] {
+    const parts: RuntimeStreamPart[] = []
+    this.emitToolCallOnce(part => parts.push(part), request.toolCallId, request.toolName,
+      this.toolInput(request.toolCallId) ?? {}, callTag(undefined, this.environmentMeta(request.environment)))
+    return parts
+  }
+
+  private environmentMeta(target?: string) {
+    if (!target) return undefined
+    const entry = this.session?.core?.environments.get(target)
+    if (!entry) return { environment: target, remote: true }
+    const remote = (entry.name !== 'local' && entry.name !== this.session?.core.environments.rootName) || !(entry.environment instanceof LocalEnvironment)
+    return { environment: entry.description ?? (remote ? entry.environment.name : 'Local'), remote }
+  }
 
   /** The arguments of a call the model has made and that has no result yet. */
   toolInput(toolCallId: string): unknown {
@@ -303,7 +320,7 @@ export class OperonStreamMapper {
         // A Code Mode program's nested call (`parentToolCallId` at the top level) is an ordinary
         // part of its own, so its card and approval render as for a direct call; the tag only
         // records which program made it (the OpenCode provider tags its nested calls the same way).
-        this.emitToolCallOnce(push, event.toolCallId, event.toolName, event.args, programTag(event.parentToolCallId))
+        this.emitToolCallOnce(push, event.toolCallId, event.toolName, event.args, callTag(event.parentToolCallId, this.environmentMeta(event.environment)))
         break
 
       case 'tool.progress': {
@@ -339,7 +356,7 @@ export class OperonStreamMapper {
       case 'tool.result': {
         // Ensure the tool-call exists before its result (covers a stream we joined mid-flight) —
         // never emit an orphan result.
-        this.emitToolCallOnce(push, event.toolCallId, event.toolName, undefined)
+        this.emitToolCallOnce(push, event.toolCallId, event.toolName, undefined, callTag(undefined, this.environmentMeta(event.environment)))
         const acc = this.workflowProgress.get(event.toolCallId)
         this.workflowProgress.delete(event.toolCallId)
         this.toolProgress.delete(event.toolCallId)
@@ -441,7 +458,8 @@ export class OperonStreamMapper {
     const parentToolCallId = this.addrToParent.get(seg)
     if (!parentToolCallId) return [] // unbound — don't mis-attribute
 
-    const meta = { [PROVIDER_KEY]: { parentToolCallId } }
+    const environment = 'environment' in event ? this.environmentMeta(event.environment) : undefined
+    const meta = { [PROVIDER_KEY]: { parentToolCallId, ...environment } }
     const out: RuntimeStreamPart[] = []
     const push = (part: RuntimeStreamPart): void => void out.push(part)
 
@@ -535,8 +553,8 @@ function progressPart(toolCallId: string, toolName: string, acc: WorkflowProgres
 }
 
 /** `providerMetadata` naming the Code Mode program a nested call belongs to, if any. */
-function programTag(programToolCallId: string | undefined): Record<string, unknown> | undefined {
-  return programToolCallId ? { [PROVIDER_KEY]: { programToolCallId } } : undefined
+function callTag(programToolCallId?: string, environment?: { environment: string; remote: boolean }): Record<string, unknown> | undefined {
+  return programToolCallId || environment ? { [PROVIDER_KEY]: { ...(programToolCallId && { programToolCallId }), ...environment } } : undefined
 }
 
 /** Join a tool result's text content. */
