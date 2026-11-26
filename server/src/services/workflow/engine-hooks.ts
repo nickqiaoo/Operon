@@ -180,9 +180,6 @@ export function buildHooks(
     // this; record it as soon as the dispatch decision is made.
     writer.emit({ kind: 'agent', index, patch: { agentType: providerId, modelId, startedAt: Date.now() } })
 
-    // Optional git-worktree isolation for file-mutating parallel agents — the
-    // framework's own createWorktree. Degrades WITH A LOG when the cwd is not a
-    // git repo (never silently); changes are NOT auto-merged back.
     let runCwd = cwd
     let cleanupWorktree: (() => Promise<void>) | undefined
     const chatIds: number[] = []
@@ -190,17 +187,13 @@ export function buildHooks(
       ? (await connectSshEnvironment(sshProfile(sshTarget))).environment : undefined
     try {
       if (isolation === 'worktree') {
-        const worktree = await createWorktree(ssh ?? new LocalEnvironment(cwd), { label: agentId })
-        if (worktree) {
-          runCwd = worktree.cwd
-          cleanupWorktree = worktree.cleanup
-          writer.emit({ kind: 'log', message: `🌳 ${agentId}: isolated worktree at ${worktree.cwd}` })
-        } else {
-          writer.emit({
-            kind: 'log',
-            message: `isolation:'worktree' unavailable (cwd is not a git repo) — running in the shared workspace`,
-          })
-        }
+        const options = { label: agentId, required: true }
+        const worktree = await createWorktree(ssh ?? new LocalEnvironment(cwd), options)
+        // Older framework builds return null when Git or the worktree is unavailable.
+        if (!worktree) throw new Error(`Cannot create an isolated worktree in "${cwd}". Check that Git is installed and the repository has a commit.`)
+        runCwd = worktree.cwd
+        cleanupWorktree = worktree.cleanup
+        writer.emit({ kind: 'log', message: `🌳 ${agentId}: isolated worktree at ${worktree.cwd}` })
       }
 
       // Every chat this row ran as, across structured-output retries and handoffs.

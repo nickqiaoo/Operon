@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai'
-import { createHarness, createModelManager, LocalEnvironment } from 'operon-agents'
+import { createHarness, createModelManager, type HarnessSession, LocalEnvironment } from 'operon-agents'
 import { SshEnvironment } from 'operon-agents/advanced'
 import type { ChatMeta, ChatMetadata } from '../types/chat.js'
 import { additionalSshRefs, initSshEnvironments, saveSshEnvironment, sessionEnvironmentBindings, sshTarget } from './ssh-environments.js'
@@ -13,6 +13,20 @@ import { OperonStreamMapper } from './operon-runtime/message-mapper.js'
 
 const provider = vi.hoisted(() => ({ getOperonHarness: vi.fn() }))
 vi.mock('./operon-runtime/index.js', () => provider)
+
+async function expectDetachedWriteRejected(session: HarnessSession, model: ReturnType<typeof fauxProvider>, target: string, path: string) {
+  let errorText: string | undefined
+  model.setResponses([
+    fauxAssistantMessage(fauxToolCall('Write', { target, path, content: 'unexpected write' }), { stopReason: 'toolUse' }),
+    context => {
+      const result = context.messages.filter(message => message.role === 'toolResult').at(-1)
+      if (result?.isError) errorText = result.content.find(part => part.type === 'text')?.text
+      return fauxAssistantMessage('done', { stopReason: 'stop' })
+    },
+  ])
+  expect((await session.prompt('write to the removed environment')).status).toBe('completed')
+  expect(errorText).toContain(`Unknown environment "${target}"`)
+}
 
 describe('Operon chat environments', () => {
   it('keeps an SSH default while attaching, restoring and removing a local workspace', async () => {
@@ -46,6 +60,9 @@ describe('Operon chat environments', () => {
       expect(await changeChatEnvironment(storage, 7, 'local', false)).toEqual([])
       expect(restored.core.environments.size).toBe(1)
       expect(chat.metadata?.sshEnvironment?.id).toBe(profile.id)
+      await expectDetachedWriteRejected(restored, model, 'local', 'marker')
+      expect(await readFile(join(remote, 'marker'), 'utf8')).toBe('build')
+      expect(await readFile(join(local, 'marker'), 'utf8')).toBe('host')
     } finally {
       await harness.close()
       vi.restoreAllMocks()
@@ -109,6 +126,9 @@ describe('Operon chat environments', () => {
       await changeChatEnvironment(storage, 12, profile.id, false)
       expect(chat.metadata?.additionalSshEnvironments).toEqual([])
       expect(restored.core.environments.get(target)).toBeUndefined()
+      await expectDetachedWriteRejected(restored, model, target, 'result')
+      expect(await readFile(join(root, 'result'), 'utf8')).toBe('local')
+      expect(await readFile(join(remote, 'result'), 'utf8')).toBe('remote')
       expect(close).toHaveBeenCalledTimes(2)
       connect.mockRejectedValueOnce(new Error('Host offline'))
       await expect(changeChatEnvironment(storage, 12, profile.id, true)).rejects.toThrow('Host offline')

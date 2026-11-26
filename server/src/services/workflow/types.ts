@@ -84,7 +84,7 @@ export interface WorkflowRunView {
   agents: WorkflowAgentRecord[]
   pendingApprovals: WorkflowPendingApproval[]
   /**
-   * `log()` output from the script, plus host notices (worktree fallbacks,
+   * `log()` output from the script, plus host notices (worktree creation,
    * respawned agents). Ordinary narration — NOT errors.
    */
   logs: string[]

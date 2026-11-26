@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-11-26
+
+### Added
+
+- Use local and SSH execution environments in the same Operon chat.
+
+### Fixed
+
+- Workflows stop with an error when an agent's requested worktree cannot be created.
+- Local coding agents can pick up CLI paths configured in the login shell.
+
 ## [1.6.1] - 2026-11-25
 
 ### Added
