@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.6.4] - 2026-11-27
+
+### Added
+
+- Preview PDF documents, Word documents, and videos in the workspace browser.
+- Stream file previews with byte-range support for large documents and videos.
+
 ## [1.6.3] - 2026-11-27
 
 ### Added

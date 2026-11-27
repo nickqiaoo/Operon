@@ -10,7 +10,9 @@ import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { MarkdownToc } from "@/components/ui/markdown-toc"
 import { SelectionToolbar, type SelectionAction } from "@/components/ui/selection-toolbar"
 import { useChatApi, useChatNodeId } from "@/lib/chat-api-context"
-import { getImageMediaType, readFileForPreview } from "@/lib/file-preview"
+import { filePreviewKind, readFileForPreview } from "@/lib/file-preview"
+import { ApiError } from "@/lib/api-client"
+import AssetPreview from "./AssetPreview"
 import { basename } from "@/lib/workspace-files"
 import { useEditorStore } from "@/stores/editor-store"
 import { useThemeStore } from "@/stores/theme-store"
@@ -111,11 +113,11 @@ export function FilePreviewPane({
     regex: false,
   })
 
-  const imageMediaType = useMemo(
-    () => (selectedPath != null ? getImageMediaType(selectedPath) : null),
-    [selectedPath]
-  )
-  const isRasterImage = imageMediaType != null && imageMediaType !== "image/svg+xml"
+  const kind = filePreviewKind(selectedPath ?? "")
+  const isText = kind === "text"
+  const isRasterImage = kind === "image"
+  const [binaryPath, setBinaryPath] = useState<string | null>(null)
+  const assetKind = binaryPath !== null && binaryPath === selectedPath ? "unsupported" : kind
   const isMarkdown = useMemo(
     () => selectedPath != null && isMarkdownPath(selectedPath),
     [selectedPath]
@@ -137,7 +139,7 @@ export function FilePreviewPane({
     // getDisplayPath hands the absolute path back for a file outside the root.
     relativePath: displayPath != null && displayPath !== selectedPath ? displayPath : null,
     contents: content,
-    enabled: gitChanges && diffEnabled && !isRasterImage,
+    enabled: gitChanges && diffEnabled && isText,
   })
   const diffChanges = diff.status === "ready" ? diff.changes : null
   // Rendered markdown has no lines to mark; the comparison is a source-view thing.
@@ -218,22 +220,18 @@ export function FilePreviewPane({
     }),
     [content, displayPath, selectedPath]
   )
-  const showMarkdownToggle = isMarkdown && content != null && !isRasterImage
+  const showMarkdownToggle = isMarkdown && content != null && isText
 
-  // Load text content (skips raster images — those go through getFileUrl).
+  // Only source previews need the text endpoint.
   useEffect(() => {
-    if (selectedPath == null) {
-      setContent(null)
-      setError(null)
-      return
-    }
-    if (isRasterImage) {
+    setBinaryPath(null)
+    setError(null)
+    if (!selectedPath || !isText) {
       setContent(null)
       return
     }
     let cancelled = false
     setContent(null)
-    setError(null)
     readFileForPreview(selectedPath, api)
       .then((c) => {
         if (cancelled) return
@@ -241,6 +239,10 @@ export function FilePreviewPane({
       })
       .catch((err) => {
         if (cancelled) return
+        if (err instanceof ApiError && err.status === 415) {
+          setBinaryPath(selectedPath)
+          return
+        }
         console.error("FilePreviewPane: failed to read", selectedPath, err)
         setError(err instanceof Error ? err.message : "Failed to read file")
       })
@@ -248,7 +250,7 @@ export function FilePreviewPane({
       cancelled = true
     }
     // reloadNonce re-reads the file when the refresh button is clicked.
-  }, [selectedPath, isRasterImage, reloadNonce, api])
+  }, [selectedPath, isText, reloadNonce, api])
 
   // Load image URL.
   useEffect(() => {
@@ -274,8 +276,8 @@ export function FilePreviewPane({
   }, [isRasterImage, selectedPath, reloadNonce, api])
 
   useEffect(() => {
-    setViewMode(selectedPath != null && !isRasterImage && isMarkdown ? "preview" : "source")
-  }, [selectedPath, isRasterImage, isMarkdown])
+    setViewMode(selectedPath != null && isText && isMarkdown ? "preview" : "source")
+  }, [selectedPath, isText, isMarkdown])
 
   // Line jumps and line comments operate on source rows, not rendered markdown.
   // Kept apart from the default above so a pane losing its jump (another file
@@ -335,7 +337,7 @@ export function FilePreviewPane({
   // ⌘F / Ctrl+F while focus is anywhere in this file browser — the preview
   // itself or the tree beside it (`data-find-scope`). ⌘G / ⇧⌘G step matches.
   useEffect(() => {
-    if (!active || selectedPath == null || isRasterImage) return
+    if (!active || selectedPath == null || !isText) return
     const onKeyDown = (e: KeyboardEvent) => {
       const mod = isMacPlatform() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
       if (!mod || e.altKey) return
@@ -357,10 +359,10 @@ export function FilePreviewPane({
     }
     document.addEventListener("keydown", onKeyDown)
     return () => document.removeEventListener("keydown", onKeyDown)
-  }, [active, selectedPath, isRasterImage, findOpen, find.next, find.previous, openFind])
+  }, [active, selectedPath, isText, findOpen, find.next, find.previous, openFind])
 
   useEffect(() => {
-    if (gotoLine == null || isRasterImage || content == null || viewMode !== "source") return
+    if (gotoLine == null || !isText || content == null || viewMode !== "source") return
     const container = contentRef.current
     if (container == null) return
 
@@ -408,7 +410,7 @@ export function FilePreviewPane({
       watchShadowRoot()
     }
     return stop
-  }, [content, gotoLine, gotoNonce, isRasterImage, viewMode, showingDiff])
+  }, [content, gotoLine, gotoNonce, isText, viewMode, showingDiff])
 
   const goToChange = (index: number) => {
     const change = diffChanges?.[index]
@@ -469,7 +471,7 @@ export function FilePreviewPane({
     toolbarEndSlot != null && onToolbar
       ? createPortal(
           <>
-            {!isRasterImage && content != null && (
+            {isText && content != null && (
               <button
                 type="button"
                 onClick={openFind}
@@ -527,7 +529,7 @@ export function FilePreviewPane({
       )}
       <div ref={previewRef} tabIndex={-1} className="relative min-h-0 flex-1 outline-none">
         <SelectionToolbar containerRef={previewRef} actions={selectionActions} />
-        {findOpen && !isRasterImage && content != null && (
+        {findOpen && isText && content != null && (
           <FindBar
             ref={findInputRef}
             query={findQuery}
@@ -538,7 +540,9 @@ export function FilePreviewPane({
             onClose={closeFind}
           />
         )}
-        {error != null ? (
+        {assetKind !== "text" && assetKind !== "image" ? (
+          <AssetPreview key={JSON.stringify([selectedPath, nodeId, reloadNonce])} path={selectedPath} kind={assetKind} active={active} />
+        ) : error != null ? (
           <div className="flex h-full items-center justify-center px-4 text-xs text-destructive">
             {error}
           </div>

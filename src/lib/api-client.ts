@@ -626,8 +626,8 @@ export function createHttpClient(transport: ApiTransport) {
   }
 
 
-  async function readFile(filePath: string): Promise<string> {
-    const res = await post<{ content: string }>('/fs/read-file', { path: filePath })
+  async function readFile(filePath: string, preview = false): Promise<string> {
+    const res = await post<{ content: string }>('/fs/read-file', { path: filePath, preview })
     return res.content
   }
 

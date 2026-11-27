@@ -1034,6 +1034,8 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
   // everywhere else; collapsed, each shows only while it floats.
   const treeShown = collapsed ? floating : !channelsActive
   const channelListShown = collapsed ? floatingChannels : channelsActive
+  const isWeb = __APP_TARGET__ === "web"
+  const panelTop = isWeb ? "top-0" : "top-10"
   const bottomInset = "pb-[max(0.75rem,var(--ios-shell-safe-bottom,0px))]"
 
   // Two columns: the icon rail, identical in both modes, and the panel beside
@@ -1124,9 +1126,9 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
       <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", !collapsed && "relative overflow-hidden")}>
         {!collapsed && (
           <>
-            {/* Rail/panel divider, below the titlebar band the traffic lights cross. */}
-            <div aria-hidden className="pointer-events-none absolute bottom-0 left-0 top-10 z-10 w-px bg-border/50 sidebar-label-fade" />
-            <div className="drag-region h-10 shrink-0" style={{ width, maxWidth }} />
+            {/* On desktop the window controls span both columns. */}
+            <div aria-hidden className={cn("pointer-events-none absolute bottom-0 left-0 z-10 w-px bg-border/50 sidebar-label-fade", panelTop)} />
+            {!isWeb && <div className="drag-region h-10 shrink-0" style={{ width, maxWidth }} />}
           </>
         )}
 
@@ -1149,7 +1151,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
             !treeShown && "invisible pointer-events-none opacity-0",
             // Kept mounted (scroll and folders stay) but out of the column while
             // the channel list has the panel.
-            !collapsed && !treeShown && "absolute inset-x-0 bottom-0 top-10",
+            !collapsed && !treeShown && cn("absolute inset-x-0 bottom-0", panelTop),
             floating && railFlyoutEnterClassName,
           )}
           style={{ width, maxWidth: collapsed ? RAIL_FLYOUT_MAX_WIDTH : maxWidth }}
@@ -1274,7 +1276,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
               ? cn(railFlyoutClassName, "py-2")
               : cn("sidebar-label-fade flex-1", bottomInset),
             !channelListShown && "invisible pointer-events-none opacity-0",
-            !collapsed && !channelListShown && "absolute inset-x-0 bottom-0 top-10",
+            !collapsed && !channelListShown && cn("absolute inset-x-0 bottom-0", panelTop),
             floatingChannels && railFlyoutEnterClassName,
           )}
           style={{ width, maxWidth: collapsed ? RAIL_FLYOUT_MAX_WIDTH : maxWidth }}

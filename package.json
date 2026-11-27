@@ -1,6 +1,6 @@
 {
   "name": "operon",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "author": "nickqiao",
   "description": "AI Vibe Coding Tool",
   "main": "dist-electron/main.js",
@@ -105,6 +105,7 @@
     "call-bind-apply-helpers": "^1.0.2",
     "chokidar": "^4.0.3",
     "diff": "^8.0.3",
+    "docx-preview": "^0.4.1",
     "electron-store": "^10.0.0",
     "electron-updater": "^6.7.3",
     "gramio": "^0.8.1",
@@ -120,6 +121,7 @@
     "operon-code-mode": "0.1.0-alpha.39",
     "posthog-node": "^5.28.0",
     "react-intl": "^10.1.11",
+    "react-pdf": "^11.1.0",
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "shell-env": "^4.0.3",
@@ -231,6 +233,7 @@
     "vite-plugin-electron": "^0.28.0",
     "vite-plugin-electron-renderer": "^0.14.0",
     "vite-plugin-pwa": "^1.3.0",
+    "vite-plugin-static-copy": "^2.3.2",
     "vitest": "^2.1.9",
     "wait-on": "^8.0.0",
     "zustand": "^5.0.0"

@@ -39,6 +39,12 @@ const FILE_MEDIA_TYPE_BY_EXTENSION: Record<string, string> = {
   js: 'text/javascript; charset=utf-8',
   json: 'application/json; charset=utf-8',
   md: 'text/markdown; charset=utf-8',
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
+  ogv: 'video/ogg',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   pdf: 'application/pdf',
   png: 'image/png',
   svg: 'image/svg+xml',
@@ -47,7 +53,7 @@ const FILE_MEDIA_TYPE_BY_EXTENSION: Record<string, string> = {
   xml: 'application/xml; charset=utf-8',
 }
 
-const getFileMediaType = (filePath: string): string => {
+export const getFileMediaType = (filePath: string): string => {
   const extension = path.extname(filePath).slice(1).toLowerCase()
   if (!extension) return 'application/octet-stream'
   return FILE_MEDIA_TYPE_BY_EXTENSION[extension] ?? 'application/octet-stream'
@@ -208,11 +214,22 @@ export async function readFile(filePath: string): Promise<string> {
   return fsPromises.readFile(filePath, 'utf-8')
 }
 
-export async function readFileAsset(filePath: string): Promise<{ buffer: Uint8Array; mediaType: string }> {
-  const buffer = await fsPromises.readFile(filePath)
-  return {
-    buffer,
-    mediaType: getFileMediaType(filePath),
+export async function readPreviewText(filePath: string): Promise<string | null> {
+  const handle = await fsPromises.open(filePath, 'r')
+  try {
+    const sample = Buffer.alloc(8192)
+    const { bytesRead } = await handle.read(sample, 0, sample.length, 0)
+    const bytes = sample.subarray(0, bytesRead)
+    if (bytes.some(byte => byte < 8 || (byte > 13 && byte < 32))) return null
+    // The prefix may end in the middle of a valid multi-byte character.
+    try {
+      new TextDecoder('utf-8', { fatal: true }).decode(bytes, { stream: bytesRead === sample.length })
+    } catch {
+      return null
+    }
+    return await handle.readFile('utf8')
+  } finally {
+    await handle.close()
   }
 }
 

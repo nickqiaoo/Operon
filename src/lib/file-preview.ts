@@ -35,7 +35,16 @@ export const isRasterImageFilePath = (filePath: string): boolean => {
   return mediaType !== null && mediaType !== "image/svg+xml"
 }
 
-export const shouldReadFileContent = (filePath: string): boolean => !isRasterImageFilePath(filePath)
+export function filePreviewKind(path: string) {
+  const extension = getFileExtension(path)
+  if (isRasterImageFilePath(path)) return "image"
+  if (extension === "pdf" || extension === "docx") return extension
+  if (/^(mp4|m4v|mov|webm|ogv|mkv|avi|wmv)$/.test(extension)) return "video"
+  if (/^(csv|tsv|xls[xmb]?|ods|ppt[xms]?|pps[xm]?|odp|doc|zip|gz|bz2|xz|7z|rar|tar|exe|dll|dylib|so|bin|wasm|sqlite3?|db|dmg|mp3|wav|flac|aac)$/.test(extension)) return "unsupported"
+  return "text"
+}
+
+export const shouldReadFileContent = (filePath: string): boolean => filePreviewKind(filePath) === "text"
 
 export async function readFileForPreview(
   filePath: string,
@@ -46,5 +55,5 @@ export async function readFileForPreview(
     return ""
   }
 
-  return api.readFile(filePath)
+  return api.readFile(filePath, true)
 }

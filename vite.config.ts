@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import electron from 'vite-plugin-electron/simple'
+import { viteStaticCopy } from 'vite-plugin-static-copy'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 import type { LoggingFunction, RollupLog } from 'rollup'
@@ -41,6 +42,11 @@ export default defineConfig({
   },
   plugins: [
     tailwindcss(),
+    viteStaticCopy({
+      targets: ['cmaps', 'standard_fonts', 'wasm', 'iccs'].map(dir => ({
+        src: `node_modules/pdfjs-dist/${dir}`, dest: 'pdf-assets',
+      })),
+    }),
     react({
       fastRefresh: enableFastRefresh,
     }),
@@ -184,10 +190,12 @@ export default defineConfig({
     })]),
   ],
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-      '@shared': path.resolve(__dirname, './shared')
-    }
+    alias: [
+      { find: '@', replacement: path.resolve(__dirname, './src') },
+      { find: '@shared', replacement: path.resolve(__dirname, './shared') },
+      { find: /^pdfjs-dist$/, replacement: 'pdfjs-dist/legacy/build/pdf.mjs' },
+      { find: 'pdfjs-dist/web/pdf_viewer.mjs', replacement: 'pdfjs-dist/legacy/web/pdf_viewer.mjs' },
+    ]
   },
   // Pin dep-scan to the real entry so the optimizer never crawls build output
   // (dist/, dist-web/) — a stale dist/index.html would otherwise drag in the
@@ -218,7 +226,11 @@ export default defineConfig({
         // become part of the boot path. That pushed the entry graph to 15.6MB,
         // which a phone cannot download and evaluate inside the boot watchdog.
         // Letting Rollup split naturally leaves 4.7MB on the boot path.
-        manualChunks: isWeb ? undefined : (id) => createVendorChunkName(id),
+        manualChunks: isWeb ? undefined : (id) => {
+          if (/node_modules\/(pdfjs-dist|react-pdf)\//.test(id)) return 'pdf-preview'
+          if (/node_modules\/(docx-preview|jszip)\//.test(id)) return 'word-preview'
+          return createVendorChunkName(id)
+        },
       },
     },
   },
