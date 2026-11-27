@@ -90,7 +90,7 @@ describe('marketplace repo cache', () => {
     materialize.mockImplementation(async ({ destDir }: { destDir: string }) => extract(destDir, 'v3'))
     expect(await ids()).toEqual(['v2'])
     await vi.waitFor(async () => expect(await ids()).toEqual(['v3']))
-    expect(await readdir(join(cacheRoot, key))).toHaveLength(2)
+    await vi.waitFor(async () => expect(await readdir(join(cacheRoot, key))).toHaveLength(2))
   })
 
   it('keeps serving the stale copy when the refresh fails', async () => {
