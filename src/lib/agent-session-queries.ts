@@ -31,6 +31,7 @@ const NO_CHAT: ChatRef = { chatId: -1 }
 
 /** How often an open, still-running task's output is re-read. */
 const TASK_OUTPUT_POLL_MS = 1500
+const MCP_POLL_MS = 15_000
 
 /**
  * What a Claude Code task has printed (`tasks.output`): read while its row is
@@ -242,7 +243,10 @@ export function useAgentSessionState({
   }, [running, live, queryClient, providerId, chat])
   const pluginsQuery = useInstalledPlugins({ enabled: open && fullInspector })
   return {
-    mcp: useSessionSection(providerId, id, 'mcp', agent.mcpList, { enabled: live, intervalMs: pollMs }),
+    mcp: useSessionSection(providerId, id, 'mcp', agent.mcpList, {
+      enabled: live,
+      intervalMs: MCP_POLL_MS,
+    }),
     tasks: useSessionSection(providerId, id, 'tasks', agent.tasksList, { enabled: full, intervalMs: pollMs }),
     subagents: useSessionSection(providerId, id, 'subagents', agent.subagentsList, { enabled: full, intervalMs: pollMs }),
     skills: useSessionSection(providerId, id, 'skills', agent.skillsList, { enabled: full, intervalMs: 0 }),

@@ -17,14 +17,9 @@ export function getProviders() {
 /**
  * `OPERON_PROVIDERS=opencode,codex` narrows what this node advertises.
  *
- * A node can only run the CLIs someone installed on it, and `available` alone
- * does not keep a client off the missing ones: the desktop dropdown greys them
- * out, but the phone client lists every provider the node returns. On a
- * headless node — nobody there to install anything, and the App Store review
- * machine in particular — that turns most of the picker into entries whose only
- * outcome is a failed chat.
- *
- * Unset, which is every desktop, this is a no-op.
+ * Headless nodes, such as the App Store review machine, can use this to omit
+ * providers they do not offer. Clients use `available` to disable entries that
+ * are still advertised but whose CLI is missing.
  */
 function providerAllowlist(): Set<string> | null {
   const ids = (process.env.OPERON_PROVIDERS ?? '')

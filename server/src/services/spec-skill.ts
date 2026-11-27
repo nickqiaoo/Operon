@@ -1,7 +1,7 @@
 /**
  * Operon's built-in OperonSpec skill.
  *
- * The spec tools (`start_spec` / `answer_spec_questions`) are always available on the
+ * The spec tools (`spec_start` / `spec_answer_questions`) are always available on the
  * taskboard MCP, so this skill is installed unconditionally before provider sessions
  * are created. Copy/ownership mechanics live in
  * `managed-skill.ts`.

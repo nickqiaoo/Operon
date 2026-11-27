@@ -30,7 +30,7 @@ async function installSpec(page: Page, completed = false, withCoordinator = fals
       messages: [
         { id: `user-${title}`, role: 'user', parts: [{ type: 'text', text: title }] },
         { id: `assistant-${title}`, role: 'assistant', parts: [
-          ...(!subAgent ? [{ type: 'dynamic-tool', toolName: 'start_spec', toolCallId: 'start-spec', state: 'output-available', input: { title: 'Post navigation' }, output: { content: [{ type: 'text', text: 'Created task #22: Post navigation' }], structuredContent: { kind: 'created-task', taskId: 100, taskNumber: 22, title: 'Post navigation', spec: true } } }] : []),
+          ...(!subAgent ? [{ type: 'dynamic-tool', toolName: 'spec_start', toolCallId: 'start-spec', state: 'output-available', input: { title: 'Post navigation' }, output: { content: [{ type: 'text', text: 'Created task #22: Post navigation' }], structuredContent: { kind: 'created-task', taskId: 100, taskNumber: 22, title: 'Post navigation', spec: true } } }] : []),
           { type: 'text', text: `${title} transcript` },
         ] },
         ...(!subAgent ? [{ id: 'spec-notice', role: 'user', parts: [{ type: 'text', text: '<spec-notice spec="22">Ready for review.</spec-notice>' }] }] : []),

@@ -155,7 +155,6 @@ export async function createTeammateChat(
     updatedAt: Date.now(),
     metadata: {
       ...(leadChat?.metadata?.sshEnvironment && { sshEnvironment: leadChat.metadata.sshEnvironment }),
-      ...(leadChat?.metadata?.additionalSshEnvironments && { additionalSshEnvironments: leadChat.metadata.additionalSshEnvironments }),
       peer: {
         name: member.name,
         team: member.team,

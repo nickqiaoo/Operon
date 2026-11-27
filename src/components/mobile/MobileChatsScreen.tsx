@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { Activity, ArrowLeft, Loader2, MessageSquarePlus, SquarePen } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { queryClient } from "@/lib/query-client"
-import { providersQueryFor, useProviders } from "@/lib/provider-queries"
+import { providerModelsQuery, providersQueryFor, type ProviderModelsResponse, type ProviderSummary } from "@/lib/provider-queries"
 import { cn } from "@/lib/utils"
 import { useChatHistoryList, type ChatHistoryListItem } from "@/lib/chat-queries"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -24,9 +25,11 @@ import { specKeys } from "@/lib/spec-queries"
 import { PullToRefresh } from "./PullToRefresh"
 import { getChatDraft } from "@/lib/chat-drafts"
 
-interface Provider {
-  id: string
-  label: string
+const OPERON_PROVIDER_ID = "custom"
+
+function canStartChat(provider: ProviderSummary, operonModels?: ProviderModelsResponse) {
+  // Operon itself is bundled even on a node with no model providers configured.
+  return provider.available && (provider.id !== OPERON_PROVIDER_ID || !!operonModels?.models?.length)
 }
 
 /**
@@ -100,11 +103,17 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
   // Subscribed for the whole screen, not just while the picker is open, so the
   // "New" tap finds the list already cached instead of waiting on a round trip
   // through the broker before the sheet can appear.
-  const { data: providerList } = useProviders()
-  const providers = useMemo<Provider[]>(
-    () => (providerList ?? []).map((p) => ({ id: p.id, label: p.label })),
-    [providerList],
-  )
+  const providersQuery = useQuery(providersQueryFor(nodeId))
+  const operonModelsQuery = useQuery({
+    ...providerModelsQuery(OPERON_PROVIDER_ID, nodeId),
+    enabled: providersQuery.data?.some((provider) => provider.id === OPERON_PROVIDER_ID && provider.available) === true,
+  })
+  const providers = providersQuery.isSuccess ? providersQuery.data : []
+  const operonModels = operonModelsQuery.isSuccess ? operonModelsQuery.data : undefined
+  const nativePickerRequested = useRef(false)
+  const emptyPickerText = (failed: boolean) => failed
+    ? intl.formatMessage({ id: "mobile.chats.agentsLoadFailed", defaultMessage: "Could not load agents." })
+    : intl.formatMessage({ id: "mobile.chats.noAgents", defaultMessage: "No agents available on this machine." })
 
   const chatTabs = useMemo(() => tabs.filter((t) => t.type === "chat"), [tabs])
   const openTab = useMemo(() => chatTabs.find((t) => t.id === openId) ?? null, [chatTabs, openId])
@@ -205,54 +214,32 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
     onDeepLinkConsumed?.()
   }, [openChatId, openChatTitle, openChatSubAgent, openChatTab, setTabChatId, setActiveTab, onDeepLinkConsumed])
 
-  // The native sheet needs the list before it opens. Use whatever is cached,
-  // even if stale (the agent list rarely changes), and refresh it in the
-  // background for next time; only a cold cache waits for the request.
-  const loadProviders = async (): Promise<Provider[]> => {
-    const toRows = (list: { id: string; label: string }[]) => list.map((p) => ({ id: p.id, label: p.label }))
-    const query = providersQueryFor(nodeId)
-    const cached = queryClient.getQueryData(query.queryKey)
-    if (cached) {
-      void queryClient.prefetchQuery(query)
-      return toRows(cached)
-    }
-    try {
-      return toRows(await queryClient.fetchQuery(query))
-    } catch {
-      // Leave the picker empty; the user can retry by reopening it.
-      return []
-    }
-  }
-
   const openPicker = async () => {
-    // Packaged apps: a system sheet (AgentSheet.swift / AgentSheet.kt) with
-    // the same rows; the web sheet stays for the browser and as the fallback.
-    if (hasNativeTabBar()) {
-      const list = await loadProviders()
-      try {
-        await NativeShell.presentAgentSheet({
-          title: intl.formatMessage({ id: "mobile.chats.newChat", defaultMessage: "New chat" }),
-          emptyText: intl.formatMessage({ id: "mobile.chats.loadingAgents", defaultMessage: "Loading agents…" }),
-          agents: list.map((p) => ({ id: p.id, label: p.label, logo: providerLogoName(p.id) ?? undefined })),
-        })
-        return
-      } catch {
-        // fall through to the web sheet
-      }
+    if (!hasNativeTabBar()) {
+      setPickerOpen(true)
+      return
     }
-    // The web sheet reads the list from `useProviders` above.
-    setPickerOpen(true)
+    // Native sheets take a snapshot of the rows, so wait for the catalog before presenting it.
+    const list = await queryClient.fetchQuery({ ...providersQueryFor(nodeId), retry: false }).catch(() => null)
+    const models = list?.some((provider) => provider.id === OPERON_PROVIDER_ID && provider.available)
+      ? await queryClient.fetchQuery({ ...providerModelsQuery(OPERON_PROVIDER_ID, nodeId), retry: false }).catch(() => undefined)
+      : undefined
+    const workspace = useEditorStore.getState()
+    if (workspace.currentWorkspaceId !== currentWorkspaceId || (workspace.currentNodeId ?? undefined) !== nodeId) return
+    nativePickerRequested.current = true
+    try {
+      await NativeShell.presentAgentSheet({
+        title: intl.formatMessage({ id: "mobile.chats.newChat", defaultMessage: "New chat" }),
+        emptyText: emptyPickerText(list === null),
+        agents: (list ?? []).map((p) => ({
+          id: p.id, label: p.label, logo: providerLogoName(p.id) ?? undefined, enabled: canStartChat(p, models),
+        })),
+      })
+    } catch {
+      nativePickerRequested.current = false
+      setPickerOpen(true)
+    }
   }
-
-  useEffect(() => {
-    if (!hasNativeTabBar()) return
-    const handle = NativeShell.addListener("agentPicked", ({ id }) => startChat(id))
-    return () => {
-      void handle.then((h) => h.remove()).catch(() => {})
-    }
-    // startChat only closes over stable store actions.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   // New chat from inside one (ChatGPT's compose button): the same agent picker
   // as the list's New. The current chat stays on screen until an agent is
@@ -270,15 +257,34 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
     }
   }, [])
 
-  const startChat = (providerId: string) => {
-    // Started from inside a chat: leave it the way Back would. Read through the
-    // refs — the native sheet's listener holds the first render's closure.
+  const startChat = useCallback((providerId: string) => {
+    const workspace = useEditorStore.getState()
+    if (workspace.currentWorkspaceId !== currentWorkspaceId || (workspace.currentNodeId ?? undefined) !== nodeId) return
+    // Recheck the machine's latest catalog before accepting a native pick.
+    const providerState = queryClient.getQueryState<ProviderSummary[]>(providersQueryFor(nodeId).queryKey)
+    const provider = providerState?.status === "success" ? providerState.data?.find((p) => p.id === providerId) : undefined
+    const modelState = queryClient.getQueryState<ProviderModelsResponse>(providerModelsQuery(OPERON_PROVIDER_ID, nodeId).queryKey)
+    if (!provider || !canStartChat(provider, modelState?.status === "success" ? modelState.data : undefined)) return
+    // Started from inside a chat: leave it the way Back would.
     if (openIdRef.current) discardRef.current(openIdRef.current)
     const id = createChatTab(providerId, "Chat")
     setActiveTab(id)
     setOpenId(id)
     setPickerOpen(false)
-  }
+  }, [createChatTab, currentWorkspaceId, nodeId, setActiveTab])
+
+  useEffect(() => {
+    if (!hasNativeTabBar()) return
+    const handle = NativeShell.addListener("agentPicked", ({ id }) => {
+      if (!nativePickerRequested.current) return
+      nativePickerRequested.current = false
+      startChat(id)
+    })
+    return () => {
+      nativePickerRequested.current = false
+      void handle.then((h) => h.remove()).catch(() => {})
+    }
+  }, [startChat])
 
   const openChat = (id: string) => {
     setActiveTab(id)
@@ -318,7 +324,9 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
     >
       {providers.length === 0 ? (
         <p className="px-2 py-6 text-center text-base text-muted-foreground/70">
-          <FormattedMessage id="mobile.chats.loadingAgents" defaultMessage="Loading agents…" />
+          {providersQuery.isPending
+            ? <FormattedMessage id="mobile.chats.loadingAgents" defaultMessage="Loading agents…" />
+            : emptyPickerText(providersQuery.isError)}
         </p>
       ) : (
         <div className="space-y-0.5">
@@ -326,8 +334,9 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
             <button
               key={provider.id}
               type="button"
+              disabled={!canStartChat(provider, operonModels)}
               onClick={() => startChat(provider.id)}
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-3 text-left text-base text-foreground/85 hover:bg-row-hover"
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-3 text-left text-base text-foreground/85 enabled:hover:bg-row-hover disabled:opacity-45"
             >
               <ProviderIcon id={provider.id} size={18} />
               {provider.label}

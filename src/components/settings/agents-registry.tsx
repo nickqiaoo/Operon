@@ -8,6 +8,7 @@ import { CliAutoUpdateSettings } from "./CliAutoUpdateSettings"
 import { ClaudeTogglesSettings } from "./ClaudeTogglesSettings"
 import { AcpAgentInstaller } from "./AcpAgentInstaller"
 import { AntigravityAuthStatus } from "./AntigravityAuthStatus"
+import { WebToolSettings } from "./WebToolSettings"
 import { AutoReviewSettings } from "./AutoReviewSettings"
 import { SshEnvironmentSettings } from "./SshEnvironmentSettings"
 import { ClaudeCodeIcon, CodexIcon, OpenCodeIcon, KimiIcon, GrokIcon, QoderIcon, CopilotIcon, AntigravityIcon, OperonIcon } from "./ProviderIcons"
@@ -166,6 +167,7 @@ export const AGENT_SETTINGS: readonly AgentSettingsEntry[] = [
         content: () => (
             <>
                 <AutoReviewSettings />
+                <WebToolSettings />
                 <SshEnvironmentSettings />
                 <ConfigEditor configDir=".operon" files={OPERON_FILES} />
             </>

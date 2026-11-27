@@ -1,12 +1,13 @@
 import { queryOptions } from '@tanstack/react-query'
 import type { SshEnvironmentProfile, SshHostKeyChallenge } from '@shared/ssh-environment'
 import { request } from './api-client'
+import { sshEnvironmentKeys } from './ssh-environment-queries'
 
 const endpoint = '/ssh-environments'
 export type SshEnvironmentInput = Omit<SshEnvironmentProfile, 'id'> & { password?: string }
 
 export const sshEnvironmentsQuery = queryOptions({
-  queryKey: ['ssh-environments'],
+  queryKey: sshEnvironmentKeys.all,
   queryFn: () => request<SshEnvironmentProfile[]>(endpoint),
   staleTime: 30_000,
 })

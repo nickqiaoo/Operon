@@ -6,8 +6,8 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-work
 import { createHarness, createModelManager, type HarnessSession, LocalEnvironment } from 'operon-agents'
 import { SshEnvironment } from 'operon-agents/advanced'
 import type { ChatMeta, ChatMetadata } from '../types/chat.js'
-import { additionalSshRefs, initSshEnvironments, saveSshEnvironment, sessionEnvironmentBindings, sshTarget } from './ssh-environments.js'
-import { changeChatEnvironment, releaseAddedEnvironments } from './chat-environments.js'
+import { additionalSshRefs, declareEnvironments, initSshEnvironments, saveSshEnvironment, sessionEnvironmentBindings } from './ssh-environments.js'
+import { changeChatEnvironment, clearPendingEnvironments } from './chat-environments.js'
 import { beginChatTurn, emitChatTurnFinished } from './ai/chat-turn-lifecycle.js'
 import { OperonStreamMapper } from './operon-runtime/message-mapper.js'
 
@@ -46,7 +46,8 @@ describe('Operon chat environments', () => {
       const chat: ChatMeta = { tp: 'chat', providerId: 'custom', sessionId: session.id, updatedAt: 0, metadata: { sshEnvironment: { id: profile.id, name: profile.name } } }
       const storage = { getChatMeta: () => chat, updateChatMetadata: (_id: number, metadata: ChatMetadata) => { chat.metadata = metadata } }
       const refs = await changeChatEnvironment(storage, 7, 'local', true, local)
-      expect(refs).toEqual(additionalSshRefs(['local'], profile.id, local))
+      expect(refs).toEqual([{ id: 'local', name: 'Local', cwd: local, target: 'local', connected: true }])
+      expect(chat.metadata?.additionalSshEnvironments).toBeUndefined()
       await session.close()
       const restored = await harness.resumeSession(session.id, { bindings: sessionEnvironmentBindings(profile, refs) })
       model.setResponses([
@@ -78,7 +79,7 @@ describe('Operon chat environments', () => {
     const profile = { name: 'Build Server', id: '59da817d-dda2-4fee-8b9d-96789e20c8bd', host: 'example.test', port: 22,
       cwd: remote, username: 'builder', keyPath: '/test-key', hostFingerprint: 'test' }
     saveSshEnvironment(profile)
-    const refs = additionalSshRefs([profile.id])
+    const refs = declareEnvironments(additionalSshRefs([profile.id]))
     const close = vi.fn(async () => {})
     const ssh = Object.assign(new LocalEnvironment(remote), { close })
     const connect = vi.spyOn(SshEnvironment, 'create').mockResolvedValue(ssh as unknown as SshEnvironment)
@@ -87,14 +88,13 @@ describe('Operon chat environments', () => {
     manager.models.setProvider(model.provider)
     const harness = createHarness({ config: { workDir: root, defaults: { model: model.provider.id + '/' + model.getModel().id,
       permission: { mode: 'yolo' } } }, modelManager: manager })
-    harness.onSessionOpened(session => () => releaseAddedEnvironments(session))
     provider.getOperonHarness.mockResolvedValue(harness)
     try {
       const session = await harness.createSession({ workDir: root, bindings: sessionEnvironmentBindings(undefined, refs) })
-      const chat: ChatMeta = { tp: 'chat', providerId: 'custom', sessionId: session.id, updatedAt: 0,
-        metadata: { additionalSshEnvironments: refs } }
+      const chat: ChatMeta = { tp: 'chat', providerId: 'custom', sessionId: session.id, updatedAt: 0, metadata: {} }
       const storage = { getChatMeta: () => chat, updateChatMetadata: (_id: number, metadata: ChatMetadata) => { chat.metadata = metadata } }
-      const target = sshTarget(profile.id)
+      const target = refs[0]!.target
+      expect(target).toBe('build-server')
       const mapper = new OperonStreamMapper(undefined, session)
       const calls: unknown[] = []
       session.onEvent(event => { for (const part of mapper.map(event)) if (part.type === 'tool-call') calls.push(part) })
@@ -123,8 +123,8 @@ describe('Operon chat environments', () => {
       } finally {
         emitChatTurnFinished({ chatId: 12, turnId: 'turn', status: 'completed' })
       }
-      await changeChatEnvironment(storage, 12, profile.id, false)
-      expect(chat.metadata?.additionalSshEnvironments).toEqual([])
+      expect(await changeChatEnvironment(storage, 12, profile.id, false)).toEqual([])
+      expect(chat.metadata).toEqual({})
       expect(restored.core.environments.get(target)).toBeUndefined()
       await expectDetachedWriteRejected(restored, model, target, 'result')
       expect(await readFile(join(root, 'result'), 'utf8')).toBe('local')
@@ -132,7 +132,7 @@ describe('Operon chat environments', () => {
       expect(close).toHaveBeenCalledTimes(2)
       connect.mockRejectedValueOnce(new Error('Host offline'))
       await expect(changeChatEnvironment(storage, 12, profile.id, true)).rejects.toThrow('Host offline')
-      expect(chat.metadata?.additionalSshEnvironments).toEqual([])
+      expect(restored.core.environments.size).toBe(1)
       await restored.close()
       expect(close).toHaveBeenCalledTimes(2)
     } finally {
@@ -140,5 +140,28 @@ describe('Operon chat environments', () => {
       vi.restoreAllMocks()
       await Promise.all([root, remote].map(path => rm(path, { recursive: true, force: true })))
     }
+  })
+
+  it('keeps the selection on a chat that has no session yet, until the session declares it', async () => {
+    const local = await mkdtemp(join(tmpdir(), 'operon-pending-'))
+    try {
+      const chat: ChatMeta = { tp: 'chat', providerId: 'custom', updatedAt: 0, metadata: { sshEnvironment: { id: 'build', name: 'Build' } } }
+      const storage = { getChatMeta: () => chat, updateChatMetadata: (_id: number, metadata: ChatMetadata) => { chat.metadata = metadata } }
+      expect(await changeChatEnvironment(storage, 3, 'local', true, local)).toEqual([{ id: 'local', name: 'Local', cwd: local, target: 'local' }])
+      expect(chat.metadata?.additionalSshEnvironments).toEqual([{ id: 'local', name: 'Local', cwd: local }])
+      clearPendingEnvironments(storage, 3)
+      expect(chat.metadata).toEqual({ sshEnvironment: { id: 'build', name: 'Build' } })
+    } finally {
+      await rm(local, { recursive: true, force: true })
+    }
+  })
+
+  it('names each environment after its machine, uniquely and in the framework spelling', () => {
+    const targets = declareEnvironments([
+      { id: 'a', name: 'Build Server' }, { id: 'b', name: 'build server' }, { id: 'c', name: '测试机' },
+      { id: 'd', name: 'Main' }, { id: 'e', name: '9 Café box' }, { id: 'local', name: 'Local', cwd: '/tmp' },
+    ]).map(env => env.target)
+    expect(targets).toEqual(['build-server', 'build-server-2', 'ssh', 'main-2', 'cafe-box', 'local'])
+    for (const target of targets) expect(target).toMatch(/^[a-z][a-z0-9_-]{0,31}$/)
   })
 })

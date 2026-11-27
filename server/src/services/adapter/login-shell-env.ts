@@ -3,8 +3,14 @@ import { userInfo } from 'node:os'
 
 const marker = '_OPERON_SHELL_ENV_'
 const command = `printf '${marker}\\0'; /usr/bin/env -0 && printf '${marker}\\0'`
-const budgetMs = 2000
+// The first read has nothing to fall back to: a slow shell profile (nvm, conda) must still land,
+// or tools installed through it are missing until the next refresh. Later refreshes keep the
+// last snapshot meanwhile, so they can give up sooner.
+const firstBudgetMs = 10_000
+const refreshBudgetMs = 2_000
+const refreshIntervalMs = 30_000
 let snapshot: Record<string, string> = {}
+let loaded = false
 let nextRefresh = 0
 let pending: Promise<void> | undefined
 
@@ -44,12 +50,13 @@ async function refresh(): Promise<void> {
   }
   let shell = process.env.SHELL
   try { shell = userInfo().shell || shell } catch { /* Use the inherited shell. */ }
-  const deadline = Date.now() + budgetMs
+  const deadline = Date.now() + (loaded ? refreshBudgetMs : firstBudgetMs)
   for (const candidate of new Set([shell, '/bin/zsh', '/bin/bash'])) {
     const remaining = deadline - Date.now()
     if (!candidate || remaining <= 0) continue
     try {
       snapshot = await probe(candidate, remaining)
+      loaded = true
       return
     } catch { /* Keep the last successful snapshot if every shell fails. */ }
   }
@@ -59,7 +66,7 @@ export function refreshLoginShellEnv(): Promise<void> {
   if (pending) return pending
   if (Date.now() < nextRefresh) return Promise.resolve()
   pending = refresh().finally(() => {
-    nextRefresh = Date.now() + 5000
+    nextRefresh = Date.now() + refreshIntervalMs
     pending = undefined
   })
   return pending

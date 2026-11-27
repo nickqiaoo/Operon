@@ -98,20 +98,7 @@ type ApprovalResolver = {
   type: ApprovalResolverType
 }
 
-type CodexMcpAuthStatus = 'unsupported' | 'notLoggedIn' | 'bearerToken' | 'oAuth'
 type CodexMcpStartupState = 'starting' | 'ready' | 'failed' | 'cancelled'
-
-interface CodexMcpServerStatus {
-  name: string
-  serverInfo: unknown | null
-  tools: Record<string, unknown>
-  authStatus: CodexMcpAuthStatus
-}
-
-interface CodexMcpServerStatusPage {
-  data: CodexMcpServerStatus[]
-  nextCursor: string | null
-}
 
 interface CodexMcpStartupStatus {
   threadId: string | null
@@ -121,13 +108,9 @@ interface CodexMcpStartupStatus {
   failureReason: 'reauthenticationRequired' | null
 }
 
-type SessionMcpStatus =
-  | 'pending'
-  | 'connected'
-  | 'failed'
-  | 'disabled'
-  | 'needs-auth'
-  | 'cancelled'
+type PendingMcpUpdate = { threadId: string; server: McpServerInfo }
+
+const mcpDisplayStatus = { starting: 'pending', ready: 'connected', failed: 'failed', cancelled: 'cancelled' } as const
 
 function isCodexMcpStartupState(value: unknown): value is CodexMcpStartupState {
   return value === 'starting' || value === 'ready' || value === 'failed' || value === 'cancelled'
@@ -234,7 +217,9 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
     ApprovalResolver
   >()
   private activeSdkServers: SdkMcpServer[] = []
-  private readonly mcpStartupStatuses = new Map<string, CodexMcpStartupStatus>()
+  private readonly mcpStartupStatuses = new Map<string, McpServerInfo>()
+  private pendingMcpUpdates?: PendingMcpUpdate[]
+  private releaseThread?: () => Promise<void>
   private readonly codexMcpServers: Record<string, CodexSdkMcpServerConfig> | undefined
   private readonly disabledMcpServers: string[]
   /** Codex's own knobs, overriding the mode preset (see `CodexOptions`). */
@@ -381,6 +366,9 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
     if (this.client && this.accountGeneration !== accounts.generation) {
       for (const unsubscribe of this.clientUnsubscribers) unsubscribe()
       this.clientUnsubscribers = []
+      void this.releaseThread?.()
+      this.releaseThread = undefined
+      this.mcpStartupStatuses.clear()
       this.clientLease?.()
       this.codexSession = null
       this.client = null
@@ -426,17 +414,18 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
           ) {
             return
           }
-          if (!this.isOwnThread(value.threadId)) return
-          this.mcpStartupStatuses.set(value.name, {
-            threadId: value.threadId,
+          const transport = this.codexMcpServers?.[value.name]?.transport
+          const server: McpServerInfo = {
             name: value.name,
-            status: value.status,
-            error: typeof value.error === 'string' ? value.error : null,
-            failureReason:
-              value.failureReason === 'reauthenticationRequired'
-                ? 'reauthenticationRequired'
-                : null,
-          })
+            status: value.failureReason === 'reauthenticationRequired' ? 'needs-auth' : mcpDisplayStatus[value.status],
+            ...(typeof value.error === 'string' && value.error ? { error: value.error } : {}),
+            ...(transport === 'stdio' || transport === 'http' ? { transport } : {}),
+          }
+          if (this.isOwnThread(value.threadId)) {
+            this.mcpStartupStatuses.set(server.name, server)
+          } else if (value.threadId && this.pendingMcpUpdates) {
+            this.pendingMcpUpdates.push({ threadId: value.threadId, server })
+          }
         }),
       )
     }
@@ -454,68 +443,6 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
   private isOwnThread(threadId: string | null | undefined): boolean {
     if (threadId == null) return true
     return this.threadId != null && String(threadId) === String(this.threadId)
-  }
-
-  private getMcpDisplayStatus(server: CodexMcpServerStatus): {
-    status: SessionMcpStatus
-    error?: string
-  } {
-    const startup = this.mcpStartupStatuses.get(server.name)
-    if (startup?.failureReason === 'reauthenticationRequired') {
-      return {
-        status: 'needs-auth',
-        ...(startup.error ? { error: startup.error } : {}),
-      }
-    }
-    if (startup) {
-      const status: SessionMcpStatus =
-        startup.status === 'starting'
-          ? 'pending'
-          : startup.status === 'ready'
-            ? 'connected'
-            : startup.status
-      return {
-        status,
-        ...(startup.error ? { error: startup.error } : {}),
-      }
-    }
-    if (server.authStatus === 'notLoggedIn') return { status: 'needs-auth' }
-    if (server.serverInfo !== null || Object.keys(server.tools).length > 0) {
-      return { status: 'connected' }
-    }
-    return { status: 'pending' }
-  }
-
-  private async listMcpServers(): Promise<McpServerInfo[]> {
-    const client = this.getClient()
-    const servers: CodexMcpServerStatus[] = []
-    let cursor: string | null = null
-
-    do {
-      const page: CodexMcpServerStatusPage = await client.request<CodexMcpServerStatusPage>(
-        'mcpServerStatus/list',
-        {
-          cursor,
-          limit: 100,
-          detail: 'toolsAndAuthOnly',
-          threadId: this.threadId ?? null,
-        },
-      )
-      servers.push(...page.data)
-      cursor = page.nextCursor
-    } while (cursor)
-
-    return servers.map((server) => {
-      const display = this.getMcpDisplayStatus(server)
-      const transport = this.codexMcpServers?.[server.name]?.transport
-      return {
-        name: server.name,
-        status: display.status,
-        ...(transport === 'stdio' || transport === 'http' ? { transport } : {}),
-        ...(display.error ? { error: display.error } : {}),
-        toolCount: Object.keys(server.tools).length,
-      }
-    })
   }
 
   private interruptTrackedSubTurns(): void {
@@ -631,6 +558,41 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
    * pursuit loop.
    */
   private async resolveThreadId(
+    client: AppServerClient,
+    effectiveSettings: CodexAppServerSettings,
+    instructions: string | undefined,
+    threadMode: string,
+  ): Promise<string> {
+    // stdout may deliver startup notifications in the same chunk as thread/start's
+    // response, before its promise gives us the thread id. Keep only our thread's.
+    const early: PendingMcpUpdate[] = []
+    if (!this.threadId || threadMode === 'stateless') this.pendingMcpUpdates = early
+    try {
+      const id = await this.openThread(client, effectiveSettings, instructions, threadMode)
+      if (client !== this.client) {
+        await client.unsubscribeUnusedThread(id)
+        throw new Error('Codex session closed while opening its thread')
+      }
+      if (this.threadId && this.threadId !== id) {
+        void this.releaseThread?.()
+        this.releaseThread = undefined
+        this.mcpStartupStatuses.clear()
+      }
+      this.threadId = id
+      for (const update of early) {
+        if (update.threadId === id) this.mcpStartupStatuses.set(update.server.name, update.server)
+      }
+      this.releaseThread ??= client.retainThread(id, () => {
+        this.mcpStartupStatuses.clear()
+        this.releaseThread = undefined
+      })
+      return id
+    } finally {
+      this.pendingMcpUpdates = undefined
+    }
+  }
+
+  private async openThread(
     client: AppServerClient,
     effectiveSettings: CodexAppServerSettings,
     instructions: string | undefined,
@@ -805,7 +767,6 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
 
       session = new SessionImpl(client, threadId)
       this.codexSession = session
-      this.threadId = threadId
 
       const turnParams: TurnStartParams = {
         threadId,
@@ -973,7 +934,6 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
     let threadId: string
     try {
       threadId = await this.resolveThreadId(client, effectiveSettings, this.instructions, threadMode)
-      this.threadId = threadId
     } catch (error) {
       cleanupTempFiles(tempFiles)
       throw error
@@ -1279,7 +1239,23 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
   }
 
   readonly native: CodexSessionNative = {
-    mcp: { list: () => this.listMcpServers() },
+    mcp: {
+      list: async () => Array.from(this.mcpStartupStatuses.values()),
+      listTools: async (name) => {
+        if (!this.client || !this.threadId || !this.releaseThread) throw new Error('No active Codex thread')
+        // Both identifiers are required to read the live connection's tool catalog.
+        const { data } = await this.client.request<{
+          data: Array<{ name: string; tools: Record<string, { name: string; description?: string | null }>; toolsError?: string | null }>
+        }>('mcpServerStatus/list', { threadId: this.threadId, serverName: name, detail: 'toolsAndAuthOnly' })
+        const server = data.find((entry) => entry.name === name)
+        if (!server) throw new Error(`MCP server "${name}" is unavailable in this thread`)
+        if (server.toolsError) throw new Error(server.toolsError)
+        return Object.values(server.tools).map(({ name, description }) => ({
+          name,
+          ...(description ? { description } : {}),
+        })).sort((a, b) => a.name.localeCompare(b.name))
+      },
+    },
     tasks: {
       stop: async (taskId) => {
         const turnId = this.subagents.activeTurn(taskId)
@@ -1320,9 +1296,13 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
     // instead of killing the process — it dies once the last session lets go.
     for (const unsubscribe of this.clientUnsubscribers) unsubscribe()
     this.clientUnsubscribers = []
-    this.clientLease?.()
+    const released = this.releaseThread?.()
+    this.releaseThread = undefined
+    const releaseClient = this.clientLease
     this.clientLease = null
     this.client = null
+    await released
+    releaseClient?.()
     await stopSdkMcpServers(this.activeSdkServers).catch(() => {})
     this.activeSdkServers = []
   }

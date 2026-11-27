@@ -3,8 +3,9 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { fireEvent, within } from '@testing-library/dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { IntlProvider } from 'react-intl';
 import { expect, it, vi } from 'vitest';
-import { EnvironmentPicker } from './DraftChatBar';
+import { EnvironmentPicker } from './EnvironmentPicker';
 import { useEditorStore } from '@/stores/editor-store';
 import { requestVia } from '@/lib/api-client';
 
@@ -36,9 +37,9 @@ it('keeps the local default, uses the saved host name, and locks changes during 
   const root = createRoot(container);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const render = (busy = false, chatId?: number, selected?: { id: string; name: string }) => act(async () => {
-    root.render(<QueryClientProvider client={client}>
+    root.render(<QueryClientProvider client={client}><IntlProvider locale="en">
       <EnvironmentPicker tabId={tabId} chatId={chatId} selected={selected} busy={busy} isMobile={false} localDir="/project" />
-    </QueryClientProvider>);
+    </IntlProvider></QueryClientProvider>);
   });
   const screen = within(document.body);
   try {
@@ -55,7 +56,8 @@ it('keeps the local default, uses the saved host name, and locks changes during 
     await act(async () => { fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /Mac mini/ })); });
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Mac mini is offline.');
     offline = false;
-    await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: 'Retry' })); });
+    // Selecting the failed row again retries the change.
+    await act(async () => { fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /Mac mini/ })); });
     expect(attached).toBe(true);
     await act(async () => { fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /Mac mini/ })); });
     expect(attached).toBe(false);

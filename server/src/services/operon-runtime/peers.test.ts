@@ -113,7 +113,9 @@ describe('teammate chat rows', () => {
     const environments = { sshEnvironment: { id: 'build', name: 'Build' }, additionalSshEnvironments: [{ id: 'local', name: 'Local', cwd: '/workspace' }] }
     mocks.chatMeta.mockImplementation((id: number) => id === 6 ? { workspaceId: 3, metadata: environments } : undefined)
     await createTeammateChat(session, member, undefined, async () => 'fallback/model')
-    expect(mocks.createChat).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: 3, metadata: { ...environments, peer: expect.objectContaining({ leadChatId: 6 }) } }))
+    // The root is the lead's; the other environments come from the lead's declaration when the
+    // teammate's session opens, so the row does not copy them.
+    expect(mocks.createChat).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: 3, metadata: { sshEnvironment: environments.sshEnvironment, peer: expect.objectContaining({ leadChatId: 6 }) } }))
   })
 
   it('falls back to the type key and the default model', async () => {

@@ -187,10 +187,10 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
     /// `agentPicked { id }`.
     @objc func presentAgentSheet(_ call: CAPPluginCall) {
         let title = call.getString("title") ?? "New chat"
-        let emptyText = call.getString("emptyText") ?? "Loading agents…"
+        let emptyText = call.getString("emptyText") ?? "No agents available on this machine."
         let agents: [AgentSheetAgent] = (call.getArray("agents", JSObject.self) ?? []).compactMap { raw in
             guard let id = raw["id"] as? String, let label = raw["label"] as? String else { return nil }
-            return AgentSheetAgent(id: id, label: label, logo: raw["logo"] as? String)
+            return AgentSheetAgent(id: id, label: label, logo: raw["logo"] as? String, enabled: raw["enabled"] as? Bool ?? false)
         }
         DispatchQueue.main.async { [weak self] in
             guard let presenter = self?.bridge?.viewController?.parent else {

@@ -292,11 +292,11 @@ class NativeShellPlugin : Plugin() {
     @PluginMethod
     fun presentAgentSheet(call: PluginCall) {
         val title = call.getString("title") ?: "New chat"
-        val emptyText = call.getString("emptyText") ?: "Loading agents…"
+        val emptyText = call.getString("emptyText") ?: "No agents available on this machine."
         val agents = call.getArray("agents", JSArray())?.objects().orEmpty().mapNotNull { raw ->
             val id = raw.optString("id").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
             val label = raw.optString("label").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-            AgentSheet.Agent(id, label, raw.optStringOrNull("logo"))
+            AgentSheet.Agent(id, label, raw.optStringOrNull("logo"), raw.optBoolean("enabled"))
         }
 
         onMainSheet(call) { activity ->

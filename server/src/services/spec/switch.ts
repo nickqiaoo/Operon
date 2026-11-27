@@ -187,7 +187,7 @@ async function replaceCoordinator(storage: BuildStorage, spec: Task): Promise<vo
     `You are taking over as the coordinator of spec #${spec.number} from another agent. ` +
       (run.stage === 'integrating'
         ? `It was resolving a sign-off conflict: check the worktree (git status) and carry on; when the merge is committed, call spec_integration_done(task: ${spec.number}, summary: ...).`
-        : `Tickets still blocked and waiting on the coordinator: ${numbers.join(', ')}. Check spec_status(task: ${spec.number}) and carry on.`),
+        : `Tickets still blocked and waiting on the coordinator: ${numbers.join(', ')}. Check spec_get_status(task: ${spec.number}) and carry on.`),
   ).catch(() => false)
 }
 
@@ -311,6 +311,6 @@ export async function dismissSwitchProposal(storage: BuildStorage, specId: numbe
     storage,
     spec,
     `The user declined switching ${roleName(proposal)} to ${seatName(proposal.to)}${note?.trim() ? `, saying: ${note.trim()}` : ''}. ` +
-      `Decide what else to do (spec_status(task: ${spec.number})), or leave it with them via spec_escalate.`,
+      `Decide what else to do (spec_get_status(task: ${spec.number})), or leave it with them via spec_escalate.`,
   ).catch(() => false)
 }

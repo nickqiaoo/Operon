@@ -104,6 +104,7 @@ export interface SessionFacts {
   nodeId?: string | null
   /** The SSH environment the chat runs in, when it does. */
   sshName?: string
+  sshCwd?: string
 }
 
 export interface SessionUsageCard {
@@ -295,7 +296,7 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
         )}
       </div>
       {/* Workspace facts first: they hold before the first message, too. */}
-      <SessionFactRows cwd={cwd} git={git.data} model={facts?.model} effort={facts?.effort} nodeId={facts?.nodeId ?? undefined} sshName={facts?.sshName} />
+      <SessionFactRows cwd={facts?.sshCwd ?? cwd} git={git.data} model={facts?.model} effort={facts?.effort} nodeId={facts?.nodeId ?? undefined} sshName={facts?.sshName} />
       {noSession ? (
         <div className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
           <div className="font-medium text-foreground/80"><FormattedMessage id="editor.session.none" defaultMessage="No active session" /></div>
@@ -313,7 +314,7 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
           ) : (
             <>
               <Stat dot={servers.length === 0 ? 'bg-muted-foreground/40' : mcpProblems > 0 ? 'bg-status-warn' : 'bg-status-ok/70'}>
-                {mcpConnected}/{servers.length} MCP
+                {providerId === 'codex' && !servers.length ? '—' : `${mcpConnected}/${servers.length}`} MCP
               </Stat>
               {fullSessionInspector ? (
                 <>
@@ -407,6 +408,9 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
             key={sessionKey}
             chatId={id}
             res={mcp}
+            emptyText={providerId === 'codex'
+              ? <FormattedMessage id="editor.session.mcpUnreported" defaultMessage="No MCP status reported for this session yet." />
+              : <FormattedMessage id="editor.session.mcpEmpty" defaultMessage="No MCP servers configured." />}
             // Codex and Qoder report MCP status only; neither exposes a reconnect.
             canReconnect={providerId !== 'codex' && providerId !== 'qoder'}
             canToggle={providerId === 'claude-code' || providerId === 'opencode'}
@@ -625,9 +629,11 @@ const MCP_RANK: Record<McpServerDTO['status'], number> = {
 function McpSection({
   chatId,
   res,
+  emptyText,
   canReconnect,
   canToggle,
 }: {
+  emptyText: React.ReactNode
   chatId: number
   res: Resource<{ servers: McpServerDTO[] }>
   canReconnect: boolean
@@ -666,7 +672,7 @@ function McpSection({
       expanded={expanded}
       onToggle={() => setExpanded((v) => !v)}
     >
-      <StateRow res={res} empty={servers.length === 0} emptyText={<FormattedMessage id="editor.session.mcpEmpty" defaultMessage="No MCP servers configured." />} />
+      <StateRow res={res} empty={servers.length === 0} emptyText={emptyText} />
       {actionError ? (
         <div className={cn(INDENT, 'flex items-start gap-2 py-2 text-[11px] text-destructive')}>
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
@@ -737,6 +743,7 @@ function useMcpTools(chatId: number, name: string, enabled: boolean) {
 
   useEffect(() => {
     if (!enabled || tools != null) return
+    setError(null)
     let cancelled = false
     agent
       .mcpTools(chat, name)

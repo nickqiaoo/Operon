@@ -199,7 +199,7 @@ export async function getClaudeUsageLimits(options?: { force?: boolean }): Promi
     // pushes fold into it between polls, so the cached copy can be behind a
     // number the client has already been shown, and serving it would step the
     // badge backwards. `peek` is an in-memory read of that same snapshot.
-    return { success: true, data: getRuntime().claudeCode.peekAccountUsage() ?? claudeUsageCache.data }
+    return { success: true, data: getRuntime().native('claude-code').peekAccountUsage() ?? claudeUsageCache.data }
   }
 
   if (!force && claudeUsageInFlight) {
@@ -216,7 +216,7 @@ export async function getClaudeUsageLimits(options?: { force?: boolean }): Promi
     }
   }
 
-  const request = getRuntime().claudeCode.accountUsage(force ? { force: true } : undefined)
+  const request = getRuntime().native('claude-code').accountUsage(force ? { force: true } : undefined)
   claudeUsageInFlight = request
   try {
     const data = await request
@@ -261,7 +261,7 @@ export async function getCodexUsageLimits(options?: { force?: boolean }): Promis
 
   // Each app-server already coalesces reads. Keep that cache scoped to the current selection.
   try {
-    const data = await getRuntime().codex.accountUsage(force ? 0 : undefined)
+    const data = await getRuntime().native('codex').accountUsage(force ? 0 : undefined)
     return data ? { success: true, data } : { success: false, error: 'No Codex usage data available' }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

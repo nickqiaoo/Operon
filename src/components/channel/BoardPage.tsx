@@ -115,7 +115,7 @@ export function BoardPage({ view, onViewChange, onOpenWorkspace, onOpenChat, ini
         <Popover open={agentsOpen} onOpenChange={setAgentsOpen}>
           <PopoverTrigger asChild>
             <Button size="sm" variant="ghost" className="no-drag h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground">
-              <AgentStackIcon className="size-4" />
+              <AgentStackIcon className="h-3.5 w-3.5" />
               <FormattedMessage id="channel.section.agents" defaultMessage="Agents" />
               {agentCount > 0 && <span className="text-xs tabular-nums text-muted-foreground/60">{agentCount}</span>}
             </Button>

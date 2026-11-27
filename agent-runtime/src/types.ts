@@ -461,6 +461,7 @@ export interface McpServerInfo {
 /** Read-only MCP status (Codex). */
 export interface McpStatusControl {
   list(): Promise<McpServerInfo[]>
+  listTools?(name: string): Promise<Array<{ name: string; description?: string }>>
 }
 
 /** MCP status plus live control (Claude Code, OpenCode). */

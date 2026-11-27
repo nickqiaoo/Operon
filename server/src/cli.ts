@@ -6,14 +6,18 @@
 //
 // Everything but `serve` and `service` is a thin client of the RUNNING node: it
 // finds it through the discovery file the server publishes (plugin-server.json)
-// and authenticates with the token file next to it, then calls the node's own
-// local-only routes. So a join takes effect in the running process, no restart.
+// and authenticates with the token file next to it, then calls the node's API.
 import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createInterface } from 'node:readline/promises'
+import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import type { RemotePairingQrPayload, RemotePairingStatus } from '../../shared/e2ee/protocol.js'
 import { getOperonHome } from '../../shared/operon-home.js'
+import type { MobilePairingSummary } from './types/mobile.js'
+import type { Project, Workspace } from './types/project.js'
 
 declare const __OPERON_VERSION__: string | undefined
 
@@ -33,6 +37,9 @@ const USAGE = `Usage: operon <command>
   node pair <code>          Pair with the machine showing <code>
   node status               Account, connection and paired machines
   node logout               Take this machine off the account
+
+  device pair               Pair a web browser or mobile app with this node
+  project add [path]        Register a Git checkout as a project workspace (default: current directory)
 
   --version                 Print the version`
 
@@ -71,7 +78,7 @@ async function call<T>(method: 'GET' | 'POST', route: string, body?: unknown): P
   const { base, token } = localNode()
   let response: Response
   try {
-    response = await fetch(`${base}/api/delegations${route}`, {
+    response = await fetch(`${base}/api${route}`, {
       method,
       headers: { ...(token ? { 'x-operon-token': token } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
@@ -112,7 +119,7 @@ async function nodeCommand(args: string[]): Promise<void> {
       const code = rest.join('')
       if (!code) throw new CliError('Usage: operon node join <code>  (get one on a signed-in machine: Settings → Remote → Add a server)')
       console.log('Joining…')
-      const result = await call<{ nodeId: string; label: string; peer: Peer }>('POST', '/local/enroll/join', { code, label })
+      const result = await call<{ nodeId: string; label: string; peer: Peer }>('POST', '/delegations/local/enroll/join', { code, label })
       console.log(`✓ Signed in as "${result.label}" (${result.nodeId})`)
       console.log(`✓ Paired with "${result.peer.label ?? result.peer.nodeId}"`)
       console.log('Other machines of the account can now open this one.')
@@ -121,16 +128,16 @@ async function nodeCommand(args: string[]): Promise<void> {
     case 'pair': {
       const code = rest.join('')
       if (code) {
-        const { peer } = await call<{ peer: Peer }>('POST', '/local/pair/join', { code })
+        const { peer } = await call<{ peer: Peer }>('POST', '/delegations/local/pair/join', { code })
         console.log(`✓ Paired with "${peer.label ?? peer.nodeId}"`)
         return
       }
-      const shown = await call<{ code: string; expiresAt: number }>('POST', '/local/pair/code')
+      const shown = await call<{ code: string; expiresAt: number }>('POST', '/delegations/local/pair/code')
       console.log(`Enter this code on the other machine (Settings → Remote → Pair a machine):\n\n    ${shown.code}\n`)
       console.log('Waiting… (Ctrl-C to cancel)')
       for (;;) {
         await new Promise((resolve) => setTimeout(resolve, 2_000))
-        const status = await call<{ status: 'waiting' | 'paired' | 'expired'; peer?: Peer }>('GET', '/local/pair/code')
+        const status = await call<{ status: 'waiting' | 'paired' | 'expired'; peer?: Peer }>('GET', '/delegations/local/pair/code')
         if (status.status === 'paired') {
           console.log(`✓ Paired with "${status.peer?.label ?? status.peer?.nodeId}"`)
           return
@@ -139,7 +146,7 @@ async function nodeCommand(args: string[]): Promise<void> {
       }
     }
     case 'status': {
-      const account = await call<Account>('GET', '/local/account')
+      const account = await call<Account>('GET', '/delegations/local/account')
       if (!account.signedIn) {
         console.log('Not signed in. Run `operon node join <code>`.')
         return
@@ -147,12 +154,12 @@ async function nodeCommand(args: string[]): Promise<void> {
       console.log(`Machine:   ${account.label ?? '(unnamed)'} (${account.nodeId})`)
       console.log(`Broker:    ${account.online ? 'online' : account.running ? 'connecting…' : 'not connected'}`)
       console.log(`Others may use this machine: ${account.acceptingOtherMachines ? 'yes' : 'no'}`)
-      const { peers } = await call<{ peers: Peer[] }>('GET', '/local/peers')
+      const { peers } = await call<{ peers: Peer[] }>('GET', '/delegations/local/peers')
       console.log(`Paired:    ${peers.length ? peers.map((p) => p.label ?? p.nodeId).join(', ') : 'none'}`)
       return
     }
     case 'logout': {
-      const { revoked } = await call<{ revoked: boolean }>('POST', '/local/account/leave')
+      const { revoked } = await call<{ revoked: boolean }>('POST', '/delegations/local/account/leave')
       console.log(revoked
         ? '✓ Signed out. This machine is off the account.'
         : 'Signed out locally, but Broker could not be reached: remove this machine from another machine\'s Settings → Remote.')
@@ -161,6 +168,72 @@ async function nodeCommand(args: string[]): Promise<void> {
     default:
       throw new CliError(USAGE)
   }
+}
+
+async function pairDevice(): Promise<void> {
+  if (!process.stdin.isTTY) throw new CliError('Device pairing needs an interactive terminal. Over SSH, use `ssh -t`.')
+  const code = await call<RemotePairingQrPayload>('POST', '/e2ee/pair/start')
+  const session = `/e2ee/pair/session/${encodeURIComponent(code.pairingId)}`
+  const expired = 'The pairing code expired. Run `operon device pair` again.'
+  console.log('Select this machine in Operon, then paste the full code into "Paste pairing code" and select "Pair device":\n')
+  console.log(JSON.stringify(code))
+  console.log('\nWaiting for the device to request approval… (Ctrl-C to stop)')
+
+  for (;;) {
+    const { status, pairing } = await call<Pick<RemotePairingStatus, 'status'> & { pairing?: MobilePairingSummary }>('GET', session)
+    if (status === 'expired') throw new CliError(expired)
+    if (status === 'rejected') throw new CliError('The device pairing request was rejected.')
+    if (status === 'confirmed') {
+      console.log('✓ Device paired.')
+      return
+    }
+    if (status === 'pending' && pairing) {
+      const device = JSON.stringify(pairing.mobileLabel ?? pairing.mobileDeviceId)
+      const terminal = createInterface({ input: process.stdin, output: process.stdout })
+      let answer: string
+      try {
+        const signal = AbortSignal.timeout(Math.max(0, code.expiresAt - Date.now()))
+        answer = await terminal.question(`Approve ${device} (${pairing.mobileFingerprint})? [y/N] `, { signal })
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') throw new CliError(expired)
+        throw error
+      } finally {
+        terminal.close()
+      }
+      if (!/^y(es)?$/i.test(answer.trim())) {
+        await call('POST', `${session}/reject`)
+        console.log('Device pairing rejected.')
+        return
+      }
+      await call('POST', `${session}/approve`)
+      console.log(`✓ Paired with ${device}.`)
+      return
+    }
+    await delay(1_000)
+  }
+}
+
+async function addProject(directory: string): Promise<void> {
+  const git = (...args: string[]) => execFileSync('git', args, {
+    cwd: directory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let rootPath: string
+  let worktreePath: string
+  let branchName: string
+  try {
+    worktreePath = git('rev-parse', '--show-toplevel').replace(/\r?\n$/, '')
+    // Git lists the main checkout first, including when run in a linked worktree.
+    rootPath = git('worktree', 'list', '--porcelain', '-z').split('\0', 1)[0].slice('worktree '.length)
+    branchName = git('branch', '--show-current').trim()
+  } catch (error) {
+    const failure = error as NodeJS.ErrnoException & { stderr?: string }
+    throw new CliError(`Could not read Git checkout at ${JSON.stringify(directory)}: ${failure.stderr?.trim() || failure.message}`)
+  }
+  const { project, workspace } = await call<{ project: Project; workspace: Workspace }>('POST', '/projects/import', {
+    project: { name: path.basename(rootPath), rootPath },
+    workspace: { name: branchName || path.basename(worktreePath), branchName: branchName || 'detached', worktreePath },
+  })
+  console.log(`✓ Project ${JSON.stringify(project.name)} (${project.id}), workspace ${JSON.stringify(workspace.name)} (${workspace.id})`)
 }
 
 // ── Running as a service ────────────────────────────────────────────────────
@@ -264,6 +337,14 @@ async function main(argv: string[]): Promise<void> {
       return
     case 'node':
       await nodeCommand(args)
+      return
+    case 'device':
+      if (args.length !== 1 || args[0] !== 'pair') throw new CliError('Usage: operon device pair')
+      await pairDevice()
+      return
+    case 'project':
+      if (args[0] !== 'add' || args.length > 2) throw new CliError('Usage: operon project add [path]')
+      await addProject(args[1] ?? process.cwd())
       return
     case '--version':
     case '-v':

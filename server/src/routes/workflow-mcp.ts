@@ -34,6 +34,7 @@ import {
 import { startRun } from '../services/workflow/run.js'
 import { readRunScript } from '../services/workflow/store.js'
 import { sshProfile } from '../services/ssh-environments.js'
+import { chatEnvironments } from '../services/chat-environments.js'
 import { getChatStorage } from '../services/ai/state.js'
 import { getProviders } from '../services/ai/providers.js'
 import { agentModelCatalog } from '../services/agents/model-catalog.js'
@@ -351,14 +352,15 @@ export function workflowMcpRoutes() {
       .map((p) => p.id)
       .filter((id) => id !== IN_APP_PROVIDER_ID && id !== IN_APP_AGENT)
     availableAgents.push(IN_APP_AGENT)
-    const metadata = chatId ? getChatStorage()?.getChatMeta(chatId)?.metadata : undefined
-    const sshEnvironment = metadata?.sshEnvironment
+    const chat = chatId ? getChatStorage()?.getChatMeta(chatId) : undefined
+    const sshEnvironment = chat?.metadata?.sshEnvironment
     const cwd = sshEnvironment ? sshProfile(sshEnvironment).cwd : hostCwd ?? process.cwd()
     const sessionModelId = defaultCustomModel(chatId)
     return serveMcpOverHono(c, buildWorkflowMcpServer({
       availableAgents: sshEnvironment && !hostCwd ? [IN_APP_AGENT] : availableAgents,
       cwd, hostCwd, chatId, sessionModelId, sshEnvironment,
-      additionalSshEnvironments: metadata?.additionalSshEnvironments,
+      // Sub-agents declare what the lead's session has now.
+      additionalSshEnvironments: await chatEnvironments(chat),
     }), caller.body)
   }
 

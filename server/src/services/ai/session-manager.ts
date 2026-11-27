@@ -317,10 +317,11 @@ export class SessionManager {
     if (session.activeRequest) {
       session.activeRequest.abortController.abort()
     }
-    await session.runtime.close(reason)
+    // A quick reopen can create the next session while Codex acknowledges the unsubscribe.
     this.sessions.delete(chatId)
-    // The process that ran them is gone, and its background agents with it.
+    // Clear its task list before a replacement can publish its own.
     this.backgroundHandler?.(chatId, { type: 'tasks', tasks: [] })
+    await session.runtime.close(reason)
   }
 
   async destroyAll(): Promise<void> {

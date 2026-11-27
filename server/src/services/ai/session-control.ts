@@ -85,6 +85,9 @@ export async function runSessionControl(session: AgentSession, method: string, p
     case 'mcp.list':
       if (mcp?.list) return { servers: await mcp.list() }
       break
+    case 'mcp.tools':
+      if (mcp?.listTools) return { tools: await mcp.listTools(readName(params)) }
+      break
     case 'mcp.reconnect':
       if (mcp?.reconnect) {
         await mcp.reconnect(readName(params))

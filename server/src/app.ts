@@ -51,6 +51,8 @@ import { initClaudeTogglesService } from './services/claude-toggles.js'
 import { initDiffPreviewConfigService, getDiffPreviewConfig } from './services/diff-preview-config.js'
 import { commitMessageConfigRoutes } from './routes/commit-message-config.js'
 import { initCommitMessageConfigService } from './services/commit-message-config.js'
+import { webToolRoutes } from './routes/web-tools.js'
+import { initWebTools } from './services/web-tools.js'
 import { autoReviewConfigRoutes } from './routes/auto-review-config.js'
 import { initAutoReviewConfigService } from './services/auto-review-config.js'
 import { sshEnvironmentRoutes } from './routes/ssh-environments.js'
@@ -221,6 +223,7 @@ export async function createApp(deps: AppDeps) {
   initDiffPreviewConfigService(deps.storage)
   initClaudeTogglesService(deps.storage)
   initCommitMessageConfigService(deps.storage)
+  initWebTools(deps.storage)
   initAutoReviewConfigService(deps.storage)
   initSshEnvironments(deps.storage, deps.sshPasswordEncryption)
   initSpecRoleSettings(deps.storage)
@@ -422,6 +425,7 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/diff-preview', diffPreviewConfigRoutes())
   app.route('/api/claude-toggles', claudeTogglesRoutes())
   app.route('/api/commit-message', commitMessageConfigRoutes())
+  app.route('/api/operon-web-tools', webToolRoutes())
   app.route('/api/auto-review', autoReviewConfigRoutes())
   app.route('/api/ssh-environments', sshEnvironmentRoutes())
   app.route('/api/saas', saasRoutes())

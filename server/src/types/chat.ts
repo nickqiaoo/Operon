@@ -12,6 +12,11 @@ export interface ChatMetadata {
   cronjobId?: number
   /** chat-runtime fields */
   modeId?: string
+  /**
+   * Environments to declare besides the root, for a chat created before its session (a scheduled
+   * message, a workflow sub-agent). The first turn hands them to the new session and clears this;
+   * from then on the session's declaration is the only record (services/chat-environments.ts).
+   */
   additionalSshEnvironments?: import('../../../shared/ssh-environment.js').SshEnvironmentRef[]
   sshEnvironment?: import('../../../shared/ssh-environment.js').SshEnvironmentRef
   /** A workflow or spec sub-agent's conversation (tp 'workflow-agent'): which run row it is. */

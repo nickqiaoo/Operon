@@ -5,7 +5,7 @@ import { getRuntime } from '../services/ai/state.js'
 
 export function codexAccountRoutes() {
   const router = new Hono()
-  const accounts = () => getRuntime().codex.accounts
+  const accounts = () => getRuntime().native('codex').accounts
   router.onError((error, c) => c.json({ error: error.message }, 400))
   router.get('/', async c => c.json(await accounts().getState(c.req.query('refresh') === '1')))
   router.get('/selection', c => streamSSE(c, async stream => {

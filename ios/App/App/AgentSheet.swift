@@ -12,6 +12,7 @@ struct AgentSheetAgent: Identifiable {
     let label: String
     /// Imageset name; nil or unknown draws a neutral placeholder tile.
     let logo: String?
+    let enabled: Bool
 }
 
 struct AgentSheetView: View {
@@ -52,6 +53,8 @@ struct AgentSheetView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(RowButtonStyle())
+                            .disabled(!agent.enabled)
+                            .opacity(agent.enabled ? 1 : 0.45)
                         }
                     }
                     .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))

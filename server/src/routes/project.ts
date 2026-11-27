@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import { isAbsolute } from 'node:path'
 import { Hono } from 'hono'
 import type { AgentBindingStorageAdapter, ChatStorageAdapter, ProjectStorageAdapter, TaskStorageAdapter } from '../storage/interface.js'
 import type { CreateProjectInput, CreateWorkspaceInput, TaskChildSession, Workspace, WorkspaceChat, WorkspaceTask } from '../types/project.js'
@@ -152,6 +153,21 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
     const input = await c.req.json<CreateProjectInput>()
     const project = storage.createProject(input)
     return c.json({ project })
+  })
+
+  // Import a checkout and its project together so retrying `operon project add` reuses them.
+  router.post('/import', async (c) => {
+    const input = await c.req.json<{ project?: CreateProjectInput; workspace?: CreateWorkspaceInput }>().catch(() => null)
+    const project = input?.project
+    const workspace = input?.workspace
+    if (typeof project?.name !== 'string' || !project.name.trim()
+      || typeof project.rootPath !== 'string' || !isAbsolute(project.rootPath)
+      || typeof workspace?.name !== 'string' || !workspace.name.trim()
+      || typeof workspace.branchName !== 'string' || !workspace.branchName.trim()
+      || typeof workspace.worktreePath !== 'string' || !isAbsolute(workspace.worktreePath)) {
+      return c.json({ error: 'Expected a named project and workspace with absolute paths and a branch.' }, 400)
+    }
+    return c.json(storage.importProjectWorkspace(project, workspace))
   })
 
   // Pin to / unpin from the top of the list

@@ -10,8 +10,6 @@ import { SessionImpl } from './sdk/session.js'
 import type { AppServerClient } from './sdk/app-server-client.js'
 import { createRuntimeContext } from '../../context.js'
 
-const ctx = createRuntimeContext()
-
 const createModelInfo = (
   overrides: Partial<ModelInfo> = {},
 ): ModelInfo => ({
@@ -202,74 +200,108 @@ describe('Codex approved MCP servers', () => {
 })
 
 describe('Codex MCP status', () => {
-  it('lists every app-server status page and maps it to the Session panel shape', async () => {
+  function fixture(resume?: string) {
     const session = new CodexRuntimeSession({
-      cwd: '/tmp',
-      resume: 'thread-1',
-      mcpServers: {
-        browser: {
-          type: 'http',
-          url: 'http://127.0.0.1:3000/mcp',
-        },
-      },
-    }, ctx)
-    const request = vi.fn(async (method: string, params?: unknown) => {
-      expect(method).toBe('mcpServerStatus/list')
-      const cursor = (params as { cursor?: string | null } | undefined)?.cursor
-      if (cursor == null) {
-        return {
-          data: [
-            {
-              name: 'browser',
-              serverInfo: { name: 'browser', version: '1.0.0' },
-              tools: { open: {}, click: {} },
-              authStatus: 'unsupported',
-            },
-          ],
-          nextCursor: 'page-2',
-        }
-      }
-      expect(cursor).toBe('page-2')
-      return {
-        data: [
-          {
-            name: 'private-server',
-            serverInfo: null,
-            tools: {},
-            authStatus: 'notLoggedIn',
-          },
-        ],
-        nextCursor: null,
-      }
+      cwd: '/tmp', resume,
+      mcpServers: { browser: { type: 'http', url: 'http://localhost/mcp' } },
+    }, createRuntimeContext({ resolveBinary: () => '/mock/codex' }))
+    const internals = session as unknown as {
+      getClient(): AppServerClient
+      resolveThreadId(client: AppServerClient, settings: { resume?: string }, instructions: undefined, mode: string): Promise<string>
+    }
+    const client = internals.getClient()
+    const wire = client as unknown as {
+      initialized: boolean
+      sendRequest(method: string, params: unknown): Promise<unknown>
+      handleNotification(event: { method: string; params: Record<string, unknown> }): void
+    }
+    const emit = (threadId: string, name: string, status: string, extra = {}) => wire.handleNotification({
+      method: 'mcpServer/startupStatus/updated', params: { threadId, name, status, ...extra },
     })
-    Object.assign(session, { client: { request } })
+    const attach = () => internals.resolveThreadId(client, { resume }, undefined, 'persistent')
+    return { session, client, wire, emit, attach }
+  }
 
-    await expect(session.native.mcp.list()).resolves.toEqual([
-        {
-          name: 'browser',
-          status: 'connected',
-          transport: 'http',
-          toolCount: 2,
-        },
-        {
-          name: 'private-server',
-          status: 'needs-auth',
-          toolCount: 0,
-        },
-      ])
-    expect(request).toHaveBeenCalledTimes(2)
-    expect(request).toHaveBeenNthCalledWith(1, 'mcpServerStatus/list', {
-      cursor: null,
-      limit: 100,
-      detail: 'toolsAndAuthOnly',
-      threadId: 'thread-1',
+  it('reads push updates across panel reads, including notifications before thread/start returns', async () => {
+    const { session, client, wire, emit, attach } = fixture()
+    wire.initialized = true
+    const rpc = vi.spyOn(wire, 'sendRequest').mockImplementation(async (method) => {
+      if (method === 'thread/start') {
+        emit('elsewhere', 'foreign', 'ready')
+        emit('thread-1', 'browser', 'starting')
+        return { thread: { id: 'thread-1' } }
+      }
+      return {}
     })
+    try {
+      expect(await session.native.mcp.list()).toEqual([])
+      await attach()
+      expect(await session.native.mcp.list()).toEqual([{ name: 'browser', status: 'pending', transport: 'http' }])
+      emit('thread-1', 'browser', 'ready')
+      emit('thread-1', 'private', 'failed', { error: 'Sign in', failureReason: 'reauthenticationRequired' })
+      emit('elsewhere', 'browser', 'failed')
+      const expected = [
+        { name: 'browser', status: 'connected', transport: 'http' },
+        { name: 'private', status: 'needs-auth', error: 'Sign in' },
+      ]
+      expect(await session.native.mcp.list()).toEqual(expected)
+      expect(await session.native.mcp.list()).toEqual(expected)
+      expect(rpc.mock.calls.map(([method]) => method)).toEqual(['thread/start'])
+      await session.close()
+      expect(rpc).toHaveBeenLastCalledWith('thread/unsubscribe', { threadId: 'thread-1' }, expect.any(Number))
+      expect(await session.native.mcp.list()).toEqual([])
+    } finally {
+      await session.close()
+      rpc.mockRestore()
+      client.dispose()
+    }
   })
 
-  it('keeps Codex MCP controls read-only', () => {
-    const session = new CodexRuntimeSession({ cwd: '/tmp' }, ctx)
+  it('opens a warm resume with no reported state and only unsubscribes the last owner', async () => {
+    const a = fixture('thread-1')
+    const b = fixture('thread-1')
+    expect(b.client).toBe(a.client)
+    a.wire.initialized = true
+    const rpc = vi.spyOn(a.wire, 'sendRequest').mockResolvedValue({ thread: { id: 'thread-1' } })
+    try {
+      await a.attach()
+      await b.attach()
+      expect(await b.session.native.mcp.list()).toEqual([])
+      await a.session.close()
+      expect(rpc.mock.calls.map(([method]) => method)).toEqual(['thread/resume', 'thread/resume'])
+      b.emit('thread-1', 'stdio-probe', 'ready')
+      expect(await b.session.native.mcp.list()).toEqual([{ name: 'stdio-probe', status: 'connected' }])
+      await b.session.close()
+      expect(rpc.mock.calls.map(([method]) => method)).toEqual(['thread/resume', 'thread/resume', 'thread/unsubscribe'])
+    } finally {
+      await a.session.close()
+      await b.session.close()
+      rpc.mockRestore()
+    }
+  })
 
-    expect(Object.keys(session.native.mcp)).toEqual(['list'])
+  it('requests tools only for the selected server on an attached thread', async () => {
+    const { session, client, wire, attach } = fixture('thread-1')
+    wire.initialized = true
+    const rpc = vi.spyOn(wire, 'sendRequest').mockResolvedValue({ thread: { id: 'thread-1' } })
+    try {
+      await expect(session.native.mcp.listTools?.('browser')).rejects.toThrow('No active Codex thread')
+      await attach()
+      rpc.mockResolvedValueOnce({ data: [{
+        name: 'browser',
+        tools: { open: { name: 'open', description: 'Open a page', inputSchema: {} } },
+      }] })
+      await expect(session.native.mcp.listTools?.('browser')).resolves.toEqual([{ name: 'open', description: 'Open a page' }])
+      expect(rpc.mock.lastCall?.slice(0, 2)).toEqual(['mcpServerStatus/list', {
+        threadId: 'thread-1', serverName: 'browser', detail: 'toolsAndAuthOnly',
+      }])
+      rpc.mockResolvedValueOnce({ data: [{ name: 'browser', tools: {}, toolsError: 'Catalog unavailable' }] })
+      await expect(session.native.mcp.listTools?.('browser')).rejects.toThrow('Catalog unavailable')
+    } finally {
+      await session.close()
+      rpc.mockRestore()
+      client.dispose()
+    }
   })
 })
 

@@ -35,7 +35,7 @@ const NO_SPECS: ChatSpec[] = []
 /**
  * The specs a conversation started, held above its composer while they run.
  *
- * The spec's card stays where `start_spec` left it, and a conversation keeps
+ * The spec's card stays where `spec_start` left it, and a conversation keeps
  * going below it — every stage reports back, the user replies — so the card
  * scrolled away just when its buttons were wanted. The bar is where the user
  * already is: one line while the spec runs, and the gate's buttons right there

@@ -250,8 +250,11 @@ export function CodexAccountsSettings() {
           </fieldset>}
           {error && <p className="text-xs text-destructive" role="alert">{localizeError(intl, error.message)}</p>}
           <DialogFooter>
-            <Button variant="ghost" size="sm" disabled={busy} onClick={() => setAttempt(undefined)}>{t(labels.cancel)}</Button>
-            <Button size="sm" disabled={busy || (!!attempt.creditId && !selectedCredit)} onClick={redeem}>{t(labels.useReset)}</Button>
+            <Button variant="ghost" size="sm" className="h-8" disabled={busy} onClick={() => setAttempt(undefined)}>{t(labels.cancel)}</Button>
+            <Button variant="secondary" size="sm" className="h-8 gap-1.5" disabled={busy || (!!attempt.creditId && !selectedCredit)} onClick={redeem}>
+              {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {t(labels.useReset)}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>}

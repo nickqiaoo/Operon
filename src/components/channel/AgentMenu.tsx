@@ -1,4 +1,4 @@
-import { ChannelDialog } from './ChannelDialog'
+import { ResponsiveDialog } from '@/components/mobile/ResponsiveDialog'
 import { useState, useEffect } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { Settings2, Square, RotateCcw, ExternalLink, XIcon, Loader2 } from 'lucide-react'
@@ -192,7 +192,7 @@ function AgentDetailDialog({
   }
 
   return (
-    <ChannelDialog open onClose={onClose} flush className="max-h-[85vh] max-w-xs overflow-hidden p-0 flex flex-col">
+    <ResponsiveDialog open onClose={onClose} flush className="max-h-[85vh] max-w-xs overflow-hidden p-0 flex flex-col">
       {/* Header */}
       <div className="px-5 pt-5 pb-4 shrink-0">
         <DialogHeader className="flex flex-row items-start justify-between gap-3">
@@ -273,6 +273,6 @@ function AgentDetailDialog({
           <FormattedMessage id="channel.agent.resetAll" defaultMessage="Reset all sessions" />
         </button>
       </div>
-    </ChannelDialog>
+    </ResponsiveDialog>
   )
 }

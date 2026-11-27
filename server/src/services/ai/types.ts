@@ -82,7 +82,7 @@ export interface AgentMcpContext {
   threadRootId?: number
   /**
    * Direct workspace chat this session IS (interactive user chat). Threaded to
-   * the taskboard MCP so `start_spec` can start a spec from this chat and
+   * the taskboard MCP so `spec_start` can start a spec from this chat and
    * deliver its results back here. Mutually exclusive with channelId. When set,
    * the session is given the taskboard MCP (but not workspace_chat) and the
    * spec hint.

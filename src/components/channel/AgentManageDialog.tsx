@@ -1,4 +1,4 @@
-import { ChannelDialog } from './ChannelDialog'
+import { ResponsiveDialog } from '@/components/mobile/ResponsiveDialog'
 import { toast } from 'sonner'
 import { useIsMobileShell } from '@/hooks/useIsMobile'
 import { useEffect, useMemo, useState } from 'react'
@@ -246,7 +246,7 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
 
   return (
     <>
-      <ChannelDialog open={open && !(mobile && formOpen)} onClose={onClose} className="max-h-[75vh] max-w-md overflow-hidden flex flex-col">
+      <ResponsiveDialog open={open && !(mobile && formOpen)} onClose={onClose} className="max-h-[75vh] max-w-md overflow-hidden flex flex-col">
         <DialogHeader className="px-1 pt-1 pb-2 flex flex-row items-center justify-between shrink-0">
           <div>
             <DialogTitle>
@@ -360,10 +360,10 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
             </div>
           )}
         </div>
-      </ChannelDialog>
+      </ResponsiveDialog>
 
       {/* Create / Edit form dialog */}
-      <ChannelDialog open={formOpen} onClose={handleFormClose} className="max-h-[85vh] max-w-lg overflow-hidden flex flex-col">
+      <ResponsiveDialog open={formOpen} onClose={handleFormClose} className="max-h-[85vh] max-w-lg overflow-hidden flex flex-col">
         <DialogHeader className="px-1 pt-1 pb-4 flex flex-row items-center justify-between shrink-0">
           <DialogTitle>
             {editing
@@ -426,7 +426,7 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
               <RuntimeRow label={<FormattedMessage id="channel.form.model" defaultMessage="Model" />}>
                 {mobile && availableModels.length > 0 ? (
                   <select aria-label={intl.formatMessage({ id: 'channel.form.model', defaultMessage: 'Model' })}
-                    className="h-11 w-full rounded-lg border border-border/50 bg-background px-2 text-base"
+                    className="h-11 w-full rounded-lg border border-border/50 bg-background px-2 text-base dark:border-border/35"
                     value={model || form.model} onChange={(event) => {
                       const value = event.target.value
                       setModel(value)
@@ -630,7 +630,7 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
                 : <FormattedMessage id="common.create" defaultMessage="Create" />}
           </Button>
         </DialogFooter>
-      </ChannelDialog>
+      </ResponsiveDialog>
     </>
   )
 }

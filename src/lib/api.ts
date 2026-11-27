@@ -1,5 +1,6 @@
 import type { CodexAccountsView, CodexResetOutcome } from '@operon/agent-runtime/codex'
 import type { WorkspaceTask } from '@/stores/project-store'
+import type { KeyedProvider, WebToolSettings, WebToolUpdate } from '@shared/web-tools'
 import type { ClaudeToggles } from '@shared/claude-toggles'
 import type { CliAutoUpdateAdapterId, CliAutoUpdateState, CliAutoUpdateStatus } from '@shared/cli-auto-update'
 import type { SubagentTranscript } from '@shared/background-tasks'
@@ -1070,6 +1071,9 @@ export function createApi(transport: ApiTransport) {
         put<{ success: boolean; providerId: string; modelId: string }>('/commit-message', config),
 
       // --- Auto review (HTTP) — the model that judges tool calls in Operon's Auto mode ---
+      getWebToolKey: (provider: KeyedProvider) => get<{ key: string }>(`/operon-web-tools/keys/${provider}`),
+      getWebToolSettings: () => get<WebToolSettings>('/operon-web-tools'),
+      saveWebToolSettings: (config: WebToolUpdate) => put<WebToolSettings>('/operon-web-tools', config),
       autoReviewGetConfig: () => get<{ modelId: string }>('/auto-review'),
       autoReviewSaveConfig: (config: { modelId: string }) => put<{ modelId: string }>('/auto-review', config),
       autoReviewDecisionModels: () => get<{ models: Array<{ modelId: string; name: string }> }>('/auto-review/decision-models'),

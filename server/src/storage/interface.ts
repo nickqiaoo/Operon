@@ -285,6 +285,7 @@ export interface CanvasWorkflowStorageAdapter {
 export interface ProjectStorageAdapter {
   // Projects
   createProject(input: CreateProjectInput): Project
+  importProjectWorkspace(project: CreateProjectInput, workspace: CreateWorkspaceInput): { project: Project; workspace: Workspace }
   getProject(id: number): Project | null
   /** Pinned first (in the order they were pinned), then the rest newest first. */
   listProjects(): Project[]

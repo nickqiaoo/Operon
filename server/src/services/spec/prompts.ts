@@ -37,7 +37,7 @@ function decisionsSince(answers: string | null): string {
 
 /**
  * Standing hint for a direct workspace chat. Spec is opt-in; the alignment workflow lives in the
- * `operon-spec` skill, and the brief format in the `start_spec` tool itself.
+ * `operon-spec` skill, and the brief format in the `spec_start` tool itself.
  */
 export const SPEC_CHAT_HINT = `## Project Taskboard and OperonSpec
 Project tasks are durable, shared Taskboard records. Built-in task or todo tools belong only to the agent runtime's private execution plan; never use them to create, read, update, or track project tasks.
@@ -46,7 +46,7 @@ Use the \`operon-spec\` skill only when the user invokes /operon-spec or explici
 
 When the user asks to put agreed work on the board or hand it to a board agent: \`create_project_task\` once they agree on what it says, then \`list_project_agents\`, let them choose the assignee, and \`dispatch_project_task\`. Never pick the assignee yourself.`
 
-/** The `start_spec` tool's description — also where the brief format is defined. */
+/** The `spec_start` tool's description — also where the brief format is defined. */
 export const START_SPEC_DESCRIPTION = [
   'OperonSpec: turn the request you have aligned with the user into a spec. Several agents from different model families',
   'explore the code, design it in parallel, and are judged and synthesized into one design the user signs. Call ONLY after',
@@ -96,7 +96,7 @@ export function answersNeededNext(taskNumber: number): string {
   return (
     `The design for spec task #${taskNumber} needs the user's answers before it can be finished. Ask the user these ` +
     'questions in ONE message, most important first, each with your recommended answer. When they reply, call ' +
-    `answer_spec_questions(task: ${taskNumber}, answers: "<their answers, numbered to match>"). Do not answer for them.`
+    `spec_answer_questions(task: ${taskNumber}, answers: "<their answers, numbered to match>"). Do not answer for them.`
   )
 }
 
@@ -990,9 +990,9 @@ The user talks to the spec in the chat it was started from; what you hand them (
 
 Your session runs in the spec's change worktree (branch operon/task-N). The spec's files are in .operon/changes/task-N/: brief.md, design.md (what was approved), tickets.json, review.md.
 
-Tools (taskboard): spec_status reads where the spec and every ticket stand, and which agent plays each role; get_project_task reads a task with its activity (an implementer's report is its last comment); comment_project_task answers on a task; spec_retry_ticket sets a blocked ticket going again with your instructions; spec_add_ticket adds a ticket the build is missing; spec_propose_switch asks the user to move a role (a ticket's implementer or reviewer, the spec's reviewer, …) to another agent or model; spec_escalate hands something to the user; spec_integration_done hands in a resolved sign-off conflict.
+Tools (taskboard): spec_get_status reads where the spec and every ticket stand, and which agent plays each role; get_project_task reads a task with its activity (an implementer's report is its last comment); comment_project_task answers on a task; spec_retry_ticket sets a blocked ticket going again with your instructions; spec_add_ticket adds a ticket the build is missing; spec_propose_switch asks the user to move a role (a ticket's implementer or reviewer, the spec's reviewer, …) to another agent or model; spec_escalate hands something to the user; spec_integration_done hands in a resolved sign-off conflict.
 
-When the trouble is the agent rather than the work — out of quota or rate-limited, not logged in, a provider error, a model that will not start, or one that keeps failing the same way — retrying on the same agent will not help: call spec_propose_switch with the role, the agent (and model) to move it to, and why. Pick from the agents spec_status lists as usable here. Never switch without asking: the user decides, and the switch and the work carrying on follow from their yes.
+When the trouble is the agent rather than the work — out of quota or rate-limited, not logged in, a provider error, a model that will not start, or one that keeps failing the same way — retrying on the same agent will not help: call spec_propose_switch with the role, the agent (and model) to move it to, and why. Pick from the agents spec_get_status lists as usable here. Never switch without asking: the user decides, and the switch and the work carrying on follow from their yes.
 
 Rules:
 - Never change what the user approved. A problem that needs a different design goes to the user with spec_escalate, with what you found and what you recommend.
@@ -1011,7 +1011,7 @@ export function blockedTicketMessage(input: {
   return [
     `Ticket #${input.ticketNumber} (${input.ticketKey}) of spec #${input.specNumber} is blocked: ${input.reason}`,
     '',
-    `Find out why: spec_status(task: ${input.specNumber}), get_project_task(task: ${input.ticketNumber}) for its report and the reviews, ` +
+    `Find out why: spec_get_status(task: ${input.specNumber}), get_project_task(task: ${input.ticketNumber}) for its report and the reviews, ` +
       `and its branch operon/task-${input.ticketNumber} (git log / git diff against operon/task-${input.specNumber}). Then do one of:`,
     `- spec_retry_ticket(task: ${input.specNumber}, ticket: ${input.ticketNumber}, instructions: ...) — when its implementer can finish with clearer instructions ` +
       `(add a ruling when you decide something the design left open). ${input.retriesLeft > 0 ? `You can do this ${input.retriesLeft} more time(s) for this ticket.` : 'You cannot retry this ticket again.'}`,
@@ -1034,7 +1034,7 @@ export function specNoticeText(specNumber: number, body: string): string {
     '</spec-notice>',
     `This is about spec #${specNumber}, which this chat started. Tell the user in a sentence or two, in their language, and stop. ` +
       'When they answer: spec_switch_agent makes a switch they agree to (it carries the spec on), spec_decline_switch turns a proposed ' +
-      `one down, and spec_message_coordinator passes anything else to the spec's coordinator. spec_status(task: ${specNumber}) says where it stands.`,
+      `one down, and spec_message_coordinator passes anything else to the spec's coordinator. spec_get_status(task: ${specNumber}) says where it stands.`,
   ].join('\n')
 }
 

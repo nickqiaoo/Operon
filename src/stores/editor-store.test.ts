@@ -318,6 +318,8 @@ describe("workspaces on several machines", () => {
     store.setWorkspace(3, 1, NODE)
     expect(useEditorStore.getState().tabs.map((t) => t.id)).toEqual([`chat:${NODE}:1`])
     expect(useEditorStore.getState().activeTabId).toBe(`chat:${NODE}:1`)
+    expect(aiSessionCleanup).not.toHaveBeenCalled()
+    expect(remoteSessionCleanup).not.toHaveBeenCalled()
   })
 
   it("drops the machine when there is no workspace", () => {

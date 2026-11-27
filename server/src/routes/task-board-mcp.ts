@@ -36,7 +36,7 @@ const SWITCH_TARGET = {
   },
   ticket: { type: 'number', description: "Optional: the ticket's task number, for one ticket's implementer or reviewer" },
   candidate: { type: 'string', description: 'For role candidate: which one (A, B, …)' },
-  provider: { type: 'string', description: 'Agent to move it to — one spec_status lists as usable here' },
+  provider: { type: 'string', description: 'Agent to move it to — one spec_get_status lists as usable here' },
   model: { type: 'string', description: "Optional: the model on that agent; omit for the agent's default" },
 } as const
 
@@ -401,8 +401,8 @@ function buildTaskBoardMcpServer(board: TaskBoardService, agentId: number): Serv
   )
 
   // Listed everywhere. A spec is not a pre-armed "mode": a chat becomes one when
-  // its agent calls start_spec, and every spec tool validates its own context at
-  // call time (start_spec needs a workspace chat).
+  // its agent calls spec_start, and every spec tool validates its own context at
+  // call time (spec_start needs a workspace chat).
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }))
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
@@ -589,7 +589,7 @@ export function taskBoardMcpRoutes(storage: TaskBoardRouteStorage) {
       return c.json({ error: 'agentId and projectId required (header or query)' }, 400)
     }
     // The session's own chat, from the URL mcp-config built — never a model
-    // argument. It is how start_spec knows which conversation to report back to;
+    // argument. It is how spec_start knows which conversation to report back to;
     // absent for channel agents, task execution and IM sessions.
     const channelId = c.req.query('channelId')
     const sourceChatIdRaw = c.req.query('sourceChatId')

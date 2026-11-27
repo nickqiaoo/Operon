@@ -128,6 +128,7 @@ export class AppServerClient {
    * which a thread id alone cannot answer.
    */
   private ephemeralThreads = new Set<string>();
+  private threadOwners = new Map<string, Set<() => void>>();
   private initialized = false;
   private starting: Promise<void> | null = null;
   private logger: Logger;
@@ -305,6 +306,7 @@ export class AppServerClient {
     this.process = null;
     // Ephemeral threads died with the process, whether it exited or crashed.
     this.ephemeralThreads.clear();
+    for (const id of this.threadOwners.keys()) this.forgetThread(id);
     this.rateLimitsCache = null;
     this.runningThreads.clear();
     this.notifyIdle();
@@ -451,6 +453,7 @@ export class AppServerClient {
     // Include server-initiated subagent turns which can outlive the parent stream.
     const threadId = msg.params?.threadId;
     if (typeof threadId === 'string') {
+      if (msg.method === 'thread/closed') this.forgetThread(threadId);
       if (msg.method === 'turn/started') this.runningThreads.add(threadId);
       if (msg.method === 'turn/completed' || msg.method === 'thread/closed') {
         this.runningThreads.delete(threadId);
@@ -544,6 +547,35 @@ export class AppServerClient {
       if (index >= 0) current.splice(index, 1);
       if (current.length === 0) registry.delete(method);
     };
+  }
+
+  private forgetThread(threadId: string): void {
+    const owners = this.threadOwners.get(threadId);
+    this.threadOwners.delete(threadId);
+    for (const onClosed of owners ?? []) onClosed();
+  }
+
+  /** The subscription belongs to the shared connection. Release it with the last local owner. */
+  retainThread(threadId: string, onClosed: () => void): () => Promise<void> {
+    const owners = this.threadOwners.get(threadId) ?? new Set<() => void>();
+    this.threadOwners.set(threadId, owners);
+    owners.add(onClosed);
+    return async () => {
+      if (this.threadOwners.get(threadId) !== owners || !owners.delete(onClosed) || owners.size) return;
+      this.threadOwners.delete(threadId);
+      await this.unsubscribeUnusedThread(threadId);
+    };
+  }
+
+  async unsubscribeUnusedThread(threadId: string): Promise<void> {
+    // Ephemeral forks must survive a side chat's session rebuild. A dead connection
+    // already released its subscriptions and must never be restarted for cleanup.
+    if (this.threadOwners.has(threadId) || this.hasEphemeralThread(threadId) || !this.initialized || this.retired) return;
+    try {
+      await this.sendRequest('thread/unsubscribe', { threadId }, 5000);
+    } catch (error) {
+      this.logger.warn(`Could not unsubscribe from Codex thread ${threadId}: ${error}`);
+    }
   }
 
   // ============ High-level API Methods ============

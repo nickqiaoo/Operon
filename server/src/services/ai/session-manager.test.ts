@@ -75,6 +75,19 @@ function stubProvider(options: StubOptions = {}) {
   return { manager, created }
 }
 
+it('can reopen a chat while its previous runtime is still closing', async () => {
+  let finishClose!: () => void
+  const closing = new Promise<void>((resolve) => { finishClose = resolve })
+  const { manager } = stubProvider({ close: () => closing })
+  const previous = await manager.getOrCreate(1, 'stub', { cwd: '/tmp' })
+  const cleanup = manager.destroy(1)
+  const reopened = await manager.getOrCreate(1, 'stub', { cwd: '/tmp' })
+  finishClose()
+  await cleanup
+  expect(reopened.runtime).not.toBe(previous.runtime)
+  expect(manager.get(1)).toBe(reopened)
+})
+
 /** A provider that takes every field it is handed. */
 const acceptAll = vi.fn(async (payload: SessionPatch) => {
   const applied: SessionPatchApplied = []

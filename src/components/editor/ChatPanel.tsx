@@ -77,7 +77,8 @@ import { MessagesList } from './components/MessagesList';
 import { ChatDbIdContext, ChatProviderIdContext } from './components/chat-db-id-context';
 import { useTurnDiffs } from '@/lib/chat-queries';
 import { ChatComposer } from './components/ChatComposer';
-import { DraftChatBar, EnvironmentPicker } from './components/DraftChatBar';
+import { DraftChatBar } from './components/DraftChatBar';
+import { EnvironmentPicker } from './components/EnvironmentPicker';
 import { isDraftChatTab, moveDraftToWorkspace } from '@/lib/new-chat';
 import { draftWorktreeIntent, useDraftChatStore } from '@/stores/draft-chat-store';
 import { createAutoWorkspace } from '@/lib/workspace-actions';
@@ -785,7 +786,8 @@ function ChatPanelContent({
     effort: thinkingEffortLabel,
     nodeId: chatNodeId,
     sshName: sshEnvironment?.name,
-  }), [reviewCwd, selectedModel?.label, thinkingEffortLabel, chatNodeId, sshEnvironment?.name]);
+    sshCwd: sshEnvironment?.cwd,
+  }), [reviewCwd, selectedModel?.label, thinkingEffortLabel, chatNodeId, sshEnvironment?.name, sshEnvironment?.cwd]);
   const openTab = useTabsStore((s) => s.openTab);
   const setRightPanelOpen = useAppShellStore((s) => s.setRightPanelOpen);
   const turnDiffs = useTurnDiffs(dbChatId, reviewCwd, status, nodeTurnActive);
@@ -1637,8 +1639,10 @@ function ChatPanelContent({
         {showDraftBar ? (
           <DraftChatBar onChanging={setEnvironmentChanging} tabId={chatId} providerId={tab?.providerId ?? providerId} workspaceId={currentWorkspaceId} sshEnvironment={sshEnvironment} isMobile={isMobile} />
         ) : dbChatId && (loadedProviderId ?? providerId) === 'custom' && !readOnlyReason && !tab?.isSubAgent && !tab?.isSideChat ? (
-          <EnvironmentPicker onChanging={setEnvironmentChanging} tabId={chatId} chatId={dbChatId} selected={sshEnvironment} localDir={localWorkspaceDir}
-            isMobile={isMobile} busy={isGenerating || turnSettling || isCompacting} />
+          <div className="mb-1.5 flex min-w-0 items-center px-1">
+            <EnvironmentPicker onChanging={setEnvironmentChanging} tabId={chatId} chatId={dbChatId} selected={sshEnvironment} localDir={localWorkspaceDir}
+              isMobile={isMobile} busy={isGenerating || turnSettling || isCompacting} />
+          </div>
         ) : sshEnvironment ? (
           <div className="mb-1.5 flex min-w-0 items-center gap-1.5 px-3 text-xs text-muted-foreground">
             <Server className="size-3.5 shrink-0" />

@@ -1,4 +1,4 @@
-import { ChannelDialog } from './ChannelDialog'
+import { ResponsiveDialog } from '@/components/mobile/ResponsiveDialog'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { FormattedMessage } from 'react-intl'
@@ -85,7 +85,7 @@ export function MemberManageDialog({ channel, onClose }: MemberManageDialogProps
   }
 
   return (
-    <ChannelDialog open onClose={onClose} className="max-h-[70vh] max-w-sm overflow-hidden flex flex-col">
+    <ResponsiveDialog open onClose={onClose} className="max-h-[70vh] max-w-sm overflow-hidden flex flex-col">
       <DialogHeader className="px-1 pt-1 pb-2 flex flex-row items-center justify-between shrink-0">
         <div>
           <DialogTitle>
@@ -160,6 +160,6 @@ export function MemberManageDialog({ channel, onClose }: MemberManageDialogProps
           <FormattedMessage id="common.done" defaultMessage="Done" />
         </Button>
       </DialogFooter>
-    </ChannelDialog>
+    </ResponsiveDialog>
   )
 }

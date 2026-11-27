@@ -202,7 +202,7 @@ function entryFor(storage: BuildStorage, spec: Task, ticketNumber: number): { en
   return { entry, ticket }
 }
 
-/** spec_status: where the spec and every ticket stand, as text for an agent. */
+/** spec_get_status: where the spec and every ticket stand, as text for an agent. */
 export async function specStatus(storage: BuildStorage, spec: Task): Promise<string> {
   const run = storage.specRunGet(spec.id)
   if (!run) throw new SpecError(`#${spec.number} is not a spec`)

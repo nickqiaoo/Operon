@@ -2,12 +2,11 @@ import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { connectSshEnvironment, deleteSshEnvironment, listSshEnvironments, saveSshEnvironment, sshTarget, SshHostKeyConfirmationRequired } from '../services/ssh-environments.js'
+import { connectSshEnvironment, deleteSshEnvironment, listSshEnvironments, saveSshEnvironment, SshHostKeyConfirmationRequired } from '../services/ssh-environments.js'
 import type { SshEnvironmentProfile, SshHostKeyChallenge } from '../../../shared/ssh-environment.js'
 
-import { changeChatEnvironment } from '../services/chat-environments.js'
+import { changeChatEnvironment, listChatEnvironments } from '../services/chat-environments.js'
 import { getChatStorage } from '../services/ai/state.js'
-import { loadedOperonSession } from '../services/operon-runtime/index.js'
 
 const profileSchema = z.object({
   name: z.string().trim().min(1, 'Enter an environment name.').max(80),
@@ -40,13 +39,10 @@ export function sshEnvironmentRoutes() {
   const router = new Hono()
   router.get('/', (c) => c.json(listSshEnvironments()))
 
-  router.get('/chats/:chatId', (c) => {
+  router.get('/chats/:chatId', async (c) => {
     const chat = getChatStorage()?.getChatMeta(Number(c.req.param('chatId')))
     if (!chat) return c.json({ error: 'Conversation unavailable.' }, 404)
-    const session = chat.sessionId && loadedOperonSession(chat.sessionId)
-    return c.json((chat.metadata?.additionalSshEnvironments ?? []).map(ref => ({
-      ...ref, connected: session ? session.core.environments.get(sshTarget(ref.id))?.available ?? false : undefined,
-    })))
+    return c.json(await listChatEnvironments(chat))
   })
 
   router.patch('/chats/:chatId', async (c) => {

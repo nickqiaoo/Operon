@@ -1,6 +1,7 @@
 import { broadcastTask } from '../services/task-events.js'
 import { emitChannelEvent, emitProjectTreeEvent, workingAgentIds } from '../services/channel-bus.js'
 import fs from 'fs'
+import { resolve } from 'node:path'
 import Database from 'better-sqlite3'
 import type {
   ChatConfigPatch,
@@ -1651,6 +1652,18 @@ export class SqliteStorage
       updatedAt: now,
       pinnedAt: null,
     }
+  }
+
+  importProjectWorkspace(projectInput: CreateProjectInput, workspaceInput: CreateWorkspaceInput): { project: Project; workspace: Workspace } {
+    return this.transaction(() => {
+      const rootPath = resolve(projectInput.rootPath)
+      const worktreePath = resolve(workspaceInput.worktreePath)
+      const project = this.listProjects().find((entry) => resolve(entry.rootPath) === rootPath)
+        ?? this.createProject({ ...projectInput, rootPath })
+      const workspace = this.listWorkspaces(project.id).find((entry) => resolve(entry.worktreePath) === worktreePath)
+        ?? this.createWorkspace(project.id, { ...workspaceInput, worktreePath })
+      return { project, workspace }
+    })
   }
 
   getProject(id: number): Project | null {

@@ -11,7 +11,7 @@ import com.operon.app.shell.SheetUi.dp
  */
 object AgentSheet {
 
-    data class Agent(val id: String, val label: String, val logo: String?)
+    data class Agent(val id: String, val label: String, val logo: String?, val enabled: Boolean)
 
     fun present(
         context: Context,
@@ -33,11 +33,14 @@ object AgentSheet {
                     SheetUi.card(context) {
                         agents.forEachIndexed { index, agent ->
                             if (index > 0) addView(SheetUi.divider(context))
-                            addView(
-                                SheetUi.row(context, onClick = {
+                            val select: (() -> Unit)? = if (agent.enabled) {
+                                {
                                     onPick(agent.id)
                                     dialog?.dismiss()
-                                }) {
+                                }
+                            } else null
+                            addView(
+                                SheetUi.row(context, onClick = select) {
                                     addView(SheetUi.logoTile(context, agent.logo))
                                     addView(
                                         SheetUi.label(context, agent.label).apply {
@@ -50,6 +53,9 @@ object AgentSheet {
                                             }
                                         },
                                     )
+                                }.apply {
+                                    isEnabled = agent.enabled
+                                    alpha = if (agent.enabled) 1f else 0.45f
                                 },
                                 SheetUi.matchWidth(),
                             )

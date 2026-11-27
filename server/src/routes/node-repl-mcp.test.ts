@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const CALLER_ARG = '__operon_opencode_session'
+const beforeCallReturns = vi.hoisted(() => vi.fn<() => Promise<void>>())
 const bindings = vi.hoisted(() => new Map<string, string>())
 vi.mock('@operon/agent-runtime/opencode', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -50,6 +51,7 @@ vi.mock('@operon/computer-use', () => {
         listTools: listNodeReplTools,
         callTool: async (req: { params: { arguments?: Record<string, unknown> } }) => {
           session.calls.push({ ...(req.params.arguments ?? {}) })
+          await beforeCallReturns()
           return { content: [{ type: 'text', text: `ran in ${session.sessionId}` }] }
         },
         dispose: async () => {},
@@ -71,18 +73,20 @@ const { UNKNOWN_CALLER_MESSAGE } = await import('./mcp-caller.js')
 describe('operonrepl caller-routed endpoint', () => {
   const closers: Array<() => Promise<void>> = []
 
-  async function connect(query = ''): Promise<Client> {
+  async function endpoint(query = ''): Promise<URL> {
     const app = new Hono()
     app.route('/api/operonrepl-mcp', nodeReplMcpRoutes())
     const server = serve({ fetch: app.fetch, port: 0, hostname: '127.0.0.1' })
     await new Promise<void>((resolve) => server.once('listening', () => resolve()))
     const { port } = server.address() as AddressInfo
+    closers.push(() => new Promise<void>((resolve) => server.close(() => resolve())))
+    return new URL(`http://127.0.0.1:${port}/api/operonrepl-mcp${query}`)
+  }
+
+  async function connect(url?: URL): Promise<Client> {
     const client = new Client({ name: 'node-repl-test', version: '1' })
-    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/api/operonrepl-mcp${query}`)))
-    closers.push(async () => {
-      await client.close()
-      await new Promise<void>((resolve) => server.close(() => resolve()))
-    })
+    await client.connect(new StreamableHTTPClientTransport(url ?? await endpoint()))
+    closers.push(() => client.close())
     return client
   }
 
@@ -114,6 +118,27 @@ describe('operonrepl caller-routed endpoint', () => {
     expect(built[0].calls).toEqual([{ source: 'a = 1' }, { source: 'a' }])
     expect(built[1].calls).toEqual([{ source: 'b = 2' }])
     expect(built.every((session) => session.hasHostElicitation)).toBe(true)
+  })
+
+  it('keeps an in-flight chat call alive while a second client polls and disconnects', async () => {
+    const url = await endpoint('?sessionId=42')
+    const agent = await connect(url)
+    let finishCall!: () => void
+    const gate = new Promise<void>((resolve) => { finishCall = resolve })
+    beforeCallReturns.mockReturnValueOnce(gate)
+    const call = agent.callTool({ name: 'js', arguments: { source: 'first' } })
+    try {
+      await vi.waitFor(() => expect(built[0]?.calls).toHaveLength(1))
+      const inspector = await connect(url)
+      await inspector.listTools()
+      await inspector.close()
+    } finally {
+      finishCall()
+    }
+    expect(text(await call)).toContain('ran in 42')
+    expect(text(await agent.callTool({ name: 'js', arguments: { source: 'next' } }))).toContain('ran in 42')
+    expect(built).toHaveLength(1)
+    expect(built[0].hasHostElicitation).toBe(true)
   })
 
   it('refuses a call that names no known conversation', async () => {

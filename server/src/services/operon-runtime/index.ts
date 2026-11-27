@@ -19,6 +19,7 @@ import type {
 } from '@operon/agent-runtime'
 import { createOperonTracing } from './tracing.js'
 import { modelManager, modelRef, resolveReviewModel, syncModelProvider, syncModelProviders } from './resolve-model.js'
+import { configuredWebTools } from '../web-tools.js'
 import { withAutoReviewModel } from './auto-review.js'
 import { getAutoReviewConfig } from '../auto-review-config.js'
 import { MODE_TO_PERMISSION, OperonRuntimeSession, type OperonSessionNative } from './session.js'
@@ -35,12 +36,34 @@ import { mcpOAuthService } from './mcp-oauth.js'
 import { availableModels } from './models.js'
 import { DEFAULT_PERMISSION_RULES, withDefaultPermissionRules } from './default-permission-rules.js'
 import { userMcpServersForCli } from '../mcp-config.js'
-import { releaseAddedEnvironments } from '../chat-environments.js'
-import { sshProfile, sshTarget, sessionEnvironmentBindings } from '../ssh-environments.js'
+import { declareEnvironments, declaredEnvironments, sessionEnvironmentBindings, sshProfile, type DeclaredEnvironment } from '../ssh-environments.js'
 import type { SshEnvironmentProfile, SshEnvironmentRef } from '../../../../shared/ssh-environment.js'
 
 const DEFAULT_MODEL_ID = 'anthropic/claude-sonnet-4-6'
-const SKIP_STANDING_PROMPTS = Symbol('skipStandingPrompts')
+/** What Operon hands a session in `bindings.context`, for the hooks below to read. */
+interface OperonBindingContext {
+  /** A one-shot job: it runs its own prompt without the chat's standing instructions. */
+  readonly skipStandingPrompts?: true
+  /**
+   * The root environment is on another machine (SSH). MCP clients and plugins still run here, in
+   * `hostWorkspace` when the chat has one.
+   */
+  readonly remoteRoot?: { readonly hostWorkspace?: string }
+}
+
+function operonContext(value: unknown): OperonBindingContext | undefined {
+  return value !== null && typeof value === 'object' ? value : undefined
+}
+
+/** The context for a session whose root is `ssh`, when it is remote. */
+function remoteRootContext(remote: boolean, hostWorkspace: string | undefined): OperonBindingContext | undefined {
+  return remote ? { remoteRoot: hostWorkspace ? { hostWorkspace } : {} } : undefined
+}
+
+/** A session's declared environments, read without opening it (none for a single-environment one). */
+async function declaredOf(sessionId: string): Promise<DeclaredEnvironment[]> {
+  return declaredEnvironments(await HARNESS_INSTANCE?.readEnvironmentDeclaration(sessionId))
+}
 
 // Extra tools to merge into the default agent's toolset, on top of the builtin
 // coding tools. Empty by default, so normal chat behaviour is unchanged. The
@@ -269,9 +292,6 @@ async function loadWorkspaceSetup(root?: string): Promise<WorkspaceSetup> {
   }
 }
 
-// A host workspace belongs to the MCP clients. The SSH environment's cwd is on another machine.
-const hostDirectories = new WeakMap<object, string | undefined>()
-
 async function sshSessionConfig(servers?: RuntimeMcpServers, instructions?: string): Promise<SessionConfig> {
   const setup = await loadWorkspaceSetup()
   return workspaceSessionConfig({ ...setup, servers: (servers ?? {}) as Record<string, McpServerConfig> }, instructions)
@@ -357,37 +377,31 @@ async function buildHarness(): Promise<Harness> {
       const restoring = request.operation === 'restore'
       const sourceId = restoring ? request.session.id : request.source?.id
       const source = sourceId ? getChatStorage()?.findChatBySessionId(sourceId) : undefined
-      const metadata = source?.metadata
-      const ssh = metadata?.sshEnvironment
-      const hostDir = metadata?.additionalSshEnvironments?.find(ref => ref.id === 'local')?.cwd
+      const ssh = source?.metadata?.sshEnvironment
+      // A restore without a setup of its own, or a teammate born from a chat: the environments
+      // come from the declaration (the restored session's, or the chat's it was spawned from).
+      const declared = sourceId && (restoring ? !requested : request.origin.kind === 'extension') ? await declaredOf(sourceId) : undefined
+      const hostDir = declared?.find(ref => ref.id === 'local')?.cwd
         ?? (source?.workspaceId ? getProjectStorage()?.getWorkspace(source.workspaceId)?.worktreePath : undefined)
-      const bindings = (restoring ? !requested : request.origin.kind === 'extension')
-        ? sessionEnvironmentBindings(ssh && sshProfile(ssh), metadata?.additionalSshEnvironments)
-        : undefined
-      if (ssh && typeof bindings?.environment === 'function') hostDirectories.set(bindings.environment, hostDir)
+      const environments = declared && sessionEnvironmentBindings(ssh && sshProfile(ssh), declared)
+      const remoteContext = declared && remoteRootContext(!!ssh, hostDir)
+      const bindings = environments || remoteContext ? { ...environments, ...(remoteContext && { context: remoteContext }) } : undefined
       let config = requested ?? {}
       if (restoring) {
         const current = requested ?? await restoredSessionConfig(request.session, ssh
           ? { cwd: hostDir, setup: { ...await loadWorkspaceSetup(), servers: {} } }
           : undefined)
-        const stored = request.stored ?? {}
-        // Earlier SSH sessions persisted this pair solely because the default was SSH.
-        const legacy = ssh && stored.mcp === false && stored.subagents && stored.subagents.workflowTool === true
-          && stored.disabledTools?.includes('Team') && stored.disabledTools.includes('Hub')
-        config = resolveSessionConfig(legacy ? {
-          ...stored,
-          disabledTools: stored.disabledTools?.filter(name => name !== 'Team' && name !== 'Hub'),
-          subagents: { ...(stored.subagents || {}), workflowTool: false },
-        } : stored, current)
+        config = resolveSessionConfig(request.stored ?? {}, current)
       } else if (request.origin.kind === 'extension') {
         const workspace = ssh
           ? await sshSessionConfig(userMcpServersForCli('operon'))
           : workspaceSessionConfig(await workspaceSetup(request.session.workDir))
         config = resolveSessionConfig(workspace, config)
       }
-      const { agent, context } = request.requested.bindings
+      const { agent, context: requestedContext } = request.requested.bindings
+      const context = bindings?.context ?? requestedContext
       return {
-        config: config.agent !== undefined || agent !== undefined || context === SKIP_STANDING_PROMPTS
+        config: config.agent !== undefined || agent !== undefined || operonContext(context)?.skipStandingPrompts
           ? config
           : { ...config, appendSystemPrompt: withStandingAgentInstructions(config.appendSystemPrompt) },
         ...(bindings ? { bindings } : {}),
@@ -423,19 +437,19 @@ async function buildHarness(): Promise<Harness> {
     // session-start into the set. Reading the manager per session means installs/enables take
     // effect on the next chat with no cache eviction.
     sessionCapabilities: async (ctx) => {
-      const factory = ctx.bindings.environment
-      const ssh = typeof factory === 'function' && hostDirectories.has(factory)
+      const remote = operonContext(ctx.bindings.context)?.remoteRoot
+      const ssh = remote !== undefined
       if (ctx.strictIsolation || (ctx.ownEnvironment && !ssh)) {
         return defaultCapabilities({ ownEnvironment: ctx.ownEnvironment, strictIsolation: ctx.strictIsolation, mcp: false })
       }
       await ensurePluginsLoaded()
-      const localDir = ssh ? hostDirectories.get(factory) : ctx.workDir
+      const localDir = remote ? remote.hostWorkspace : ctx.workDir
       const root = localDir ? await resolveProjectRoot(localDir) : undefined
       const workspaceServers = await loadWorkspaceMcpServers(root ?? getOperonHome())
       const ownMcp = ctx.config.mcp
       // Shared MCP OAuth token store — a login done from the Plugins UI is reused here, so an
       // OAuth-gated plugin MCP server (e.g. Linear) connects authenticated without re-prompting.
-      return defaultCapabilities({
+      const capabilities = defaultCapabilities({
         ownEnvironment: ctx.ownEnvironment,
         ...(ssh ? {} : { pluginManager }),
         // The workspace's `mcp.json` servers and the plugins' are borrowed from the project's
@@ -451,6 +465,9 @@ async function buildHarness(): Promise<Harness> {
           : { mcp: ownMcp === false ? false : { servers: { ...pluginManager.mcpServerConfigs(), ...workspaceServers, ...ownMcp.servers } } }),
         oauthService: mcpOAuthService,
       })
+      const tools = configuredWebTools()
+      if (tools.length) capabilities.push({ name: 'web-tools', contract: 'detachable', tools })
+      return capabilities
     },
     // Code Mode in its default role (`hide: "catalog"`): the fallback for deferred tool loading.
     // A model that can take tools mid-conversation (Claude on Anthropic Messages, see
@@ -471,18 +488,11 @@ async function buildHarness(): Promise<Harness> {
   // run so it reaches their chat row: a teammate Teams just spawned (which gets its row here
   // first — the row failing rolls the spawn back, so no teammate runs unseen), and a session
   // restored by a peer message to an unloaded recipient.
-  harness.onSessionOpened(session => () => releaseAddedEnvironments(session))
   harness.onSessionOpened(async (session, info) => {
     const member = teammateOf(session)
     if (member && info.operation === 'create') await createTeammateChat(session, member, info.source, defaultModelId)
     else if (info.operation !== 'restore') return
     const row = getChatStorage()?.findChatBySessionId(session.id)
-    if (info.operation === 'restore' && row?.tp === 'chat' && session.core.environments.size > 1) {
-      const saved = new Set(row.metadata?.additionalSshEnvironments?.map(ref => sshTarget(ref.id)))
-      const stale = session.core.environments.entries.filter(entry => !entry.available &&
-        entry.name !== session.core.environments.rootName && !saved.has(entry.name))
-      if (stale.length && !(await session.pendingInterruptions()).length) await session.updateEnvironments({ remove: stale.map(entry => entry.name) })
-    }
     observeSession(session, { notifyOnTurnEnd: row?.tp !== 'teammate' })
   })
   HARNESS_INSTANCE = harness
@@ -499,7 +509,9 @@ async function buildHarness(): Promise<Harness> {
 /** Options only this provider reads; the others ignore the `operon` block. */
 export interface OperonSessionOptions {
   operon?: {
+    /** With an SSH root: the directory on this machine that MCP clients and plugins run in. */
     hostWorkspace?: string
+    /** The environments a NEW session declares besides its root; a resumed one keeps its declaration. */
     additionalSshEnvironments?: SshEnvironmentRef[]
     sshEnvironment?: SshEnvironmentProfile
     /** Dedicated one-shot jobs use their task prompt without the chat instructions. */
@@ -515,17 +527,25 @@ export interface OperonSessionOptions {
   }
 }
 
-/** What `operon` adds to a session's setup: its configuration, and the live tools to open it with. */
-function sessionSetup(config: SessionConfig, operon: OperonSessionOptions['operon']): RestoreSetup {
-  const bindings = sessionEnvironmentBindings(operon?.sshEnvironment, operon?.additionalSshEnvironments)
-  if (operon?.sshEnvironment && typeof bindings?.environment === 'function') hostDirectories.set(bindings.environment, operon.hostWorkspace)
+/**
+ * What `operon` adds to a session's setup: its configuration, and the live objects to open it
+ * with. Resuming `sessionId` connects the environments its declaration names; a new session
+ * declares `operon.additionalSshEnvironments`.
+ */
+async function sessionSetup(config: SessionConfig, operon: OperonSessionOptions['operon'], sessionId?: string): Promise<RestoreSetup> {
+  const declared = sessionId !== undefined ? await declaredOf(sessionId) : declareEnvironments(operon?.additionalSshEnvironments ?? [])
+  const environments = sessionEnvironmentBindings(operon?.sshEnvironment, declared)
   const extraTools = operon?.tools?.length ? { extraTools: operon.tools } : undefined
-  const promptContext = operon?.standingPrompts === false ? { context: SKIP_STANDING_PROMPTS } : undefined
+  const context: OperonBindingContext = {
+    ...(operon?.standingPrompts === false && { skipStandingPrompts: true }),
+    ...remoteRootContext(!!operon?.sshEnvironment, operon?.hostWorkspace),
+  }
+  const hasContext = Object.keys(context).length > 0
   return {
     config: operon?.disabledTools?.length
       ? { ...config, disabledTools: [...(config.disabledTools ?? []), ...operon.disabledTools] }
       : config,
-    ...(bindings || extraTools || promptContext ? { bindings: { ...bindings, ...extraTools, ...promptContext } } : {}),
+    ...(environments || extraTools || hasContext ? { bindings: { ...environments, ...extraTools, ...(hasContext && { context }) } } : {}),
   }
 }
 
@@ -635,7 +655,7 @@ export class OperonRuntimeProvider implements RuntimeProviderFactory<SessionOpti
   ): Promise<HarnessSession> {
     const harness = await this.harness()
     if (operon?.sshEnvironment) {
-      const setup = async () => sessionSetup(await sshSessionConfig(mcpServers, instructions), operon)
+      const setup = async () => sessionSetup(await sshSessionConfig(mcpServers, instructions), operon, sessionId)
       if (sessionId !== undefined) return resumeRuntimeSession(harness, sessionId, setup)
       const session = await harness.createSession({ workDir: operon.sshEnvironment.cwd, ...await setup() })
       observeSession(session, { notifyOnTurnEnd: true })
@@ -643,10 +663,10 @@ export class OperonRuntimeProvider implements RuntimeProviderFactory<SessionOpti
     }
     if (sessionId !== undefined) {
       return resumeRuntimeSession(harness, sessionId, async () =>
-        sessionSetup(workspaceSessionConfig(await resolveWorkspaceSetup(cwd, mcpServers), instructions), operon))
+        sessionSetup(workspaceSessionConfig(await resolveWorkspaceSetup(cwd, mcpServers), instructions), operon, sessionId))
     }
     const { root, ...setup } = await resolveWorkspaceSetup(cwd, mcpServers)
-    const session = await harness.createSession({ workDir: root, ...sessionSetup(workspaceSessionConfig(setup, instructions), operon) })
+    const session = await harness.createSession({ workDir: root, ...await sessionSetup(workspaceSessionConfig(setup, instructions), operon) })
     observeSession(session, { notifyOnTurnEnd: true })
     return session
   }

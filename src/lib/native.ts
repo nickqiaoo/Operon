@@ -222,7 +222,7 @@ export interface NativeShellPlugin {
   presentAgentSheet(options: {
     title: string
     emptyText: string
-    agents: { id: string; label: string; logo?: string }[]
+    agents: { id: string; label: string; logo?: string; enabled: boolean }[]
   }): Promise<void>
   addListener(eventName: 'agentPicked', listener: (event: { id: string }) => void): Promise<PluginListenerHandle>
   /** Model picker as a system sheet; the pick arrives as `modelPicked { id }`. */

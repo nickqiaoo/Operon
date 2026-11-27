@@ -9,7 +9,7 @@ import { useChatDbId } from '@/components/editor/components/chat-db-id-context'
 import { SpecStageBadge, useSpecView } from './spec-shared'
 
 /**
- * Where a `start_spec` call sits in the transcript: one line that says a spec
+ * Where a `spec_start` call sits in the transcript: one line that says a spec
  * started here, and opens it.
  *
  * It used to carry the whole spec — agents, gates, buttons — but a conversation

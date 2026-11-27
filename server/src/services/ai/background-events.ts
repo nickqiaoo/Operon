@@ -89,8 +89,8 @@ export async function getSubagentTranscript(chatId: number, toolUseId: string): 
   const sessionId = live?.runtime.id ?? meta?.sessionId
   if (!sessionId) return null
   const providerId = live?.providerId ?? meta?.providerId
-  if (providerId === 'opencode') return getRuntime().opencode.subagentTranscript(sessionId, toolUseId)
-  return getRuntime().claudeCode.subagentTranscript(sessionId, toolUseId)
+  if (providerId === 'opencode') return getRuntime().native('opencode').subagentTranscript(sessionId, toolUseId)
+  return getRuntime().native('claude-code').subagentTranscript(sessionId, toolUseId)
 }
 
 function sessionTranscriptReader(native: unknown): ((toolUseId: string) => Promise<SubagentTranscript | null>) | undefined {

@@ -64,22 +64,7 @@ export interface RuntimeConfig<P extends readonly AnyProviderDefinition[]> {
   host?: RuntimeHost
 }
 
-// Built-ins with session-independent APIs. Keep provider IDs inside the library.
-const builtinAccessors = {
-  codex: 'codex',
-  claudeCode: 'claude-code',
-  opencode: 'opencode',
-} as const
-
-type BuiltinAccessors<P extends readonly AnyProviderDefinition[]> = {
-  readonly [K in keyof typeof builtinAccessors as ProviderOf<P, (typeof builtinAccessors)[K]> extends never ? never : K]:
-    ProviderNativeOf<ProviderOf<P, (typeof builtinAccessors)[K]>>
-}
-
-export type Runtime<P extends readonly AnyProviderDefinition[] = readonly AnyProviderDefinition[]> =
-  RuntimeCore<P> & BuiltinAccessors<P>
-
-interface RuntimeCore<P extends readonly AnyProviderDefinition[]> {
+export interface Runtime<P extends readonly AnyProviderDefinition[] = readonly AnyProviderDefinition[]> {
   /** The host as this runtime's providers see it. */
   readonly context: RuntimeContext
   /** Every registered provider, in registration order. */
@@ -122,7 +107,7 @@ export function createRuntime<const P extends readonly AnyProviderDefinition[]>(
   }
   const provider = (id: string): RuntimeProviderFactory => definitionOf(id).create(context)
 
-  const runtime: RuntimeCore<P> = {
+  return {
     context,
     providers: () => [...definitions.values()].map((definition) => definition.info),
     has: (id): id is ProviderIdOf<P> => definitions.has(id),
@@ -141,10 +126,4 @@ export function createRuntime<const P extends readonly AnyProviderDefinition[]>(
     },
     dispose: () => context.disposeShared(),
   }
-  for (const [name, id] of Object.entries(builtinAccessors)) {
-    if (runtime.has(id) && definitions.get(id)?.native) {
-      Object.defineProperty(runtime, name, { get: () => runtime.native(id) })
-    }
-  }
-  return runtime as Runtime<P>
 }

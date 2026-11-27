@@ -210,19 +210,11 @@ type BuiltNodeRepl = Awaited<ReturnType<typeof buildNodeReplMcpServer>>
 
 interface Entry extends StatefulMcpTransportHolder {
   server: BuiltNodeRepl['server']
+  listTools: BuiltNodeRepl['listTools']
+  hasHostElicitation: boolean
   callTool: BuiltNodeRepl['callTool']
   dispose: () => Promise<void>
   lastUsed: number
-  /**
-   * The stateful MCP transport for this session's current client.
-   *
-   * It has to stay alive for as long as the client does: every cross-origin
-   * navigation in Browser Use raises an `elicitation/create` to ask the user,
-   * and that is a server-to-client request, which can only be delivered over
-   * the client's GET SSE stream. When the Grok runtime rebuilds, only the
-   * transport is replaced; the Entry and its kernel-backed server survive.
-   * See serveMcpStatefulOverHono in mcp-http.ts.
-   */
 }
 
 /** sessionId -> that session's operonrepl, one vm context each in the shared kernel. */
@@ -465,23 +457,14 @@ function enabledSurfaces(): NodeReplSurface[] {
   ]
 }
 
-/**
- * One endpoint for every conversation of a client that cannot hold a URL per
- * conversation — OpenCode, which shares one MCP client per server name across a
- * directory. Each tools/call names its conversation instead (see mcp-caller.ts)
- * and runs in that conversation's own session, the same Entry a URL-scoped
- * client would reach.
- *
- * Stateless is enough here. The stateful transport exists for the MCP
- * elicitation back-channel, but a session with a chat id asks the user through
- * the host (`requestOperonElicitation`), never through the client.
- *
- * tools/list carries no conversation, so it describes the current toggles; a
- * session built before a toggle flipped keeps the surfaces it was built with.
- */
-function buildCallerRoutedServer(sessionKey: string | null): Server {
+/** A request-local MCP server. URL-scoped clients use their session's tool list;
+ * shared OpenCode registrations have no session when listing tools. */
+function buildCallerRoutedServer(
+  sessionKey: string | null,
+  listTools: BuiltNodeRepl['listTools'] = () => listNodeReplTools(enabledSurfaces()),
+): Server {
   const server = new Server({ name: 'operonrepl', version: '0.1.0' }, { capabilities: { tools: {}, logging: {} } })
-  server.setRequestHandler(ListToolsRequestSchema, async () => listNodeReplTools(enabledSurfaces()))
+  server.setRequestHandler(ListToolsRequestSchema, async () => listTools())
   server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
     if (sessionKey == null) {
       return { content: [{ type: 'text', text: UNKNOWN_CALLER_MESSAGE }], isError: true }
@@ -562,6 +545,7 @@ async function buildEntry(sessionId: string): Promise<Entry> {
   })
   const entry: Entry = {
     ...built,
+    hasHostElicitation: hostElicitation !== undefined,
     lastUsed: Date.now(),
     // The transport is long-lived now, so reclaiming a session has to close it
     // too, or the SSE stream and its socket leak.
@@ -608,6 +592,12 @@ export function nodeReplMcpRoutes() {
     // on every MCP request so a daemon crash heals before the next computer.* call.
     await ensureComputerUseService()
     const entry = await entryFor(sessionId)
+    // Codex status polls initialize a second MCP client while the agent is running.
+    // Both use the same kernel. Each HTTP request owns its reply channel so closing
+    // the status client cannot drop an in-flight tool response.
+    if (entry.hasHostElicitation) {
+      return serveMcpOverHono(c, buildCallerRoutedServer(sessionId, entry.listTools))
+    }
     return serveMcpStatefulOverHono(c, entry.server, entry)
   }
   router.post('/', handle)

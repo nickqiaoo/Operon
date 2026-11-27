@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-11-27
+
+### Added
+
+- Configure web search and page fetching for Operon agents in Settings.
+- Pair a browser or mobile device and register a Git checkout from the headless node CLI.
+
+### Changed
+
+- Chat sessions retain their additional execution environments and reconnect them when resumed.
+- Pick execution environments in existing chats on desktop and mobile.
+- Update the Operon Agent framework to 0.1.0-alpha.39.
+
 ## [1.6.2] - 2026-11-26
 
 ### Added

@@ -1,4 +1,4 @@
-import { guardEnvironmentChange } from '../chat-environments.js'
+import { chatEnvironments, clearPendingEnvironments, guardEnvironmentChange } from '../chat-environments.js'
 import { randomUUID } from 'crypto'
 import { existsSync } from 'fs'
 import {
@@ -92,7 +92,12 @@ async function startChat(
   const normalizedMessages = normalizeUiMessagesFileAttachments(rawMessages)
   const existingChat = payload.chatId ? chatHistoryService?.getChatMeta(payload.chatId) : undefined
   const storedSshId = existingChat?.metadata?.sshEnvironment?.id
-  const providerId = (storedSshId || existingChat?.metadata?.additionalSshEnvironments?.length) && payload.providerId === undefined ? 'custom' : resolveProviderId(payload)
+  // Environments still to declare: a new chat's selection, or what a chat created ahead of its first
+  // turn asked for. A chat with a session keeps them in the session's declaration instead.
+  const pendingEnvironments = existingChat
+    ? (existingChat.sessionId ? [] : existingChat.metadata?.additionalSshEnvironments ?? [])
+    : undefined
+  const providerId = (storedSshId || pendingEnvironments?.length) && payload.providerId === undefined ? 'custom' : resolveProviderId(payload)
   if (payload.chatId && payload.sshEnvironmentId !== undefined && payload.sshEnvironmentId !== storedSshId) {
     throw new Error('The execution environment is fixed after the first message.')
   }
@@ -100,7 +105,7 @@ async function startChat(
   if (sshId !== undefined && (typeof sshId !== 'string' || providerId !== 'custom')) {
     throw new Error('SSH environments are available for Operon chats.')
   }
-  const additional = existingChat?.metadata?.additionalSshEnvironments ?? (payload.chatId ? [] : additionalSshRefs(payload.additionalSshEnvironmentIds, sshId, payload.localEnvironmentCwd))
+  const additional = pendingEnvironments ?? (payload.chatId ? [] : additionalSshRefs(payload.additionalSshEnvironmentIds, sshId, payload.localEnvironmentCwd))
   if (additional.length && providerId !== 'custom') throw new Error('SSH environments are available for Operon chats.')
   const sshEnvironment = sshId === undefined ? undefined : sshProfile(existingChat?.metadata?.sshEnvironment ?? { id: sshId, name: '' })
   if (sshEnvironment && existingChat) payload = { ...payload, workspaceId: existingChat.workspaceId }
@@ -165,8 +170,12 @@ async function startChat(
   const chatId = chatRecord.chatId
   if ((sshEnvironment || additional.length) && chatId > 0) options?.onChatRecord?.(chatId)
   const workflowAgent = existingChat?.metadata?.workflowAgent
-  const hostWorkspace = additional.find(ref => ref.id === 'local')?.cwd
-    ?? (payload.workspaceId ? getProjectStorage()?.getWorkspace(payload.workspaceId)?.worktreePath : undefined)
+  // With an SSH root, MCP clients still run on this machine: in an attached local directory, else
+  // the chat's workspace.
+  const hostWorkspace = sshEnvironment
+    ? (existingChat?.sessionId ? await chatEnvironments(existingChat) : additional).find(ref => ref.id === 'local')?.cwd
+      ?? (payload.workspaceId ? getProjectStorage()?.getWorkspace(payload.workspaceId)?.worktreePath : undefined)
+    : undefined
   const cwd = sshEnvironment?.cwd ?? workflowAgentCwd(workflowAgent) ?? resolveWorkspaceCwd(payload.workspaceId)
   // Backfill the spec source chat with the server-assigned chatId. The route
   // sets agentId/projectId but leaves sourceChatId unset because a new chat's
@@ -250,6 +259,11 @@ async function startChat(
   let turnError: string | undefined
   const sessionIdRef: { value?: string } = { value: chatRecord.sessionId }
   if ((sshEnvironment || additional.length) && session.runtime.id) persistSessionId(chatId, sessionIdRef, session.runtime.id)
+  // The session declares them now; leaving the request would make it a second record.
+  if (additional.length && session.runtime.id) {
+    const storage = getChatStorage()
+    if (storage) clearPendingEnvironments(storage, chatId)
+  }
 
   // Keyed by the reply's id: the first save adds it (or updates the assistant
   // message a continuation picked up), later ones update it in place.

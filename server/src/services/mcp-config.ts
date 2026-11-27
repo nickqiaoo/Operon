@@ -310,7 +310,7 @@ export function buildMcpServersForCli(
         `http://127.0.0.1:${appPort}/api/task-board-mcp?agentId=${options.agentId}&projectId=${options.projectId}` +
         // Where the board's calls come from — derived server-side, never model-supplied. A channel
         // agent carries channelId; a direct user chat carries sourceChatId (mutually
-        // exclusive). start_spec needs the chat: its results are delivered back there.
+        // exclusive). spec_start needs the chat: its results are delivered back there.
         (options.channelId ? `&channelId=${options.channelId}` : '') +
         (options.sourceChatId ? `&sourceChatId=${options.sourceChatId}` : ''),
       ),

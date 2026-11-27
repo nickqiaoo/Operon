@@ -4,7 +4,13 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useBackHandler } from '@/hooks/useAndroidBackButton'
 import { useIsMobileShell } from '@/hooks/useIsMobile'
 
-export function ChannelDialog({ open, onClose, className, flush, children }: {
+/**
+ * A dialog on desktop and a bottom sheet in the phone shell, with the same children: the body
+ * uses `DialogHeader` / `DialogTitle` / `DialogFooter` either way (the sheet is a Radix dialog
+ * too). `className` styles the desktop `DialogContent`; `flush` drops the sheet body's padding
+ * for content that lays out its own.
+ */
+export function ResponsiveDialog({ open, onClose, className, flush, children }: {
   open: boolean
   onClose: () => void
   className: string

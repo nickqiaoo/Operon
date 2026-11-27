@@ -21,7 +21,7 @@ it.skipIf(process.platform === 'win32')('shares refreshes and keeps the last env
     expect(snapshot.OPERON_VALUE).toBe('one=two\nthree')
     await writeFile(shell, '#!/bin/sh\nsleep 6 &\nexit 0\n')
     const now = Date.now.bind(Date)
-    vi.spyOn(Date, 'now').mockImplementation(() => now() + 6000)
+    vi.spyOn(Date, 'now').mockImplementation(() => now() + 31_000)
     const started = now()
     const refresh = refreshLoginShellEnv()
     expect(refreshLoginShellEnv()).toBe(refresh)

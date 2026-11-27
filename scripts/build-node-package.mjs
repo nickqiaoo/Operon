@@ -171,6 +171,8 @@ Run operon on a server (no desktop needed) and use it from your other machines.
 npm install -g operon-node-${version}.tgz
 operon service install        # systemd user service, starts at boot
 operon node join <code>       # code: on a signed-in machine, Settings → Remote → Add a server
+operon project add [path]     # register an existing Git checkout (defaults to the current directory)
+operon device pair            # paste the code in Operon on the web or mobile, then approve here
 \`\`\`
 
 \`operon --help\` lists every command.

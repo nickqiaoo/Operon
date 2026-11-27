@@ -9,7 +9,7 @@ description: Use only when the user invokes /operon-spec or explicitly asks to u
 
 An OperonSpec turns a request into a signed design before any code is written.
 Your part is the conversation: understand what the user wants well enough to
-write a brief that carries all of it. Then `start_spec` hands the brief to a
+write a brief that carries all of it. Then `spec_start` hands the brief to a
 background run where explorers map the code, two or more agents from different
 families design it, a judge on another family scores them, a lead synthesizes
 one design, a fresh "builder" checks it for gaps, and it is split into tickets.
@@ -48,7 +48,7 @@ roughly how long, and that they sign the design at the end — and ask to start.
 
 ## 2. Start the spec
 
-Call `start_spec(title, brief)` once they agree. The brief is the ONLY thing the
+Call `spec_start(title, brief)` once they agree. The brief is the ONLY thing the
 designers will know about this conversation, so write it as if for a capable
 engineer who was not here. Name files by repository-relative paths — the
 designers work in their own checkout, not yours, so an absolute path points
@@ -71,7 +71,7 @@ as `provider:model` (e.g. `opencode:opencode/deepseek-v4.1-flash-free`); every
 seat of that provider then runs on it. Otherwise leave it out: the default is two
 agents from different families plus a judge from a third.
 
-`start_spec` returns immediately. Tell the user it has started and that they can
+`spec_start` returns immediately. Tell the user it has started and that they can
 watch every agent in the Workflow tab — then stop. Do not poll and do not wait.
 
 ## 3. When the run reports back
@@ -82,7 +82,7 @@ an `operonSpec` object. Do what its `next` says:
 - **`awaiting_answers`** — the design needs decisions only the user can make.
   Ask the listed `questions` in ONE message, most important first, each with your
   recommendation. When they answer, call
-  `answer_spec_questions(task, answers)` with their answers numbered to match.
+  `spec_answer_questions(task, answers)` with their answers numbered to match.
   Never answer on their behalf.
 - **`awaiting_design`** — the design is ready. Summarize it in a few lines: the
   chosen shape, which candidate it was based on, anything the agents decided for

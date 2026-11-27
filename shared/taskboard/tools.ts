@@ -15,11 +15,11 @@ export const TASKBOARD_TOOLS = {
   updateProjectTask: 'update_project_task',
   commentProjectTask: 'comment_project_task',
   proposeSubtasks: 'propose_subtasks',
-  startSpec: 'start_spec',
-  answerSpecQuestions: 'answer_spec_questions',
+  startSpec: 'spec_start',
+  answerSpecQuestions: 'spec_answer_questions',
   submitPullRequest: 'submit_pull_request',
   // OperonSpec coordinator: only the spec's own coordinator session may call these.
-  specStatus: 'spec_status',
+  specStatus: 'spec_get_status',
   specRetryTicket: 'spec_retry_ticket',
   specAddTicket: 'spec_add_ticket',
   specEscalate: 'spec_escalate',
@@ -36,7 +36,7 @@ export type TaskboardToolName = (typeof TASKBOARD_TOOLS)[keyof typeof TASKBOARD_
 /**
  * Task-creating tools that are no longer registered, but still appear in stored
  * transcripts — `create_task` / `promote_to_task` predate the `*_project_task`
- * rename, and `create_spec_task` was the SDD v2 entry that `start_spec` replaced.
+ * rename, and `create_spec_task` was the SDD v2 entry that `spec_start` replaced.
  * The renderer still recognises them so scrolling back through old conversations
  * keeps working. Retired names only, never new ones.
  */

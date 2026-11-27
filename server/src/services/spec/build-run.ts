@@ -712,7 +712,7 @@ export async function sweepBuilds(storage: BuildStorage): Promise<void> {
         ? `The app restarted while you were resolving the sign-off conflict of spec #${spec.number}, and your session was cut off. ` +
           `Check your worktree (git status) and carry on; when the merge is committed, call spec_integration_done(task: ${spec.number}, summary: ...).`
         : `The app restarted and cut your session off. Tickets of spec #${spec.number} still blocked and waiting on you: ${numbers.join(', ')}. ` +
-          `Check spec_status(task: ${spec.number}) and carry on.`
+          `Check spec_get_status(task: ${spec.number}) and carry on.`
     await wakeCoordinator(storage, spec, message).catch(() => false)
   }
 }

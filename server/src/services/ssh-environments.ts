@@ -5,7 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { LocalEnvironment } from 'operon-agents'
 import { statSync } from 'node:fs'
-import { SshEnvironment, type SessionBindings } from 'operon-agents/advanced'
+import { SshEnvironment, type EnvironmentDeclaration, type SessionBindings, type SessionEnvironmentBinding } from 'operon-agents/advanced'
 import type { SshEnvironmentProfile, SshEnvironmentRef } from '../../../shared/ssh-environment.js'
 import type { StorageAdapter } from '../storage/interface.js'
 
@@ -200,52 +200,83 @@ export function sshProfile(ref: SshEnvironmentRef) {
   return ref.cwd ? { ...profile, cwd: ref.cwd } : profile
 }
 
-// The framework limits target names to 32 characters. A saved display name can change.
-export function sshTarget(id: string): string {
-  if (id === 'local') return 'local'
-  return 'ssh-' + createHash('sha256').update(id).digest('hex').slice(0, 24)
+/**
+ * An additional environment as the session declares it: the saved machine (or host directory)
+ * it stands for, and the name the model writes as `target`.
+ */
+export interface DeclaredEnvironment extends SshEnvironmentRef {
+  target: string
 }
 
-// A removed SSH target and a closing session can both release the same connection.
-const sshOwners = new WeakMap<object, Set<SshEnvironment>>()
-
-export function releaseSshTarget(environment: object) {
-  const owner = sshOwners.get(environment)
-  if (!owner) return
-  const ssh = environment as SshEnvironment
-  owner.delete(ssh)
-  sshOwners.delete(ssh)
-  void ssh.close().catch((error: unknown) => console.warn('[SSH] Connection cleanup failed:', error))
+/** What a session's declaration keeps about each environment, so a reopen can connect it again. */
+function metadataOf(ref: SshEnvironmentRef): Record<string, string> {
+  return ref.id === 'local' ? { id: 'local', cwd: ref.cwd ?? '' } : { id: ref.id, ...(ref.cwd ? { cwd: ref.cwd } : {}) }
 }
 
-export function additionalSshBinding(ref: SshEnvironmentRef, owner: Set<SshEnvironment>) {
-  return {
-    description: ref.name,
-    environment: async () => {
-      if (ref.id === 'local') {
+/** The session's root environment, in every session the app creates. */
+const ROOT_TARGET = 'main'
+
+/**
+ * A `target` name for each ref: its display name in the framework's spelling (lower-case, at most
+ * 32 characters), unique within the session. Chosen once, when the environment is declared; the
+ * declaration keeps it, so renaming the saved machine later does not move it.
+ */
+export function declareEnvironments(refs: readonly SshEnvironmentRef[], taken: Iterable<string> = []): DeclaredEnvironment[] {
+  const used = new Set([ROOT_TARGET, ...taken])
+  return refs.map(ref => {
+    const slug = ref.id === 'local'
+      ? 'local'
+      : ref.name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[^a-z]+|-+$/g, '')
+    const base = (slug || 'ssh').slice(0, 28)
+    let target = base
+    for (let n = 2; used.has(target); n++) target = `${base}-${n}`
+    used.add(target)
+    return { ...ref, target }
+  })
+}
+
+/** The additional environments a stored declaration lists, as refs the app can connect again. */
+export function declaredEnvironments(declaration: EnvironmentDeclaration | undefined): DeclaredEnvironment[] {
+  if (!declaration) return []
+  return declaration.environments.flatMap(entry => {
+    const id = entry.metadata?.id
+    if (entry.name === declaration.root || !id) return []
+    const cwd = entry.metadata?.cwd
+    return [{ id, name: entry.description ?? entry.name, target: entry.name, ...(cwd ? { cwd } : {}) }]
+  })
+}
+
+/**
+ * One environment's binding. The session owns the connection it opens: `release` closes it when
+ * the environment is removed or the session closes.
+ */
+export function environmentBinding(ref: SshEnvironmentRef): SessionEnvironmentBinding {
+  const declared = { description: ref.name, metadata: metadataOf(ref) }
+  if (ref.id === 'local') {
+    return {
+      ...declared,
+      environment: async () => {
         if (!ref.cwd || !statSync(ref.cwd, { throwIfNoEntry: false })?.isDirectory()) throw new Error('Local workspace unavailable.')
         return new LocalEnvironment(ref.cwd)
-      }
-      const { environment } = await connectSshEnvironment(getSshEnvironment(ref.id))
-      owner.add(environment)
-      sshOwners.set(environment, owner)
-      return environment
+      },
+    }
+  }
+  let connection: SshEnvironment | undefined
+  return {
+    ...declared,
+    environment: async () => (connection = (await connectSshEnvironment(sshProfile(ref))).environment),
+    release: () => {
+      void connection?.close().catch((error: unknown) => console.warn('[SSH] Connection cleanup failed:', error))
+      connection = undefined
     },
   }
 }
 
-export function sessionEnvironmentBindings(root: SshEnvironmentProfile | undefined, additional: readonly SshEnvironmentRef[] = []): SessionBindings | undefined {
+export function sessionEnvironmentBindings(root: SshEnvironmentProfile | undefined, additional: readonly DeclaredEnvironment[] = []): SessionBindings | undefined {
   const primary = root ? sshSessionBindings(root) : undefined
   if (!additional.length) return primary
-  const opened = new Set<SshEnvironment>()
   return {
     ...primary,
-    additionalEnvironments: Object.fromEntries(additional.map(ref => [
-      sshTarget(ref.id), additionalSshBinding(ref, opened),
-    ])),
-    release: async () => {
-      await primary?.release?.()
-      opened.forEach(releaseSshTarget)
-    },
+    additionalEnvironments: Object.fromEntries(additional.map(ref => [ref.target, environmentBinding(ref)])),
   }
 }

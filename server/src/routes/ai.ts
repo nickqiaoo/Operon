@@ -34,7 +34,7 @@ function userTextOf(messages: unknown[]): string {
 
 /**
  * Give an interactive workspace chat the task-board context it needs, so the
- * agent can `start_spec` from a plain conversation.
+ * agent can `spec_start` from a plain conversation.
  * Derives the project from the chat's workspace and acts as the hidden
  * Workspace Assistant. No-op unless this is a workspace-bound
  * user chat (cronjob/canvas/subagent/linear call startChat directly and never
