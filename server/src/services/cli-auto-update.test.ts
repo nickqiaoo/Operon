@@ -90,6 +90,6 @@ describe('cli auto-update', () => {
     // Enabling with no previous check starts one right away.
     expect(enabled.running).toBe(true)
     expect(service.getCliAutoUpdateState().codex.enabled).toBe(false)
-    await vi.waitFor(() => expect(service.getCliAutoUpdateStatus('claude-code').running).toBe(false))
+    await vi.waitFor(() => expect(service.getCliAutoUpdateStatus('claude-code').running).toBe(false), { timeout: 4_000 })
   })
 })
